@@ -1,0 +1,100 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: #030305;
+  --foreground: #e5e2e1;
+}
+
+@layer base {
+  body {
+    background-color: var(--background);
+    color: var(--foreground);
+    @apply antialiased;
+  }
+}
+
+.glass-panel {
+  background: rgba(20, 19, 19, 0.7);
+  border: 1px solid rgba(71, 70, 75, 0.4);
+  backdrop-filter: blur(20px);
+  @apply transition-all duration-300;
+}
+
+.glass-panel:hover {
+  border-color: rgba(200, 197, 203, 0.3);
+  background: rgba(20, 19, 19, 0.8);
+}
+
+.glow-line {
+  filter: drop-shadow(0 0 8px rgba(16, 185, 129, 0.4));
+}
+
+@keyframes flashGreen {
+  0% {
+    background-color: rgba(16, 185, 129, 0.2);
+  }
+
+  100% {
+    background-color: transparent;
+  }
+}
+
+.flash-green {
+  animation: flashGreen 1.5s ease-out;
+}
+
+@layer utilities {
+  .wait-reveal {
+    animation: wait-reveal 0.8s forwards;
+  }
+}
+
+@keyframes wait-reveal {
+  0% { opacity: 0; }
+  80% { opacity: 0; }
+  100% { opacity: 1; }
+}
+
+/* Custom Scrollbar for Terminal */
+::-webkit-scrollbar {
+  width: 4px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #353435;
+  border-radius: 10px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #47464b;
+}
+
+.animate-in {
+  animation: fadeIn 0.8s ease-out forwards;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Modal Utility: Keep Header/Footer Sharp */
+.search-modal-open header,
+.search-modal-open footer {
+  backdrop-filter: none !important;
+  background-color: rgba(9, 9, 11, 0.98) !important;
+  border-color: rgba(255, 255, 255, 0.1) !important;
+}

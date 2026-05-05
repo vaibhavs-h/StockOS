@@ -1,0 +1,50 @@
+{
+  "name": "stock-os",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "concurrently \"npm run engine\" \"npm run frontend\"",
+    "frontend": "next dev",
+    "engine": "tsx --watch src/server/engine.ts",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.105.1",
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.6",
+    "@types/node-cron": "^3.0.11",
+    "axios": "^1.16.0",
+    "clsx": "^2.1.0",
+    "concurrently": "^9.2.1",
+    "cors": "^2.8.6",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "framer-motion": "^11.0.3",
+    "lightweight-charts": "^5.2.0",
+    "lucide-react": "^0.330.0",
+    "next": "14.1.0",
+    "node-cron": "^4.2.1",
+    "otplib": "^13.4.0",
+    "react": "^18",
+    "react-dom": "^18",
+    "recharts": "^3.8.1",
+    "tailwind-merge": "^2.2.1",
+    "three": "^0.160.0",
+    "yahoo-finance2": "^3.14.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20",
+    "@types/react": "^18",
+    "@types/react-dom": "^18",
+    "@types/three": "^0.160.0",
+    "autoprefixer": "^10.0.1",
+    "eslint": "^8",
+    "eslint-config-next": "14.1.0",
+    "postcss": "^8",
+    "tailwindcss": "^3.3.0",
+    "tsx": "^4.21.0",
+    "typescript": "^5"
+  }
+}
