@@ -1,0 +1,586 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>StockSense AI - Market Intelligence Dashboard</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: #0a0e27;
+            color: #e2e8f0;
+            line-height: 1.6;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+
+        header {
+            background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+            padding: 2rem;
+            border-radius: 16px;
+            margin-bottom: 2rem;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        h1 {
+            font-size: 2.5rem;
+            font-weight: 700;
+            background: linear-gradient(135deg, #60a5fa 0%, #a78bfa 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 0.5rem;
+        }
+
+        .subtitle {
+            color: #94a3b8;
+            font-size: 1.1rem;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 1.5rem;
+            margin-bottom: 2rem;
+        }
+
+        .stat-card {
+            background: rgba(30, 41, 59, 0.5);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 12px;
+            padding: 1.5rem;
+            backdrop-filter: blur(10px);
+        }
+
+        .stat-label {
+            color: #94a3b8;
+            font-size: 0.875rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-bottom: 0.5rem;
+        }
+
+        .stat-value {
+            font-size: 2rem;
+            font-weight: 700;
+            color: #e2e8f0;
+        }
+
+        .stat-change {
+            font-size: 0.875rem;
+            margin-top: 0.25rem;
+        }
+
+        .positive {
+            color: #34d399;
+        }
+
+        .negative {
+            color: #f87171;
+        }
+
+        .neutral {
+            color: #fbbf24;
+        }
+
+        .executive-summary {
+            background: rgba(30, 41, 59, 0.5);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 12px;
+            padding: 1.5rem;
+            margin-bottom: 2rem;
+            backdrop-filter: blur(10px);
+        }
+
+        .executive-summary h2 {
+            color: #60a5fa;
+            margin-bottom: 1rem;
+            font-size: 1.5rem;
+        }
+
+        .sector-card {
+            background: rgba(30, 41, 59, 0.5);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 12px;
+            padding: 1.5rem;
+            margin-bottom: 1.5rem;
+            backdrop-filter: blur(10px);
+            transition: transform 0.2s, border-color 0.2s;
+        }
+
+        .sector-card:hover {
+            transform: translateY(-2px);
+            border-color: rgba(96, 165, 250, 0.5);
+        }
+
+        .sector-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: start;
+            margin-bottom: 1rem;
+        }
+
+        .sector-name {
+            font-size: 1.5rem;
+            font-weight: 600;
+            color: #e2e8f0;
+        }
+
+        .sentiment-badge {
+            padding: 0.5rem 1rem;
+            border-radius: 8px;
+            font-size: 0.875rem;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+
+        .bullish {
+            background: rgba(52, 211, 153, 0.2);
+            color: #34d399;
+            border: 1px solid rgba(52, 211, 153, 0.3);
+        }
+
+        .bearish {
+            background: rgba(248, 113, 113, 0.2);
+            color: #f87171;
+            border: 1px solid rgba(248, 113, 113, 0.3);
+        }
+
+        .neutral {
+            background: rgba(251, 191, 36, 0.2);
+            color: #fbbf24;
+            border: 1px solid rgba(251, 191, 36, 0.3);
+        }
+
+        .sector-meta {
+            display: flex;
+            gap: 2rem;
+            margin-bottom: 1rem;
+            flex-wrap: wrap;
+        }
+
+        .meta-item {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-size: 0.875rem;
+            color: #94a3b8;
+        }
+
+        .meta-value {
+            color: #e2e8f0;
+            font-weight: 600;
+        }
+
+        .risk-badge {
+            padding: 0.25rem 0.75rem;
+            border-radius: 6px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+
+        .risk-low {
+            background: rgba(52, 211, 153, 0.2);
+            color: #34d399;
+        }
+
+        .risk-medium {
+            background: rgba(251, 191, 36, 0.2);
+            color: #fbbf24;
+        }
+
+        .risk-high {
+            background: rgba(248, 113, 113, 0.2);
+            color: #f87171;
+        }
+
+        .stocks-table {
+            width: 100%;
+            margin-top: 1rem;
+            border-collapse: collapse;
+        }
+
+        .stocks-table th {
+            text-align: left;
+            color: #94a3b8;
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            padding: 0.75rem;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .stocks-table td {
+            padding: 0.75rem;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        .stock-symbol {
+            font-weight: 600;
+            color: #60a5fa;
+            font-family: 'Courier New', monospace;
+        }
+
+        .rating-badge {
+            padding: 0.25rem 0.5rem;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            white-space: nowrap;
+        }
+
+        .rating-strong-buy {
+            background: rgba(52, 211, 153, 0.2);
+            color: #34d399;
+        }
+
+        .rating-buy {
+            background: rgba(96, 165, 250, 0.2);
+            color: #60a5fa;
+        }
+
+        .rating-hold {
+            background: rgba(251, 191, 36, 0.2);
+            color: #fbbf24;
+        }
+
+        .insights-section {
+            background: rgba(30, 41, 59, 0.5);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-left: 3px solid #60a5fa;
+            border-radius: 12px;
+            padding: 1.5rem;
+            margin-bottom: 1.5rem;
+            backdrop-filter: blur(10px);
+        }
+
+        .insights-section h2 {
+            color: #60a5fa;
+            margin-bottom: 1rem;
+            font-size: 1.25rem;
+        }
+
+        .insight-item {
+            padding: 0.75rem;
+            margin-bottom: 0.5rem;
+            background: rgba(96, 165, 250, 0.1);
+            border-radius: 8px;
+            border-left: 3px solid #60a5fa;
+            color: #cbd5e1;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 4rem;
+            color: #94a3b8;
+        }
+
+        .spinner {
+            border: 3px solid rgba(255, 255, 255, 0.1);
+            border-top: 3px solid #60a5fa;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 1rem;
+        }
+
+        @keyframes spin {
+            0% {
+                transform: rotate(0deg);
+            }
+
+            100% {
+                transform: rotate(360deg);
+            }
+        }
+
+        .error {
+            background: rgba(248, 113, 113, 0.1);
+            border: 1px solid rgba(248, 113, 113, 0.3);
+            border-radius: 12px;
+            padding: 1.5rem;
+            color: #f87171;
+            text-align: center;
+        }
+
+        .refresh-btn {
+            background: linear-gradient(135deg, #60a5fa 0%, #a78bfa 100%);
+            border: none;
+            color: white;
+            padding: 0.75rem 1.5rem;
+            border-radius: 8px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+            margin-top: 1rem;
+        }
+
+        .refresh-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(96, 165, 250, 0.3);
+        }
+
+        .last-updated {
+            color: #94a3b8;
+            font-size: 0.875rem;
+            text-align: center;
+            margin-top: 2rem;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <header>
+            <h1>StockSense AI</h1>
+            <p class="subtitle">Real-time Market Intelligence Dashboard</p>
+        </header>
+
+        <div id="dashboard-content">
+            <div class="loading">
+                <div class="spinner"></div>
+                <p>Loading market intelligence data...</p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // ⚠️ UPDATED: Now using CORS proxy server instead of direct n8n webhook
+        // Change this to your proxy server URL when deployed
+        const PROXY_API_URL = 'http://localhost:3000/api/market-data';
+        
+        // Alternative: Use latest endpoint if you set up webhook push
+        // const PROXY_API_URL = 'http://localhost:3000/api/latest';
+
+        async function fetchMarketData() {
+            try {
+                console.log('Fetching data from proxy server...');
+                
+                const response = await fetch(PROXY_API_URL, {
+                    method: 'GET',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+
+                const data = await response.json();
+                console.log('Data received:', data);
+
+                // Handle the new n8n format: [{ "output": "{...}", ... }]
+                const rawData = Array.isArray(data) ? data[0] : data;
+                let report;
+
+                if (rawData.output && typeof rawData.output === 'string') {
+                    try {
+                        report = JSON.parse(rawData.output);
+                    } catch (e) {
+                        console.error('Failed to parse output string:', e);
+                        report = rawData;
+                    }
+                } else {
+                    report = rawData.report || rawData;
+                }
+
+                console.log('Processed Report:', report);
+
+                if (report && report.sectors) {
+                    renderDashboard(report);
+                } else if (report && report.report) {
+                    renderDashboard(report.report);
+                } else {
+                    throw new Error('Invalid data format: Could not find sectors or report object');
+                }
+            } catch (error) {
+                console.error('Error fetching data:', error);
+                document.getElementById('dashboard-content').innerHTML = `
+                    <div class="error">
+                        <h2>Failed to load market data</h2>
+                        <p>${error.message}</p>
+                        <p style="font-size: 0.875rem; margin-top: 1rem;">
+                            Make sure the CORS proxy server is running on http://localhost:3000
+                        </p>
+                        <button class="refresh-btn" onclick="fetchMarketData()">Retry</button>
+                    </div>
+                `;
+            }
+        }
+
+        function renderDashboard(report) {
+            if (!report) return;
+            
+            const sectors = report.sectors || [];
+            const totalSectors = sectors.length;
+            const bullishCount = sectors.filter(s => s && s.sentiment === 'BULLISH').length;
+            const bearishCount = sectors.filter(s => s && s.sentiment === 'BEARISH').length;
+
+            const avgConfidence = sectors.length > 0
+                ? Math.round(sectors.reduce((sum, s) => {
+                    const conf = s && s.confidence ? parseFloat(s.confidence) : 0;
+                    return sum + (isNaN(conf) ? 0 : conf);
+                }, 0) / sectors.length)
+                : 0;
+
+            let html = `
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <div class="stat-label">Sectors Analyzed</div>
+                        <div class="stat-value">${totalSectors}</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">Bullish Sectors</div>
+                        <div class="stat-value positive">${bullishCount}</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">Bearish Sectors</div>
+                        <div class="stat-value negative">${bearishCount}</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">Avg Confidence</div>
+                        <div class="stat-value">${avgConfidence}%</div>
+                    </div>
+                </div>
+
+                <div class="executive-summary">
+                    <h2>Executive Summary</h2>
+                    <p>${report.executiveSummary || 'Market analysis shows mixed signals across sectors with varying confidence levels.'}</p>
+                </div>
+
+                <h2 style="color: #e2e8f0; margin-bottom: 1rem; font-size: 1.75rem;">Sector Analysis</h2>
+            `;
+
+            sectors.forEach((sector, index) => {
+                if (!sector) return;
+
+                const sentiment = (sector.sentiment || 'NEUTRAL').toUpperCase();
+                const sentimentClass = sentiment === 'BULLISH' ? 'bullish' : 
+                                     sentiment === 'BEARISH' ? 'bearish' : 'neutral';
+                
+                const riskLevel = (sector.riskLevel || 'Medium').toLowerCase();
+                const riskClass = `risk-${riskLevel}`;
+                
+                // Clean confidence value (remove existing % if present)
+                let confidenceDisplay = sector.confidence || '0';
+                if (typeof confidenceDisplay === 'string' && !confidenceDisplay.endsWith('%')) {
+                    confidenceDisplay += '%';
+                }
+
+                html += `
+                    <div class="sector-card" id="sector-${index}">
+                        <div class="sector-header">
+                            <div>
+                                <div class="sector-name">${sector.sectorName || 'Unknown Sector'}</div>
+                            </div>
+                            <div class="sentiment-badge ${sentimentClass}">${sentiment}</div>
+                        </div>
+
+                        <div class="sector-meta">
+                            <div class="meta-item">
+                                <span>Confidence:</span>
+                                <span class="meta-value">${confidenceDisplay}</span>
+                            </div>
+                            <div class="meta-item">
+                                <span>Risk Level:</span>
+                                <span class="risk-badge ${riskClass}">${sector.riskLevel || 'Medium'}</span>
+                            </div>
+                            <div class="meta-item">
+                                <span>Recommendation:</span>
+                                <span class="meta-value" style="color: ${sector.investment === 'BUY' ? '#34d399' : sector.investment === 'SELL' ? '#f87171' : '#fbbf24'}">${sector.investment || 'HOLD'}</span>
+                            </div>
+                        </div>
+
+                        <p style="color: #94a3b8; margin-bottom: 1rem;">${sector.reasoning || sector.reason || 'Analysis based on current market trends.'}</p>
+
+                        ${sector.topStocks && sector.topStocks.length > 0 ? `
+                            <table class="stocks-table">
+                                <thead>
+                                    <tr>
+                                        <th>Symbol</th>
+                                        <th>Price</th>
+                                        <th>Change</th>
+                                        <th>Rating</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${sector.topStocks.map(stock => {
+                    const stockSymbol = stock.symbol || 'N/A';
+                    const stockPrice = typeof stock.price === 'string' ? parseFloat(stock.price) : (stock.price || 0);
+                    const stockChange = stock.change || '0';
+                    const stockChangePercent = stock.changePercent || '';
+                    const stockRating = stock.rating || 'Hold';
+                    
+                    const isPositive = stockChange.toString().startsWith('+');
+                    const isNegative = stockChange.toString().startsWith('-');
+                    const changeClass = isPositive ? 'positive' : isNegative ? 'negative' : 'neutral';
+                    const ratingSlug = stockRating.toLowerCase().replace(/ /g, '-');
+
+                    return `
+                                            <tr>
+                                                <td class="stock-symbol">${stockSymbol}</td>
+                                                <td>$${stockPrice.toFixed(2)}</td>
+                                                <td class="${changeClass}">${stockChange} ${stockChangePercent ? `(${stockChangePercent})` : ''}</td>
+                                                <td><span class="rating-badge rating-${ratingSlug}">${stockRating}</span></td>
+                                            </tr>
+                                        `;
+                }).join('')}
+                                </tbody>
+                            </table>
+                        ` : ''}
+                    </div>
+                `;
+            });
+
+            if (report.actionableInsights && report.actionableInsights.length > 0) {
+                html += `
+                    <div class="insights-section">
+                        <h2>Actionable Insights</h2>
+                        ${report.actionableInsights.map(insight => `
+                            <div class="insight-item">${insight}</div>
+                        `).join('')}
+                    </div>
+                `;
+            }
+
+            if (report.marketRisks) {
+                html += `
+                    <div class="insights-section" style="border-left: 3px solid #f87171;">
+                        <h2 style="color: #f87171;">Market Risks</h2>
+                        <p style="color: #94a3b8;">${report.marketRisks}</p>
+                    </div>
+                `;
+            }
+
+            html += `
+                <div class="last-updated">
+                    Report generated: ${report.generatedAt ? new Date(report.generatedAt).toLocaleString() : new Date().toLocaleString()}<br>
+                    Next update: ${report.nextUpdate ? new Date(report.nextUpdate).toLocaleString() : 'Every 5 minutes'}
+                </div>
+            `;
+
+            document.getElementById('dashboard-content').innerHTML = html;
+        }
+
+        // Fetch data on load
+        fetchMarketData();
+        
+        // Auto-refresh every 1 hour (3,600,000 ms)
+        setInterval(fetchMarketData, 3600000);
+    </script>
+</body>
+
+</html>

@@ -16,6 +16,7 @@ import { supabase } from "@/services/DatabaseClient"
 import axios from "axios"
 import { WealthPerformanceChart as WealthChart } from "@/components/dashboard/WealthPerformanceChart"
 import { useRouter } from "next/navigation"
+import { cn } from "@/lib/utils"
 
 export default function DashboardPage() {
   const router = useRouter()
@@ -31,6 +32,9 @@ export default function DashboardPage() {
 
   const portfolioId = "primary";
 
+  const [marketIntelligence, setMarketIntelligence] = useState<any>(null);
+  const [intelligenceLoading, setIntelligenceLoading] = useState(true);
+
   const fetchHoldings = async () => {
     try {
       const { data, error } = await supabase
@@ -45,6 +49,27 @@ export default function DashboardPage() {
       console.error("[DASHBOARD] Fetch holdings failed:", err);
     } finally {
       setLoading(false);
+    }
+  }
+
+  const fetchMarketIntelligence = async () => {
+    if (marketIntelligence && intelligenceLoading) return; // Prevent concurrent fetches
+    
+    setIntelligenceLoading(true);
+    try {
+      const res = await fetch('/api/market-intelligence');
+      const data = await res.json();
+      
+      const result = Array.isArray(data) ? data[0] : data;
+      
+      if (result && result.output) {
+        const parsed = JSON.parse(result.output);
+        setMarketIntelligence(parsed);
+      }
+    } catch (err) {
+      console.error("[DASHBOARD] Intelligence fetch failed:", err);
+    } finally {
+      setIntelligenceLoading(false);
     }
   }
 
@@ -81,7 +106,7 @@ export default function DashboardPage() {
     } catch (err: any) {
       // Silent fail, rely on local cache
     }
-    await Promise.all([fetchHoldings(), fetchHistory(), fetchIndices()]);
+    await Promise.all([fetchHoldings(), fetchHistory(), fetchIndices(), fetchMarketIntelligence()]);
     setTimeout(() => setIsRefreshing(false), 800); // Visual polish delay
   }
 
@@ -89,6 +114,7 @@ export default function DashboardPage() {
     fetchHoldings();
     fetchHistory();
     fetchIndices();
+    fetchMarketIntelligence();
     
     // Subscribe to Realtime Updates for Holdings & History
     const holdingsSubscription = supabase
@@ -428,15 +454,54 @@ export default function DashboardPage() {
             <div className="px-6 py-5 border-b border-emerald-500/10 bg-emerald-500/[0.02] flex justify-between items-center">
               <h3 className="font-terminal-label text-[12px] uppercase tracking-[0.2em] text-white font-bold flex items-center gap-3">
                 <Newspaper className="w-5 h-5 text-emerald-500" />
-                News Insights
+                Market Intelligence
               </h3>
+              {marketIntelligence?.overall_sentiment && (
+                <span className={cn(
+                  "px-2 py-0.5 rounded text-[8px] font-black uppercase tracking-widest border",
+                  marketIntelligence.overall_sentiment === "BULLISH" ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" : 
+                  marketIntelligence.overall_sentiment === "BEARISH" ? "bg-red-500/10 text-red-400 border-red-500/20" :
+                  "bg-zinc-500/10 text-zinc-400 border-zinc-500/20"
+                )}>
+                  {marketIntelligence.overall_sentiment}
+                </span>
+              )}
             </div>
             <div className="p-6 flex flex-col gap-5">
-              <NewsItem tag="Top Story" time="2m ago" title="RBI keeps repo rate unchanged at 6.5%; maintains neutral stance" color="text-emerald-400" />
-              <NewsItem tag="Tech Sector" time="15m ago" title="NVIDIA reaches record high as AI chip demand surges globally" color="text-blue-400" />
-              <NewsItem tag="Global" time="1h ago" title="Crude oil prices stabilize amid easing geopolitical tensions in energy corridors" color="text-zinc-400" />
-              <NewsItem tag="Alert" time="2h ago" title="Retail inflation cooling faster than projected; consumer spending data awaited" color="text-red-400" />
+              {intelligenceLoading ? (
+                <div className="py-12 flex flex-col items-center justify-center gap-4 opacity-40">
+                  <RefreshCcw className="w-6 h-6 animate-spin text-emerald-500" />
+                  <span className="font-terminal-label text-[9px] uppercase tracking-[0.3em]">Processing AI Feed...</span>
+                </div>
+              ) : marketIntelligence?.sectors ? (
+                marketIntelligence.sectors.map((sector: any, idx: number) => (
+                  <NewsItem 
+                    key={sector.name || idx}
+                    tag={sector.name} 
+                    time={`${sector.confidence}% Confidence`} 
+                    title={sector.reason} 
+                    color={
+                      sector.sentiment === "BULLISH" ? "text-emerald-400" : 
+                      sector.sentiment === "BEARISH" ? "text-red-400" : 
+                      "text-zinc-400"
+                    } 
+                  />
+                ))
+              ) : (
+                <div className="py-12 flex flex-col items-center justify-center gap-4 opacity-40 text-center">
+                  <Database className="w-6 h-6 text-zinc-500" />
+                  <span className="font-terminal-label text-[9px] uppercase tracking-[0.3em] max-w-[200px]">Intelligence stream offline. Check webhook configuration.</span>
+                </div>
+              )}
             </div>
+            {marketIntelligence?.market_summary && !intelligenceLoading && (
+              <div className="px-6 py-4 bg-white/[0.02] border-t border-white/5">
+                <p className="text-[10px] text-zinc-500 italic leading-relaxed">
+                  <span className="text-emerald-500/60 font-bold uppercase tracking-wider mr-2 not-italic">Executive Summary:</span>
+                  {marketIntelligence.market_summary}
+                </p>
+              </div>
+            )}
           </motion.section>
         </motion.div>
 
