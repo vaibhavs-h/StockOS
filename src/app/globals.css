@@ -2,16 +2,61 @@
 @tailwind components;
 @tailwind utilities;
 
-:root {
-  --background: #030305;
-  --foreground: #e5e2e1;
-}
-
 @layer base {
   body {
     background-color: var(--background);
     color: var(--foreground);
     @apply antialiased;
+  }
+  .theme {
+    --font-heading: var(--font-sans);
+    --font-sans: var(--font-sans);
+  }
+  :root {
+    --background: #ffffff;
+    --foreground: #09090b;
+    --card: #ffffff;
+    --card-foreground: #09090b;
+    --popover: #ffffff;
+    --popover-foreground: #09090b;
+    --primary: #09090b;
+    --primary-foreground: #fafafa;
+    --secondary: #f4f4f5;
+    --secondary-foreground: #09090b;
+    --muted: #f4f4f5;
+    --muted-foreground: #71717a;
+    --accent: #f4f4f5;
+    --accent-foreground: #09090b;
+    --destructive: #ef4444;
+    --destructive-foreground: #fafafa;
+    --border: #e4e4e7;
+    --input: #e4e4e7;
+    --ring: #09090b;
+    --radius: 0.75rem;
+  }
+  .dark {
+    --background: #030305;
+    --foreground: #fafafa;
+    --card: #09090b;
+    --card-foreground: #fafafa;
+    --popover: #030305;
+    --popover-foreground: #fafafa;
+    --primary: #fafafa;
+    --primary-foreground: #09090b;
+    --secondary: #27272a;
+    --secondary-foreground: #fafafa;
+    --muted: #27272a;
+    --muted-foreground: #a1a1aa;
+    --accent: #27272a;
+    --accent-foreground: #fafafa;
+    --destructive: #7f1d1d;
+    --destructive-foreground: #fafafa;
+    --border: #27272a;
+    --input: #27272a;
+    --ring: #d4d4d8;
+  }
+  html {
+    @apply font-sans;
   }
 }
 
@@ -92,9 +137,23 @@
 }
 
 /* Modal Utility: Keep Header/Footer Sharp */
-.search-modal-open header,
-.search-modal-open footer {
+.search-open header,
+.search-open footer {
   backdrop-filter: none !important;
   background-color: rgba(9, 9, 11, 0.98) !important;
   border-color: rgba(255, 255, 255, 0.1) !important;
+}
+/* Cinematic Search Focus */
+#terminal-main {
+  transition: all 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+  will-change: filter, transform, opacity;
+}
+
+.search-open #terminal-main {
+  filter: blur(12px) brightness(0.5);
+  opacity: 0.4;
+  transform: scale(0.98);
+  transform-origin: center 100px;
+  pointer-events: none;
+  user-select: none;
 }

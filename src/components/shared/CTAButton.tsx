@@ -1,12 +1,12 @@
 "use client"
 
 import Link from "next/link"
-import "./cta-button.css"
+import "./CTAButton.css"
 
 export function CTAButton() {
   return (
     <Link href="/dashboard" className="cta-button">
-      <span>View Dashboard</span>
+      <span>Enter Dashboard</span>
     </Link>
   )
 }

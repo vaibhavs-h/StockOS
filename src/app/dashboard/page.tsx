@@ -1,23 +1,20 @@
 "use client"
 
 import React, { useState, useEffect, useMemo } from "react"
-import { motion } from "framer-motion"
+import { motion, AnimatePresence } from "framer-motion"
 import {
   Terminal,
   Search,
-  Bell,
-  Wallet,
   Newspaper,
   Cpu,
   TrendingUp,
-  TrendingDown,
   RefreshCcw,
   Send,
   Database
 } from "lucide-react"
-import { supabase } from "@/lib/supabase"
+import { supabase } from "@/services/DatabaseClient"
 import axios from "axios"
-import { WealthChart } from "@/components/wealth-chart"
+import { WealthPerformanceChart as WealthChart } from "@/components/dashboard/WealthPerformanceChart"
 import { useRouter } from "next/navigation"
 
 export default function DashboardPage() {
@@ -151,8 +148,26 @@ export default function DashboardPage() {
       cutoff = new Date(now.getTime() - 180 * 24 * 60 * 60 * 1000);
     }
 
-    return history.filter(h => new Date(h.timestamp) >= cutoff);
-  }, [history, timeRange]);
+    const filtered = history.filter(h => new Date(h.timestamp) >= cutoff);
+    
+    // Stitch live point at the end for visual consistency
+    if (filtered.length > 0) {
+      const lastPoint = filtered[filtered.length - 1];
+      const nowStr = new Date().toISOString();
+      
+      // Only append if the last snapshot isn't already from "now"
+      if (new Date(lastPoint.timestamp).getTime() < now.getTime() - 60000) {
+        return [...filtered, {
+          timestamp: nowStr,
+          total_market_value: totalNetWorth,
+          total_invested: lastPoint.total_invested, // Best guess
+          portfolio_id: lastPoint.portfolio_id
+        }];
+      }
+    }
+    
+    return filtered;
+  }, [history, timeRange, totalNetWorth]);
 
   const formatCurrency = (val: number) => {
     return new Intl.NumberFormat('en-IN', {
@@ -162,8 +177,14 @@ export default function DashboardPage() {
     }).format(val);
   }
 
-  const rangeIsPositive = filteredHistory.length >= 2 ? filteredHistory[filteredHistory.length - 1].total_market_value >= filteredHistory[0].total_market_value : totalDayChange >= 0;
-  const rangeChange = filteredHistory.length >= 2 ? ((filteredHistory[filteredHistory.length - 1].total_market_value - filteredHistory[0].total_market_value) / filteredHistory[0].total_market_value) * 100 : dayChangePerc;
+  const startValue = useMemo(() => {
+    if (filteredHistory.length === 0) return totalNetWorth - totalDayChange;
+    // Use the very first point in our filtered range as the base
+    return filteredHistory[0].total_market_value;
+  }, [filteredHistory, totalNetWorth, totalDayChange]);
+
+  const rangeIsPositive = totalNetWorth >= startValue;
+  const rangeChange = startValue > 0 ? ((totalNetWorth - startValue) / startValue) * 100 : 0;
 
   return (
     <div className="min-h-screen bg-transparent text-on-surface font-ui-body selection:bg-emerald-500/30 relative overflow-x-hidden">
@@ -268,9 +289,13 @@ export default function DashboardPage() {
               {filteredHistory.length > 0 ? (
                 <WealthChart data={Object.values(
                   filteredHistory.reduce((acc: any, h) => {
-                    const date = h.timestamp.split('T')[0];
-                    // Anchor to 15:30 local time for accurate market-close display in tooltips
-                    const timestamp = Math.floor(new Date(`${date}T15:30:00`).getTime() / 1000);
+                    if (!h.timestamp) return acc;
+                    const dateParts = h.timestamp.split('T');
+                    if (dateParts.length < 1) return acc;
+                    const date = dateParts[0];
+                    const ts = new Date(`${date}T15:30:00`).getTime();
+                    if (isNaN(ts)) return acc;
+                    const timestamp = Math.floor(ts / 1000);
                     acc[date] = { time: timestamp as any, value: h.total_market_value };
                     return acc;
                   }, {})
@@ -319,6 +344,7 @@ export default function DashboardPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-white/[0.03]">
+
                   {filteredHoldings.length === 0 ? (
                     <tr>
                       <td colSpan={5} className="py-24 text-center">
@@ -338,12 +364,17 @@ export default function DashboardPage() {
                       </td>
                     </tr>
                   ) : (
-                    filteredHoldings.map((asset, idx) => (
-                      <tr 
-                        key={asset.id || idx} 
-                        onClick={() => router.push(`/stocks/${asset.trading_symbol}`)}
-                        className="hover:bg-emerald-500/[0.05] transition-all group cursor-pointer border-b border-white/[0.03]"
-                      >
+                    <AnimatePresence>
+                      {filteredHoldings.map((asset, idx) => (
+                        <motion.tr
+                          key={asset.id || asset.trading_symbol}
+                          initial={{ opacity: 0 }}
+                          animate={{ opacity: 1 }}
+                          exit={{ opacity: 0 }}
+                          transition={{ duration: 0.5, delay: idx * 0.05, ease: "easeInOut" }}
+                          onClick={() => router.push(`/stocks/${asset.trading_symbol}`)}
+                          className="hover:bg-emerald-500/[0.05] transition-all group cursor-pointer border-b border-white/[0.03]"
+                        >
                         <td className="px-8 py-5">
                           <div className="flex flex-col">
                             <span className="font-headline font-bold text-sm text-white tracking-tight group-hover:text-emerald-400 transition-colors">{asset.trading_symbol}</span>
@@ -363,9 +394,11 @@ export default function DashboardPage() {
                             </span>
                           </div>
                         </td>
-                      </tr>
-                    ))
+                        </motion.tr>
+                      ))}
+                    </AnimatePresence>
                   )}
+
                 </tbody>
               </table>
             </div>

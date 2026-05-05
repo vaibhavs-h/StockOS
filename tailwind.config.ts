@@ -56,6 +56,14 @@ const config: Config = {
         "outline": "#929095",
         "error-container": "#93000a",
         "on-error-container": "#ffdad6",
+        "foreground": "#e5e2e1",
+        "primary-foreground": "#1b1b1f",
+        "secondary-foreground": "#1b1b1e",
+        "muted": "#1c1b1c",
+        "muted-foreground": "#c8c5cb",
+        "border": "#47464b",
+        "input": "#47464b",
+        "ring": "#c8c5cb",
       },
       borderRadius: {
         "DEFAULT": "0.125rem",
@@ -71,6 +79,7 @@ const config: Config = {
         "element-gap": "12px",
       },
       fontFamily: {
+        "headline": ["var(--font-outfit)", "Outfit", "sans-serif"],
         "terminal-label": ["var(--font-space-grotesk)", "Space Grotesk", "sans-serif"],
         "data-md": ["var(--font-jetbrains-mono)", "JetBrains Mono", "monospace"],
         "ui-body": ["var(--font-inter)", "Inter", "sans-serif"],

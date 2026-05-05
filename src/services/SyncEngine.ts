@@ -79,10 +79,14 @@ app.get('/api/indices', async (req, res) => {
 app.get('/api/stocks/:symbol/history', async (req, res) => {
   const { symbol } = req.params;
   try {
-    // 1. Format symbol for Yahoo (assume .NS for Indian equities if not present)
-    // Avoid appending .NS to indices like ^NSEI
+    // 1. Format symbol for Yahoo
+    // Auto-detect indices if prefix is missing
     let yahooSymbol = symbol;
-    if (!symbol.includes('.') && !symbol.startsWith('^')) {
+    const commonIndices = ['NSEI', 'BSESN', 'NSEBANK', 'CNXIT', 'CNXAUTO', 'CNXMETAL', 'CNXPHARMA', 'CNXFMCG', 'CNXREALTY', 'CNXINFRA', 'CNXENERGY'];
+    
+    if (commonIndices.includes(symbol.toUpperCase())) {
+      yahooSymbol = `^${symbol.toUpperCase()}`;
+    } else if (!symbol.includes('.') && !symbol.startsWith('^')) {
       yahooSymbol = `${symbol}.NS`;
     }
 
@@ -93,19 +97,23 @@ app.get('/api/stocks/:symbol/history', async (req, res) => {
     let interval: '1m'|'2m'|'5m'|'15m'|'30m'|'60m'|'90m'|'1h'|'1d'|'5d'|'1wk'|'1mo'|'3mo' = '1d';
 
     if (range === '1D') {
-      period1.setDate(period1.getDate() - 3); // 3 days to cover weekends
+      period1.setDate(period1.getDate() - 4); // Extra buffer for holidays
       interval = '15m';
     } else if (range === '1W') {
-      period1.setDate(period1.getDate() - 7);
-      interval = '60m';
+      period1.setDate(period1.getDate() - 14); // 1 week + 1 week lookback
+      interval = '1h';
     } else if (range === '1M') {
       period1.setMonth(period1.getMonth() - 1);
+      period1.setDate(period1.getDate() - 7); // 1 month + 1 week lookback
+      interval = '1d';
+    } else if (range === '1Y') {
+      period1.setFullYear(period1.getFullYear() - 1);
+      period1.setDate(period1.getDate() - 7);
       interval = '1d';
     } else if (range === 'ALL') {
-      period1.setFullYear(period1.getFullYear() - 10); // 10 years limit
+      period1.setFullYear(period1.getFullYear() - 10);
       interval = '1wk';
     } else {
-      // Default 1Y
       period1.setFullYear(period1.getFullYear() - 1);
       interval = '1d';
     }
@@ -119,10 +127,29 @@ app.get('/api/stocks/:symbol/history', async (req, res) => {
 
     // 4. Format for WealthChart { time, value }
     const isIntraday = interval.includes('m') || interval.includes('h');
-    const formatted = result.quotes
-      .filter((c: any) => c.close !== null)
-      .map((c: any) => {
-        // Lightweight Charts needs unix timestamp (seconds) for intraday, or 'YYYY-MM-DD' for daily
+    
+    // Separate range target for slicing
+    const rangeTarget = new Date();
+    if (range === '1D') rangeTarget.setDate(rangeTarget.getDate() - 1);
+    else if (range === '1W') rangeTarget.setDate(rangeTarget.getDate() - 7);
+    else if (range === '1M') rangeTarget.setMonth(rangeTarget.getMonth() - 1);
+    else if (range === '1Y') rangeTarget.setFullYear(rangeTarget.getFullYear() - 1);
+    else if (range === 'ALL') rangeTarget.setFullYear(rangeTarget.getFullYear() - 10);
+
+    const allQuotes = result.quotes.filter((c: any) => c.close !== null);
+    
+    // Find the "Anchor Point" (last quote BEFORE the range starts)
+    const anchorQuote = allQuotes.filter((q: any) => new Date(q.date) < rangeTarget).pop();
+    
+    // Get actual quotes WITHIN the range
+    let filteredQuotes = allQuotes.filter((q: any) => new Date(q.date) >= rangeTarget);
+
+    // PREPEND anchor to ensure history[0] is the base for percentage
+    if (anchorQuote && filteredQuotes.length > 0) {
+      filteredQuotes = [anchorQuote, ...filteredQuotes];
+    }
+
+    const formatted = filteredQuotes.map((c: any) => {
         const time = isIntraday 
           ? Math.floor(new Date(c.date).getTime() / 1000)
           : c.date.toISOString().split('T')[0];

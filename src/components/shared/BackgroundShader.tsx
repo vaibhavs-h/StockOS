@@ -3,7 +3,7 @@
 import { useEffect, useRef } from "react"
 import * as THREE from "three"
 
-export function ShaderAnimation() {
+export function BackgroundShader() {
   const containerRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {

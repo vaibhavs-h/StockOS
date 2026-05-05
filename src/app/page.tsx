@@ -1,7 +1,7 @@
 "use client"
 
-import { ShaderAnimation } from "@/components/ui/shader-animation"
-import { CTAButton } from "@/components/ui/cta-button"
+import { BackgroundShader } from "@/components/shared/BackgroundShader"
+import { CTAButton } from "@/components/shared/CTAButton"
 import { motion } from "framer-motion"
 
 export default function Home() {
@@ -10,7 +10,7 @@ export default function Home() {
       className="relative min-h-screen w-full flex flex-col items-center justify-center overflow-hidden"
     >
       <div className="absolute inset-0 z-0 pointer-events-none">
-        <ShaderAnimation />
+        <BackgroundShader />
       </div>
 
       {/* Content Overlay */}

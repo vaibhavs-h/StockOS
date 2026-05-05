@@ -13,13 +13,16 @@
 
 ### 🎨 Institutional Terminal UI
 - **Sentiment-Aware Charts**: Dynamic "Profit/Loss" color morphing—graphs instantly flip to **Danger Red** or **Emerald Green** based on the trend.
+- **Market Intelligence Search Hub**: Compact, glassmorphic search terminal with hard-wired, real-time indices (**Nifty, Sensex, Bank Nifty**) and kinetic hover effects.
 - **Real-time Heartbeat**: 30-second background polling ensures the dashboard reflects live market moves without manual refreshes.
-- **High-Fidelity Visuals**: Dark-themed, glassmorphic design with neon accents and institutional typography.
+- **High-Fidelity Visuals**: Dark-themed, 3D-shader-backed design with neon accents and institutional typography (Inter & Outfit).
+- **Persistent Indices Ticker**: Live bottom-scrolling ticker for **NIFTY 50**, **SENSEX**, **S&P 500**, and more.
 
-### 📊 Market Intelligence
-- **Live Index Tracking**: Real-time ticker for **NIFTY 50**, **SENSEX**, and **BANK NIFTY**.
-- **Portfolio Snapshots**: Automated daily history recording to track long-term growth and performance metrics.
-- **Deep Research**: Comprehensive stock-specific views with analyst consensus, market metrics, and technical indicators.
+### 🏛️ Insight Desk (Journal)
+- **High-Fidelity Intelligence Dossiers**: Redesigned news feed featuring cinematic glassmorphism and high-density typography.
+- **AI-Distilled News**: Real-time market updates with AI-generated "Terminal Insight" boxes for strategic context.
+- **Dynamic Performance Hovers**: News items react to stock performance—hovering triggers **Neon Emerald** for gains and **Vibrant Rose** for losses.
+- **Impact Analysis**: News categorized by market impact (High, Medium, Low) with animated neon pulse indicators.
 
 ---
 
@@ -27,13 +30,14 @@
 
 | Layer | Technology |
 |---|---|
-| **Framework** | Next.js 15 (App Router) |
+| **Framework** | Next.js 14 (App Router) |
 | **Language** | TypeScript |
-| **Styling** | Vanilla CSS + Tailwind |
+| **Styling** | Tailwind CSS + Framer Motion |
 | **Database** | Supabase (PostgreSQL) |
 | **Sync Engine** | Node.js + Express (Internal Pulse) |
-| **Charts** | Lightweight Charts (TradingView) |
+| **Charts** | Lightweight Charts (TradingView) + Recharts |
 | **APIs** | Groww, Yahoo Finance 2, Supabase Realtime |
+| **Fonts** | Inter, Outfit |
 
 ---
 
@@ -44,15 +48,18 @@ StockOS/
 ├── src/
 │   ├── app/
 │   │   ├── dashboard/      # Main Wealth Terminal
+│   │   ├── journal/        # AI Market Intelligence Hub
 │   │   ├── stocks/         # Deep Stock Research views
-│   │   └── api/            # Serverless route handlers
+│   │   └── layout.tsx      # Global Shell (Tactical Header & Ticker)
 │   ├── components/
-│   │   └── wealth-chart/   # Sentiment-aware charting engine
-│   ├── lib/
-│   │   └── supabase.ts     # Realtime DB connection
-│   └── server/
-│       └── engine.ts       # CORE: Sync, Auth & Failover Engine
-├── public/                 # Static assets & icons
+│   │   ├── shared/         # Tactical UI primitives (Search, Header, Ticker)
+│   │   └── dashboard/      # Terminal-specific data visualizations
+│   ├── services/
+│   │   ├── SyncEngine.ts   # CORE: Automated Portfolio & Market Sync
+│   │   └── DatabaseClient.ts # Centralized Realtime Data Interface
+│   └── lib/
+│       └── utils.ts        # Tactical utility functions
+├── public/                 # Static assets & cinematic shaders
 └── tailwind.config.ts      # Premium design system tokens
 ```
 
@@ -65,15 +72,16 @@ StockOS/
 | [Groww](https://groww.in) | Primary Portfolio & Holdings Source | ✅ Yes |
 | [Yahoo Finance](https://github.com/gadicc/yahoo-finance2) | Backup Pricing & Market Indices | ❌ No |
 | [Supabase](https://supabase.com) | Database & Realtime Subscription | ✅ Yes |
+| [News Engine](https://fnewsbackend.onrender.com) | AI-Distilled Market Intelligence | ❌ No |
 
 ---
 
 ## 📜 License
 
-MIT — free to use, modify, and distribute.
+MIT — Free to use, modify, and distribute.
 
 ---
 
-⭐ **Star this repo if you find it helpful for your Fintech/Trading projects!**
+⭐ **Star this Repository if you find it Helpful for your Fintech/Trading Projects!**
 
 Built with ❤️ by [Vaibhav](https://github.com/vaibhavs-h)

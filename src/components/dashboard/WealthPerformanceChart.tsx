@@ -1,32 +1,34 @@
-
 "use client"
 
 import React, { useEffect, useRef } from 'react';
-import { createChart, ColorType, IChartApi, AreaSeries } from 'lightweight-charts';
+import { createChart, ColorType, IChartApi, ISeriesApi, AreaSeries } from 'lightweight-charts';
 import { motion } from 'framer-motion';
 
 interface WealthChartProps {
   data: { time: string; value: number }[];
 }
 
-export const WealthChart: React.FC<WealthChartProps> = ({ data }) => {
+export const WealthPerformanceChart: React.FC<WealthChartProps> = ({ data }) => {
   const chartContainerRef = useRef<HTMLDivElement>(null);
   const tooltipRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
-  const areaSeriesRef = useRef<any>(null);
+  const areaSeriesRef = useRef<ISeriesApi<"Area"> | null>(null);
   const [displayData, setDisplayData] = React.useState(data);
   const [isTransitioning, setIsTransitioning] = React.useState(false);
 
   // Smooth "Dip & Rise" sync
   useEffect(() => {
     setIsTransitioning(true);
-    
+
     // Swap data at the midpoint of the fade
     const timer = setTimeout(() => {
       setDisplayData(data);
       if (areaSeriesRef.current) {
-        areaSeriesRef.current.setData(data);
-        chartRef.current?.timeScale().fitContent();
+        const validData = Array.isArray(data) ? data.filter(d => d && d.time) : [];
+        if (validData.length > 0) {
+          areaSeriesRef.current.setData(validData);
+          chartRef.current?.timeScale().fitContent();
+        }
       }
       setIsTransitioning(false);
     }, 300);
@@ -39,7 +41,7 @@ export const WealthChart: React.FC<WealthChartProps> = ({ data }) => {
 
     const handleResize = () => {
       if (chartContainerRef.current) {
-        chartRef.current?.applyOptions({ 
+        chartRef.current?.applyOptions({
           width: chartContainerRef.current.clientWidth,
           height: chartContainerRef.current.clientHeight
         });
@@ -62,12 +64,12 @@ export const WealthChart: React.FC<WealthChartProps> = ({ data }) => {
         horzLines: { color: 'rgba(255, 255, 255, 0.02)' },
       },
       crosshair: {
-        vertLine: { 
-          color: `rgba(${rgba}, 0.2)`, 
+        vertLine: {
+          color: `rgba(${rgba}, 0.2)`,
           labelBackgroundColor: '#131722',
         },
-        horzLine: { 
-          color: `rgba(${rgba}, 0.2)`, 
+        horzLine: {
+          color: `rgba(${rgba}, 0.2)`,
           labelBackgroundColor: '#131722',
         },
       },
@@ -96,14 +98,14 @@ export const WealthChart: React.FC<WealthChartProps> = ({ data }) => {
           const isUnix = typeof time === 'number';
           const date = new Date(isUnix ? time * 1000 : time);
           if (isUnix) {
-            return date.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }) + ' ' + 
-                   date.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: false });
+            return date.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }) + ' ' +
+              date.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: false });
           }
           return date.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: '2-digit' });
         },
       },
     });
- 
+
     const areaSeries = chart.addSeries(AreaSeries, {
       lineColor: color,
       topColor: `rgba(${rgba}, 0.15)`,
@@ -119,11 +121,16 @@ export const WealthChart: React.FC<WealthChartProps> = ({ data }) => {
       priceLineWidth: 1,
       priceLineStyle: 2, // Dashed
     });
- 
-    areaSeries.setData(displayData);
+
+    // Filter out any invalid data points to prevent crash
+    const validData = Array.isArray(displayData) ? displayData.filter(d => d && d.time) : [];
+    if (validData.length > 0) {
+      areaSeries.setData(validData);
+    }
+
     chart.timeScale().fitContent();
     areaSeriesRef.current = areaSeries;
- 
+
     // Tooltip Logic
     chart.subscribeCrosshairMove((param) => {
       if (
@@ -146,47 +153,47 @@ export const WealthChart: React.FC<WealthChartProps> = ({ data }) => {
         if (isUnix) {
           dateStr += ' | ' + date.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: false }) + ' IST';
         }
- 
+
         tooltipRef.current!.style.display = 'block';
         tooltipRef.current!.style.borderColor = `rgba(${rgba}, 0.4)`;
         const data = param.seriesData.get(areaSeries);
         const price = (data as any)?.value !== undefined ? (data as any).value : (data as any)?.close;
-        
+
         const formattedPrice = new Intl.NumberFormat('en-IN', {
           style: 'currency',
           currency: 'INR',
           maximumFractionDigits: 2
         }).format(price);
- 
+
         tooltipRef.current!.innerHTML = `
           <div class="flex flex-col gap-1">
             <div class="text-lg font-bold text-white font-mono tracking-tight">${formattedPrice}</div>
             <div class="text-[9px] text-${isProfit ? 'emerald' : 'red'}-400/60 font-medium tracking-[0.15em] uppercase border-t border-white/5 pt-1 mt-0.5">${dateStr}</div>
           </div>
         `;
- 
+
         const tooltipWidth = 145;
         const tooltipHeight = 55;
         const padding = 12;
- 
+
         let left = param.point.x + padding;
         if (left > chartContainerRef.current!.clientWidth - tooltipWidth) {
           left = param.point.x - tooltipWidth - padding;
         }
- 
+
         let top = param.point.y + padding;
         if (top > chartContainerRef.current!.clientHeight - tooltipHeight) {
           top = param.point.y - tooltipHeight - padding;
         }
- 
+
         tooltipRef.current!.style.left = left + 'px';
         tooltipRef.current!.style.top = top + 'px';
       }
     });
- 
+
     chartRef.current = chart;
     window.addEventListener('resize', handleResize);
- 
+
     return () => {
       window.removeEventListener('resize', handleResize);
       chart.remove();
@@ -194,16 +201,17 @@ export const WealthChart: React.FC<WealthChartProps> = ({ data }) => {
   }, [displayData]);
 
   return (
-    <motion.div 
+    <motion.div
       initial={{ opacity: 0 }}
-      animate={{ 
+      animate={{
         opacity: isTransitioning ? 0 : 1,
         y: isTransitioning ? 5 : 0
       }}
       transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1] }}
       className="w-full h-full relative overflow-hidden group"
     >
-      <style dangerouslySetInnerHTML={{ __html: `
+      <style dangerouslySetInnerHTML={{
+        __html: `
         [class*="tv-lightweight-charts-logo"],
         a[href*="tradingview.com"] { 
           display: none !important; 
@@ -212,8 +220,8 @@ export const WealthChart: React.FC<WealthChartProps> = ({ data }) => {
           pointer-events: none !important;
         }
       `}} />
-      <div 
-        ref={tooltipRef} 
+      <div
+        ref={tooltipRef}
         className="absolute z-50 pointer-events-none p-2.5 rounded-xl bg-zinc-950/90 backdrop-blur-md border border-[#39FF14]/30 shadow-[0_5px_15px_rgba(0,0,0,0.5)] hidden min-w-[120px]"
       />
       <div ref={chartContainerRef} className="w-full h-full" />

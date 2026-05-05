@@ -2,17 +2,12 @@
 
 import React, { useEffect, useState, useRef } from "react";
 import { useParams } from "next/navigation";
-import { createClient } from "@supabase/supabase-js";
 import { motion, AnimatePresence } from "framer-motion";
 import { TrendingUp, TrendingDown, Activity, Globe, Target, 
   BarChart3, ShieldCheck, Zap, Info, Briefcase, Landmark 
 } from "lucide-react";
-import { WealthChart } from "@/components/wealth-chart";
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!
-);
+import { WealthPerformanceChart as WealthChart } from "@/components/dashboard/WealthPerformanceChart";
+import { supabase } from "@/services/DatabaseClient";
 
 export default function StockPage() {
   const { symbol } = useParams();
@@ -25,16 +20,20 @@ export default function StockPage() {
 
   useEffect(() => {
     async function fetchStock() {
+      if (!symbol) return;
+      
+      const upperSymbol = (symbol as string).toUpperCase();
+
       const { data, error } = await supabase
         .from("market_assets")
         .select("*")
-        .eq("symbol", symbol)
+        .ilike("symbol", upperSymbol)
         .single();
 
       const { data: holdingData } = await supabase
         .from("holdings")
         .select("*")
-        .eq("trading_symbol", symbol)
+        .ilike("trading_symbol", upperSymbol)
         .single();
 
       if (!error) setData(data);
@@ -58,7 +57,9 @@ export default function StockPage() {
   }, [symbol, timeRange]);
 
 
-  const rangeIsPositive = history.length >= 2 ? history[history.length - 1].value >= history[0].value : isPositive;
+  const startValue = history.length >= 2 ? history[0].value : (data?.current_price - data?.day_change);
+  const rangeIsPositive = data?.current_price >= startValue;
+  const rangeChange = startValue > 0 ? ((data?.current_price - startValue) / startValue) * 100 : 0;
 
   return (
     <AnimatePresence mode="wait">
@@ -139,7 +140,9 @@ export default function StockPage() {
                 <div className={`flex items-center justify-end gap-2 font-black text-lg ${isPositive ? 'text-emerald-400' : 'text-rose-400'}`}>
                   {isPositive ? <TrendingUp className="w-5 h-5" /> : <TrendingDown className="w-5 h-5" />}
                   {data.day_change_percentage?.toFixed(2)}%
-                  <span className="text-zinc-600 font-medium ml-2">(+₹{data.day_change?.toFixed(2)})</span>
+                  <span className="text-zinc-600 font-medium ml-2">
+                    ({data.day_change >= 0 ? '+' : '-'}₹{Math.abs(data.day_change || 0).toFixed(2)})
+                  </span>
                 </div>
               </div>
             </motion.div>
@@ -164,7 +167,7 @@ export default function StockPage() {
                           ₹{data.current_price?.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                         </span>
                         <span className={`text-[10px] border px-2 py-0.5 rounded-[4px] uppercase tracking-widest font-black ${rangeIsPositive ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-red-500/10 text-red-400 border-red-500/20'}`}>
-                          {rangeIsPositive ? '+' : ''}{((history[history.length-1]?.value - history[0]?.value) / history[0]?.value * 100).toFixed(2)}%
+                          {rangeIsPositive ? '+' : ''}{rangeChange.toFixed(2)}%
                         </span>
                       </div>
                     </div>
@@ -215,7 +218,12 @@ export default function StockPage() {
                     <div className="space-y-4">
                       <StatRow label="Shares Owned" value={holding.quantity} />
                       <StatRow label="Avg Buy Price" value={`₹${holding.average_price?.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`} />
-                      <StatRow label="Current Value" value={`₹${holding.market_value?.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`} highlight />
+                      <StatRow 
+                        label="Current Value" 
+                        value={`₹${holding.market_value?.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`} 
+                        highlight 
+                        isNegative={holding.p_l < 0}
+                      />
                       <div className="flex justify-between items-center py-1">
                         <span className="text-[10px] font-black uppercase tracking-widest text-zinc-500">Unrealized P&L</span>
                         <div className={`text-sm font-bold ${holding.p_l >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
@@ -313,11 +321,11 @@ export default function StockPage() {
   );
 }
 
-function StatRow({ label, value, highlight = false }: { label: string; value: any; highlight?: boolean }) {
+function StatRow({ label, value, highlight = false, isNegative = false }: { label: string; value: any; highlight?: boolean; isNegative?: boolean }) {
   return (
     <div className="flex justify-between items-center group">
       <span className="text-xs font-bold text-zinc-500 group-hover:text-zinc-400 transition-colors">{label}</span>
-      <span className={`text-sm font-mono font-bold ${highlight ? 'text-emerald-400' : 'text-zinc-200'}`}>{value || 'N/A'}</span>
+      <span className={`text-sm font-mono font-bold ${highlight ? (isNegative ? 'text-rose-400' : 'text-emerald-400') : 'text-zinc-200'}`}>{value || 'N/A'}</span>
     </div>
   );
 }
