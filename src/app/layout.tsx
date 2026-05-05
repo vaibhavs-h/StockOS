@@ -9,8 +9,11 @@ const inter = Inter({ subsets: ["latin"], variable: "--font-inter" })
 const outfit = Outfit({ subsets: ["latin"], variable: "--font-outfit" })
 
 export const metadata: Metadata = {
-  title: "StockOS | AI-Powered Stock Insights",
+  title: "StockOS",
   description: "Next-generation stock portfolio management and AI assistant.",
+  icons: {
+    icon: "/logo.png",
+  },
 }
 
 export default function RootLayout({
