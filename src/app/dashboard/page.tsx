@@ -10,7 +10,11 @@ import {
   TrendingUp,
   RefreshCcw,
   Send,
-  Database
+  Database,
+  ArrowUpRight,
+  ArrowDownRight,
+  Activity,
+  Menu
 } from "lucide-react"
 import { supabase } from "@/services/DatabaseClient"
 import axios from "axios"
@@ -20,6 +24,7 @@ import { cn } from "@/lib/utils"
 
 export default function DashboardPage() {
   const router = useRouter()
+  const [isMounted, setIsMounted] = useState(false)
   const [holdings, setHoldings] = useState<any[]>([])
   const [indices, setIndices] = useState<any[]>([])
   const [history, setHistory] = useState<any[]>([])
@@ -28,12 +33,32 @@ export default function DashboardPage() {
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [searchQuery, setSearchQuery] = useState("")
   const [timeRange, setTimeRange] = useState("ALL")
+  const [mounted, setMounted] = useState(false)
 
 
   const portfolioId = "primary";
 
-  const [marketIntelligence, setMarketIntelligence] = useState<any>(null);
-  const [intelligenceLoading, setIntelligenceLoading] = useState(true);
+  const [marketIntelligence, setMarketIntelligence] = useState<any>(() => {
+    if (typeof window !== 'undefined') {
+      const cached = localStorage.getItem('stockos_market_intelligence');
+      if (cached) {
+        try { return JSON.parse(cached); } catch (e) { return null; }
+      }
+    }
+    return null;
+  });
+  const [lastIntelligenceFetch, setLastIntelligenceFetch] = useState<string | null>(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('stockos_intelligence_timestamp');
+    }
+    return null;
+  });
+  const [intelligenceLoading, setIntelligenceLoading] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return !localStorage.getItem('stockos_market_intelligence');
+    }
+    return true;
+  });
 
   const fetchHoldings = async () => {
     try {
@@ -65,6 +90,10 @@ export default function DashboardPage() {
       if (result && result.output) {
         const parsed = JSON.parse(result.output);
         setMarketIntelligence(parsed);
+        const now = new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' });
+        setLastIntelligenceFetch(now);
+        localStorage.setItem('stockos_market_intelligence', JSON.stringify(parsed));
+        localStorage.setItem('stockos_intelligence_timestamp', now);
       }
     } catch (err) {
       console.error("[DASHBOARD] Intelligence fetch failed:", err);
@@ -111,6 +140,7 @@ export default function DashboardPage() {
   }
 
   useEffect(() => {
+    setMounted(true);
     fetchHoldings();
     fetchHistory();
     fetchIndices();
@@ -133,7 +163,11 @@ export default function DashboardPage() {
       })
       .subscribe();
 
+    // Initial fetch
+    fetchMarketIntelligence();
+
     const interval = setInterval(fetchIndices, 30000); // Live update indices every 30s
+    const intelligenceInterval = setInterval(fetchMarketIntelligence, 3600000); // Auto-refresh intelligence every 1 hour
     const syncInterval = setInterval(() => {
       fetchHoldings();
       fetchHistory();
@@ -141,6 +175,7 @@ export default function DashboardPage() {
     
     return () => {
       clearInterval(interval);
+      clearInterval(intelligenceInterval);
       clearInterval(syncInterval);
       supabase.removeChannel(holdingsSubscription);
       supabase.removeChannel(historySubscription);
@@ -176,24 +211,25 @@ export default function DashboardPage() {
 
     const filtered = history.filter(h => new Date(h.timestamp) >= cutoff);
     
+    // Only perform date-dependent logic on client
+    if (!mounted || filtered.length === 0) return filtered;
+    
     // Stitch live point at the end for visual consistency
-    if (filtered.length > 0) {
-      const lastPoint = filtered[filtered.length - 1];
-      const nowStr = new Date().toISOString();
+    const lastPoint = filtered[filtered.length - 1];
+    const nowStr = now.toISOString();
       
-      // Only append if the last snapshot isn't already from "now"
-      if (new Date(lastPoint.timestamp).getTime() < now.getTime() - 60000) {
-        return [...filtered, {
-          timestamp: nowStr,
-          total_market_value: totalNetWorth,
-          total_invested: lastPoint.total_invested, // Best guess
-          portfolio_id: lastPoint.portfolio_id
-        }];
-      }
+    // Only append if the last snapshot isn't already from "now"
+    if (new Date(lastPoint.timestamp).getTime() < now.getTime() - 60000) {
+      return [...filtered, {
+        timestamp: nowStr,
+        total_market_value: totalNetWorth,
+        total_invested: lastPoint.total_invested, // Best guess
+        portfolio_id: lastPoint.portfolio_id
+      }];
     }
     
     return filtered;
-  }, [history, timeRange, totalNetWorth]);
+  }, [history, timeRange, totalNetWorth, mounted]);
 
   const formatCurrency = (val: number) => {
     return new Intl.NumberFormat('en-IN', {
@@ -213,11 +249,14 @@ export default function DashboardPage() {
   const rangeChange = startValue > 0 ? ((totalNetWorth - startValue) / startValue) * 100 : 0;
 
   return (
-    <div className="min-h-screen bg-transparent text-on-surface font-ui-body selection:bg-emerald-500/30 relative overflow-x-hidden">
+    <div suppressHydrationWarning className={cn(
+      "min-h-screen bg-transparent text-on-surface font-ui-body selection:bg-emerald-500/30 relative overflow-x-hidden transition-opacity duration-700",
+      !mounted ? "opacity-0" : "opacity-100"
+    )}>
 
-      {/* Main Dashboard Content */}
-      <main
-        className="pt-24 pb-16 px-6 max-w-[1700px] mx-auto w-full grid grid-cols-1 lg:grid-cols-[1fr_400px] gap-8 relative z-10"
+      {/* Main Dashboard Grid */}
+      <section
+        className="pt-24 pb-6 px-6 max-w-[1700px] mx-auto w-full grid grid-cols-1 lg:grid-cols-[1fr_400px] gap-8 relative z-10 items-stretch"
       >
         {/* Left Section: Dashboard Content */}
         <motion.div
@@ -342,18 +381,18 @@ export default function DashboardPage() {
               visible: { opacity: 1, y: 0, filter: 'blur(0px)' }
             }}
             transition={{ duration: 0.8, ease: [0.16, 1, 0.3, 1] }}
-            className="glass-panel rounded-2xl overflow-hidden flex flex-col border border-white/10 shadow-2xl bg-gradient-to-b from-white/[0.02] to-transparent"
+            className="glass-panel rounded-3xl overflow-hidden flex flex-col border border-white/10 shadow-2xl bg-gradient-to-b from-white/[0.02] to-transparent"
           >
-            <div className="px-8 py-6 border-b border-white/5 flex justify-between items-center bg-white/[0.01]">
-              <h3 className="font-terminal-label text-[12px] uppercase tracking-wider text-zinc-300 font-bold">Current Holdings</h3>
+            <div className="px-6 py-4 border-b border-white/5 flex justify-between items-center bg-white/[0.01]">
+              <h3 className="font-terminal-label text-[11px] uppercase tracking-wider text-zinc-300 font-bold">Current Holdings</h3>
               <div className="relative group">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-emerald-500/30 group-focus-within:text-emerald-500 transition-colors w-3.5 h-3.5" />
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-emerald-500/30 group-focus-within:text-emerald-500 transition-colors w-3 h-3" />
                 <input
                   type="text"
-                  placeholder="FILTER ASSETS..."
+                  placeholder="FILTER..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  className="bg-black/60 border border-white/5 text-[10px] tracking-[0.2em] font-terminal-label pl-10 pr-4 py-2.5 w-64 rounded-xl focus:ring-1 focus:ring-emerald-500/40 focus:outline-none placeholder:text-white/10 transition-all"
+                  className="bg-black/60 border border-white/5 text-[9px] tracking-wider font-terminal-label pl-8 pr-4 py-2 w-48 rounded-full focus:ring-1 focus:ring-emerald-500/40 focus:outline-none placeholder:text-white/10 transition-all"
                 />
               </div>
             </div>
@@ -362,11 +401,11 @@ export default function DashboardPage() {
               <table className="w-full text-left">
                 <thead>
                   <tr className="bg-white/[0.02]">
-                    <th className="px-8 py-5 font-terminal-label text-[9px] uppercase tracking-[0.3em] text-zinc-500 font-bold">Stock Details</th>
-                    <th className="px-6 py-5 font-terminal-label text-[9px] uppercase tracking-[0.3em] text-zinc-500 text-right font-bold">Quantity</th>
-                    <th className="px-6 py-5 font-terminal-label text-[9px] uppercase tracking-[0.3em] text-zinc-500 text-right font-bold">Avg. Cost</th>
-                    <th className="px-6 py-5 font-terminal-label text-[9px] uppercase tracking-[0.3em] text-zinc-500 text-right font-bold">Market Value</th>
-                    <th className="px-8 py-5 font-terminal-label text-[9px] uppercase tracking-[0.3em] text-zinc-500 text-right font-bold">Returns (%)</th>
+                    <th className="px-6 py-3 font-terminal-label text-[9px] uppercase tracking-wider text-zinc-500 font-bold">Stock Details</th>
+                    <th className="px-5 py-3 font-terminal-label text-[9px] uppercase tracking-wider text-zinc-500 text-right font-bold">Quantity</th>
+                    <th className="px-5 py-3 font-terminal-label text-[9px] uppercase tracking-wider text-zinc-500 text-right font-bold">Avg. Cost</th>
+                    <th className="px-5 py-3 font-terminal-label text-[9px] uppercase tracking-wider text-zinc-500 text-right font-bold">Market Value</th>
+                    <th className="px-6 py-3 font-terminal-label text-[9px] uppercase tracking-wider text-zinc-500 text-right font-bold">Returns (%)</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-white/[0.03]">
@@ -441,83 +480,21 @@ export default function DashboardPage() {
               </button>
             </div>
           </motion.section>
-
-          {/* News Feed Panel */}
-          <motion.section
-            variants={{
-              hidden: { opacity: 0, y: 20, filter: 'blur(10px)' },
-              visible: { opacity: 1, y: 0, filter: 'blur(0px)' }
-            }}
-            transition={{ duration: 0.8, ease: [0.16, 1, 0.3, 1] }}
-            className="glass-panel rounded-xl overflow-hidden flex flex-col border border-white/5 hover:border-emerald-500/20"
-          >
-            <div className="px-6 py-5 border-b border-emerald-500/10 bg-emerald-500/[0.02] flex justify-between items-center">
-              <h3 className="font-terminal-label text-[12px] uppercase tracking-[0.2em] text-white font-bold flex items-center gap-3">
-                <Newspaper className="w-5 h-5 text-emerald-500" />
-                Market Intelligence
-              </h3>
-              {marketIntelligence?.overall_sentiment && (
-                <span className={cn(
-                  "px-2 py-0.5 rounded text-[8px] font-black uppercase tracking-widest border",
-                  marketIntelligence.overall_sentiment === "BULLISH" ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" : 
-                  marketIntelligence.overall_sentiment === "BEARISH" ? "bg-red-500/10 text-red-400 border-red-500/20" :
-                  "bg-zinc-500/10 text-zinc-400 border-zinc-500/20"
-                )}>
-                  {marketIntelligence.overall_sentiment}
-                </span>
-              )}
-            </div>
-            <div className="p-6 flex flex-col gap-5">
-              {intelligenceLoading ? (
-                <div className="py-12 flex flex-col items-center justify-center gap-4 opacity-40">
-                  <RefreshCcw className="w-6 h-6 animate-spin text-emerald-500" />
-                  <span className="font-terminal-label text-[9px] uppercase tracking-[0.3em]">Processing AI Feed...</span>
-                </div>
-              ) : marketIntelligence?.sectors ? (
-                marketIntelligence.sectors.map((sector: any, idx: number) => (
-                  <NewsItem 
-                    key={sector.name || idx}
-                    tag={sector.name} 
-                    time={`${sector.confidence}% Confidence`} 
-                    title={sector.reason} 
-                    color={
-                      sector.sentiment === "BULLISH" ? "text-emerald-400" : 
-                      sector.sentiment === "BEARISH" ? "text-red-400" : 
-                      "text-zinc-400"
-                    } 
-                  />
-                ))
-              ) : (
-                <div className="py-12 flex flex-col items-center justify-center gap-4 opacity-40 text-center">
-                  <Database className="w-6 h-6 text-zinc-500" />
-                  <span className="font-terminal-label text-[9px] uppercase tracking-[0.3em] max-w-[200px]">Intelligence stream offline. Check webhook configuration.</span>
-                </div>
-              )}
-            </div>
-            {marketIntelligence?.market_summary && !intelligenceLoading && (
-              <div className="px-6 py-4 bg-white/[0.02] border-t border-white/5">
-                <p className="text-[10px] text-zinc-500 italic leading-relaxed">
-                  <span className="text-emerald-500/60 font-bold uppercase tracking-wider mr-2 not-italic">Executive Summary:</span>
-                  {marketIntelligence.market_summary}
-                </p>
-              </div>
-            )}
-          </motion.section>
         </motion.div>
 
-        {/* Right Section: AI Terminal Sidebar */}
+        {/* Sidebar: AI Research Assistant */}
         <motion.aside
-          initial={{ opacity: 0, x: 20, filter: 'blur(10px)' }}
-          animate={{ opacity: 1, x: 0, filter: 'blur(0px)' }}
-          transition={{ duration: 0.8, delay: 1, ease: [0.16, 1, 0.3, 1] }}
-          className="flex flex-col gap-8 h-full min-h-[700px]"
+          initial={{ opacity: 0, x: 20 }}
+          animate={{ opacity: 1, x: 0 }}
+          transition={{ duration: 0.8, delay: 0.4, ease: [0.16, 1, 0.3, 1] }}
+          className="glass-panel rounded-3xl border border-white/10 flex flex-col sticky top-24 bg-black/40 backdrop-blur-xl overflow-hidden h-full shadow-[0_0_100px_rgba(16,185,129,0.05)]"
         >
-          <div className="glass-panel rounded-xl flex flex-col h-full overflow-hidden border border-white/5 shadow-[0_0_100px_rgba(16,185,129,0.05)]">
+          <div className="flex flex-col h-full overflow-hidden">
             {/* Terminal Header */}
-            <div className="px-6 py-5 border-b border-emerald-500/10 bg-emerald-500/[0.05] flex items-center justify-between">
+            <div className="px-6 py-4 border-b border-emerald-500/10 bg-emerald-500/[0.05] flex items-center justify-between shrink-0">
               <div className="flex items-center gap-3">
                 <div className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse shadow-[0_0_15px_#10b981]" />
-                <span className="font-terminal-label text-[12px] uppercase tracking-[0.2em] text-white font-black flex items-center gap-3">
+                <span className="font-terminal-label text-[11px] uppercase tracking-wider text-white font-black flex items-center gap-3">
                   <TrendingUp className="w-4 h-4 text-emerald-400" />
                   AI RESEARCH ASSISTANT
                 </span>
@@ -525,57 +502,296 @@ export default function DashboardPage() {
             </div>
 
             {/* Chat Area */}
-            <div className="flex-grow p-6 overflow-y-auto custom-scrollbar font-data-sm text-[13px] flex flex-col gap-8 selection:bg-emerald-500/40">
-              <div className="flex flex-col gap-2 opacity-40">
-                <div className="flex items-center gap-2">
-                  <div className="h-[1px] flex-grow bg-emerald-500/20" />
-                </div>
-              </div>
-
+            <div className="flex-grow p-5 overflow-y-auto custom-scrollbar font-data-sm text-[13px] flex flex-col gap-6 selection:bg-emerald-500/40">
               {/* AI Insight Block */}
-              <div className="flex flex-col gap-4 group">
+              <div className="flex flex-col gap-3 group">
                 <div className="flex items-center gap-2">
-                  <span className="px-2.5 py-1 rounded bg-emerald-500/20 text-emerald-400 text-[10px] font-black uppercase tracking-widest border border-emerald-500/30 flex items-center gap-2 shadow-[0_0_15px_rgba(16,185,129,0.1)]">
-                    <Cpu className="w-3.5 h-3.5" />
+                  <span className="px-2.5 py-1 rounded bg-emerald-500/20 text-emerald-400 text-[9px] font-black uppercase tracking-wider border border-emerald-500/30 flex items-center gap-2 shadow-[0_0_15px_rgba(16,185,129,0.1)]">
+                    <Cpu className="w-3 h-3" />
                     INSIGHT
                   </span>
-                  <span className="text-[10px] text-zinc-600 font-data-sm">09:42:15</span>
+                  <span className="text-[9px] text-zinc-600 font-data-sm">09:42:15</span>
                 </div>
-                <div className="p-5 rounded-xl bg-emerald-500/[0.03] border border-emerald-500/10 text-emerald-50 leading-relaxed font-data-md group-hover:bg-emerald-500/[0.05] transition-colors">
-                  <span className="text-emerald-400 font-bold underline decoration-emerald-500/30 underline-offset-4">HDFCBANK</span> analysis complete. Strong accumulation detected. Support confirmed at ₹1,520.
+                <div className="p-4 rounded-lg bg-emerald-500/[0.03] border border-emerald-500/10 text-emerald-50 leading-relaxed font-data-md group-hover:bg-emerald-500/[0.05] transition-colors text-[13px]">
+                  <span className="text-emerald-400 font-bold underline decoration-emerald-500/30 underline-offset-4">HDFCBANK</span> analysis complete. Strong accumulation detected.
                 </div>
               </div>
 
               {/* Forecast Block */}
-              <div className="flex flex-col gap-4">
+              <div className="flex flex-col gap-3">
                 <div className="flex items-center gap-2">
-                  <span className="px-2.5 py-1 rounded bg-blue-500/20 text-blue-400 text-[10px] font-black uppercase tracking-widest border border-blue-500/30 flex items-center gap-2">
+                  <span className="px-2.5 py-1 rounded bg-blue-500/20 text-blue-400 text-[9px] font-black uppercase tracking-wider border border-blue-500/30 flex items-center gap-2">
                     FORECAST
                   </span>
                 </div>
-                <div className="p-5 rounded-xl bg-blue-500/[0.03] border border-blue-500/10 text-blue-50 leading-relaxed font-data-md">
-                  <span className="text-blue-400 font-bold underline decoration-blue-500/30 underline-offset-4">RELIANCE</span> resistance at ₹2,840 remains unbroken. Expected consolidation before breakout.
+                <div className="p-4 rounded-lg bg-blue-500/[0.03] border border-blue-500/10 text-blue-50 leading-relaxed font-data-md text-[13px]">
+                  <span className="text-blue-400 font-bold underline decoration-blue-500/30 underline-offset-4">RELIANCE</span> resistance at ₹2,840 remains unbroken.
                 </div>
               </div>
             </div>
 
             {/* Terminal Input */}
-            <div className="p-6 bg-zinc-950/40 border-t border-emerald-500/10 backdrop-blur-xl">
+            <div className="p-5 bg-zinc-950/40 border-t border-emerald-500/10 backdrop-blur-xl shrink-0 mt-auto">
               <div className="relative group">
-                <Terminal className="absolute left-4 top-1/2 -translate-y-1/2 text-emerald-500/50 group-focus-within:text-emerald-400 transition-colors w-5 h-5" />
-                <input
+                <Terminal className="absolute left-4 top-1/2 -translate-y-1/2 text-emerald-500/50 group-focus-within:text-emerald-400 transition-colors w-4 h-4" />
+                <input 
                   type="text"
-                  placeholder="Ask AI about your portfolio or stocks..."
-                  className="w-full bg-emerald-950/10 border border-emerald-500/20 rounded-xl pl-12 pr-12 py-4 text-[13px] font-data-md text-white outline-none focus:border-emerald-500/50 focus:ring-4 focus:ring-emerald-500/5 transition-all placeholder:text-emerald-500/20"
+                  placeholder="Analyze ticker..."
+                  className="w-full bg-black/40 border border-emerald-500/10 rounded-full px-10 py-3.5 text-[12px] text-emerald-100 placeholder:text-emerald-500/20 focus:outline-none focus:border-emerald-500/40 focus:ring-1 focus:ring-emerald-500/40 transition-all font-data-md"
                 />
                 <button className="absolute right-4 top-1/2 -translate-y-1/2 text-emerald-500/50 hover:text-emerald-400 transition-colors">
-                  <Send className="w-5 h-5" />
+                  <Send className="w-4 h-4" />
                 </button>
               </div>
             </div>
           </div>
         </motion.aside>
-      </main>
+      </section>
+
+      {/* Full-Width Market Intelligence Feed */}
+      <div className="max-w-[1700px] mx-auto px-6 pb-16">
+        <motion.section
+          initial={{ opacity: 0, y: 40 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true }}
+          transition={{ duration: 0.8, ease: [0.16, 1, 0.3, 1] }}
+          className="glass-panel rounded-3xl overflow-hidden flex flex-col border border-white/10 shadow-[0_0_100px_rgba(16,185,129,0.05)] bg-gradient-to-br from-white/[0.02] to-transparent"
+        >
+          <div className="px-8 py-5 border-b border-emerald-500/10 bg-emerald-500/[0.03] flex justify-between items-center">
+            <div className="flex items-center gap-4">
+              <div className="p-2 rounded-xl bg-emerald-500/10 border border-emerald-500/20">
+                <Newspaper className="w-4 h-4 text-emerald-500" />
+              </div>
+              <div>
+                <h3 className="font-terminal-label text-[11px] uppercase tracking-wider text-white font-black">Market Intelligence</h3>
+                <div className="flex items-center gap-2 mt-0.5">
+                  <Activity className="w-2.5 h-2.5 text-emerald-500/40" />
+                  <p className="text-[9px] text-emerald-500/40 uppercase tracking-wider font-bold">
+                    LAST UPDATED: {(isMounted && lastIntelligenceFetch) ? lastIntelligenceFetch : 'SYNCHRONIZING...'}
+                  </p>
+                </div>
+              </div>
+            </div>
+            <div className="flex items-center gap-4">
+              {marketIntelligence?.overall_sentiment && (
+                <div className="flex items-center gap-2 bg-black/40 px-3 py-1.5 rounded-lg border border-white/5">
+                  <div className={cn(
+                    "w-1.5 h-1.5 rounded-full animate-pulse",
+                    marketIntelligence.overall_sentiment === "BULLISH" ? "bg-emerald-500 shadow-[0_0_8px_#10b981]" : "bg-red-500 shadow-[0_0_8px_#ef4444]"
+                  )} />
+                  <span className={cn(
+                    "text-[9px] font-black uppercase tracking-wider",
+                    marketIntelligence.overall_sentiment === "BULLISH" ? "text-emerald-400" : "text-red-400"
+                  )}>
+                    {marketIntelligence.overall_sentiment} SENTIMENT
+                  </span>
+                </div>
+              )}
+              {intelligenceLoading && marketIntelligence && (
+                <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-emerald-500/5 border border-emerald-500/10">
+                  <span className="text-[9px] font-black uppercase tracking-wider text-emerald-400 animate-pulse">Updating Insights</span>
+                </div>
+              )}
+              <button 
+                onClick={fetchMarketIntelligence}
+                disabled={intelligenceLoading}
+                className="p-2.5 rounded-full bg-white/5 border border-white/10 text-zinc-400 hover:text-emerald-500 hover:border-emerald-500/30 transition-all disabled:opacity-50 group"
+              >
+                <RefreshCcw className={cn("w-3.5 h-3.5 group-hover:rotate-180 transition-transform duration-700", intelligenceLoading && "animate-spin")} />
+              </button>
+            </div>
+          </div>
+
+          <div className="p-6 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 relative">
+            <AnimatePresence mode="popLayout">
+              {intelligenceLoading && !marketIntelligence ? (
+                <motion.div 
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  className="col-span-full py-48 flex flex-col items-center justify-center gap-8"
+                >
+                  <div className="relative">
+                    <RefreshCcw className="w-16 h-16 animate-spin text-emerald-500" />
+                    <div className="absolute inset-0 blur-3xl bg-emerald-500/40 animate-pulse" />
+                  </div>
+                  <div className="flex flex-col items-center gap-3">
+                    <span className="font-terminal-label text-[11px] uppercase tracking-widest text-emerald-400 animate-pulse font-bold">Analyzing Market Trends</span>
+                    <div className="w-80 h-[1px] bg-white/5 relative overflow-hidden">
+                      <motion.div 
+                        initial={{ left: '-100%' }}
+                        animate={{ left: '100%' }}
+                        transition={{ repeat: Infinity, duration: 2.5, ease: "linear" }}
+                        className="absolute inset-0 w-1/3 bg-gradient-to-r from-transparent via-emerald-500 to-transparent"
+                      />
+                    </div>
+                  </div>
+                </motion.div>
+              ) : marketIntelligence?.sectors ? (
+                marketIntelligence.sectors.map((sector: any, idx: number) => (
+                  <motion.div 
+                    key={sector.sectorName || idx}
+                    initial={{ opacity: 0, scale: 0.98, y: 20 }}
+                    animate={{ opacity: 1, scale: 1, y: 0 }}
+                    transition={{ duration: 0.6, delay: idx * 0.12, ease: [0.16, 1, 0.3, 1] }}
+                    className="group"
+                  >
+                    <div className="glass-panel p-5 rounded-2xl border border-white/[0.03] group-hover:border-emerald-500/30 transition-all duration-500 flex flex-col gap-5 h-full bg-black/20 relative overflow-hidden">
+                      
+                      {/* Background Accents */}
+                      <div className="absolute -right-8 -top-8 opacity-[0.02] group-hover:opacity-[0.05] transition-opacity pointer-events-none">
+                        <TrendingUp className={cn(
+                          "w-48 h-48 rotate-12",
+                          sector.sentiment === "BULLISH" ? "text-emerald-500" : "text-red-500"
+                        )} />
+                      </div>
+
+                      <div className="flex justify-between items-start relative z-10">
+                        <div className="space-y-3">
+                          <div className={cn(
+                            "text-[10px] font-black uppercase tracking-wider px-3 py-1.5 rounded-lg border w-fit shadow-2xl backdrop-blur-md",
+                            sector.sentiment === "BULLISH" ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" : 
+                            sector.sentiment === "BEARISH" ? "bg-red-500/10 text-red-400 border-red-500/20" : 
+                            "bg-zinc-800/40 text-zinc-400 border-zinc-700/50"
+                          )}>
+                            {sector.sectorName}
+                          </div>
+                          {sector.riskLevel && (
+                            <div className="flex items-center gap-2 px-1">
+                              <div className={cn(
+                                "w-1.5 h-1.5 rounded-full",
+                                sector.riskLevel === "Low" ? "bg-emerald-500 shadow-[0_0_8px_#10b981]" :
+                                sector.riskLevel === "Medium" ? "bg-yellow-500 shadow-[0_0_8px_#f59e0b]" :
+                                "bg-red-500 shadow-[0_0_8px_#ef4444]"
+                              )} />
+                              <span className="text-[9px] uppercase tracking-wider text-zinc-500 font-black">
+                                {sector.riskLevel} Risk
+                              </span>
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="flex flex-col items-end gap-1">
+                          <span className="text-[22px] font-black font-data tabular-nums text-white group-hover:text-emerald-400 transition-colors leading-none tracking-tight">
+                            {sector.confidence}
+                          </span>
+                          <span className="text-[9px] uppercase tracking-wider text-zinc-500 font-black">Confidence</span>
+                        </div>
+                      </div>
+
+                      <div className="relative flex-grow">
+                        <div className="absolute inset-y-0 left-0 w-[2px] bg-gradient-to-b from-emerald-500/40 via-emerald-500/5 to-transparent rounded-full" />
+                        <p className="text-[13px] text-zinc-300 leading-relaxed group-hover:text-white transition-colors pl-5 font-medium">
+                          {sector.reasoning}
+                        </p>
+                      </div>
+
+                      {sector.topStocks && sector.topStocks.length > 0 && (
+                        <div className="mt-auto space-y-3">
+                          <div className="flex items-center gap-3">
+                            <span className="text-[9px] uppercase tracking-widest text-zinc-600 font-black whitespace-nowrap">Asset Flows</span>
+                            <div className="h-[1px] flex-1 bg-gradient-to-r from-white/10 to-transparent" />
+                          </div>
+                          <div className="grid grid-cols-2 gap-3">
+                            {sector.topStocks.map((stock: any, sIdx: number) => (
+                              <motion.div 
+                                key={stock.symbol || sIdx}
+                                whileHover={{ y: -2, backgroundColor: 'rgba(16,185,129,0.05)', borderColor: 'rgba(16,185,129,0.2)' }}
+                                onClick={() => router.push(`/stocks/${stock.symbol}`)}
+                                className="bg-zinc-900/40 p-3 rounded-xl border border-white/[0.03] flex flex-col gap-2 transition-all duration-300 cursor-pointer group/stock"
+                              >
+                                <div className="flex justify-between items-start">
+                                  <div className="flex flex-col">
+                                    <span className="text-[12px] font-black text-white font-data group-hover/stock:text-emerald-400 transition-colors">{stock.symbol}</span>
+                                    <span className={cn(
+                                      "text-[8px] font-black px-1.5 py-0.5 rounded-md w-fit tracking-tighter uppercase mt-0.5",
+                                      stock.rating === 'BUY' ? "bg-emerald-500/10 text-emerald-400" : "bg-zinc-800 text-zinc-500"
+                                    )}>{stock.rating || 'TRACK'}</span>
+                                  </div>
+                                  <div className="text-right">
+                                    <div className="text-[12px] font-bold text-zinc-100 font-data tabular-nums">₹{stock.price}</div>
+                                    <div className={cn(
+                                      "text-[9px] font-black tabular-nums font-data",
+                                      String(stock.change).startsWith('+') ? "text-emerald-400" : "text-red-400"
+                                    )}>{stock.change}</div>
+                                  </div>
+                                </div>
+                              </motion.div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </motion.div>
+                ))
+              ) : (
+                <div className="col-span-full py-48 flex flex-col items-center justify-center gap-6 opacity-30">
+                  <Database className="w-16 h-16 text-zinc-500" />
+                  <span className="font-terminal-label text-[14px] uppercase tracking-widest">No Insights Available</span>
+                </div>
+              )}
+            </AnimatePresence>
+          </div>
+
+          {(marketIntelligence?.actionableInsights || marketIntelligence?.marketRisks || marketIntelligence?.executiveSummary) && (
+            <motion.div 
+              initial={{ opacity: 0 }}
+              whileInView={{ opacity: 1 }}
+              className="p-8 bg-emerald-500/[0.02] border-t border-white/5 grid grid-cols-1 lg:grid-cols-3 gap-10"
+            >
+              {marketIntelligence.executiveSummary && (
+                <div className="space-y-4">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
+                      <Activity className="w-4 h-4 text-emerald-500" />
+                    </div>
+                    <h4 className="text-[10px] font-black uppercase tracking-wider text-emerald-400">Analysis Summary</h4>
+                  </div>
+                  <p className="text-[13px] text-zinc-400 leading-relaxed font-medium italic border-l-2 border-emerald-500/30 pl-6">
+                    "{marketIntelligence.executiveSummary}"
+                  </p>
+                </div>
+              )}
+              {marketIntelligence.actionableInsights && (
+                <div className="space-y-4">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 rounded-lg bg-blue-500/10 border border-blue-500/20">
+                      <Cpu className="w-4 h-4 text-blue-500" />
+                    </div>
+                    <h4 className="text-[10px] font-black uppercase tracking-wider text-blue-400">Recommendations</h4>
+                  </div>
+                  <ul className="space-y-3">
+                    {(Array.isArray(marketIntelligence.actionableInsights) ? marketIntelligence.actionableInsights : [marketIntelligence.actionableInsights]).map((insight: string, i: number) => (
+                      <li key={i} className="text-[12px] text-zinc-300 flex items-start gap-4 group/item">
+                        <div className="mt-1.5 w-1.5 h-1.5 rounded-full bg-blue-500 shadow-[0_0_10px_rgba(59,130,246,0.5)] group-hover/item:scale-110 transition-transform" />
+                        <span className="group-hover/item:text-white transition-colors">{insight}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {marketIntelligence.marketRisks && (
+                <div className="space-y-4">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 rounded-lg bg-red-500/10 border border-red-500/20">
+                      <TrendingUp className="w-4 h-4 text-red-500 rotate-180" />
+                    </div>
+                    <h4 className="text-[10px] font-black uppercase tracking-wider text-red-400">Market Risks</h4>
+                  </div>
+                  <ul className="space-y-3">
+                    {(Array.isArray(marketIntelligence.marketRisks) ? marketIntelligence.marketRisks : [marketIntelligence.marketRisks]).map((risk: string, i: number) => (
+                      <li key={i} className="text-[12px] text-zinc-300 flex items-start gap-4 group/item">
+                        <div className="mt-1.5 w-1.5 h-1.5 rounded-full bg-red-500 shadow-[0_0_10px_rgba(239,68,68,0.5)] group-hover/item:scale-110 transition-transform" />
+                        <span className="group-hover/item:text-white transition-colors">{risk}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </motion.div>
+          )}
+        </motion.section>
+      </div>
 
     </div>
   )

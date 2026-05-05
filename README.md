@@ -1,6 +1,6 @@
 # 📈 StockOS
 
-**An Institutional-Grade Wealth Terminal** — An AI-powered stock portfolio management system featuring a self-healing data pipeline, multi-source failover architecture, and a high-fidelity terminal interface.
+**An Institutional-Grade Wealth Terminal** — An AI-powered stock portfolio management system featuring a self-healing data pipeline, multi-source failover architecture, and a high-fidelity tactical interface.
 
 ---
 
@@ -8,21 +8,43 @@
 
 ### 🛡️ Resilient Data Pipeline
 - **Always-Online Architecture**: Automated failover between **Groww API** and **Yahoo Finance**.
-- **Hyper-Speed Internal Matching**: Bypasses external API rate limits by utilizing a local `market_assets` source of truth.
-- **Self-Healing Sync**: 5-minute automated pulses ensure your holdings and history are always synchronized, even during primary API downtime.
+- **Sync Engine**: The core `SyncEngine.ts` service handles 5-minute automated pulses for holdings, history, and market assets.
+- **Self-Healing Indices**: Real-time market data for **NIFTY 50**, **SENSEX**, and global benchmarks, served via an internal high-performance proxy.
 
 ### 🎨 Institutional Terminal UI
-- **Sentiment-Aware Charts**: Dynamic "Profit/Loss" color morphing—graphs instantly flip to **Danger Red** or **Emerald Green** based on the trend.
-- **Market Intelligence Search Hub**: Compact, glassmorphic search terminal with hard-wired, real-time indices (**Nifty, Sensex, Bank Nifty**) and kinetic hover effects.
-- **Real-time Heartbeat**: 30-second background polling ensures the dashboard reflects live market moves without manual refreshes.
-- **High-Fidelity Visuals**: Dark-themed, 3D-shader-backed design with neon accents and institutional typography (Inter & Outfit).
-- **Persistent Indices Ticker**: Live bottom-scrolling ticker for **NIFTY 50**, **SENSEX**, **S&P 500**, and more.
+- **Market Intelligence Hub**: A high-density tactical feed with AI-distilled sector analysis, actionable recommendations, and risk assessments.
+- **AI Research Assistant**: A dedicated terminal sidebar for real-time stock analysis and portfolio insights, locked vertically to your holdings data.
+- **Stale-While-Revalidate Persistence**: Instant-on dashboard loading via `localStorage` caching—new data fetches in the background while you stay productive.
+- **Geometric Harmonization**: A unified `rounded-3xl` design language across all consoles, creating a premium, cohesive aesthetic.
+- **Pulse Indicators**: Visual confirmation of background data refreshes and "Last Updated" timestamps in **IST**.
 
 ### 🏛️ Insight Desk (Journal)
-- **High-Fidelity Intelligence Dossiers**: Redesigned news feed featuring cinematic glassmorphism and high-density typography.
-- **AI-Distilled News**: Real-time market updates with AI-generated "Terminal Insight" boxes for strategic context.
+- **High-Fidelity Dossiers**: Redesigned news feed featuring cinematic glassmorphism and institutional typography.
 - **Dynamic Performance Hovers**: News items react to stock performance—hovering triggers **Neon Emerald** for gains and **Vibrant Rose** for losses.
-- **Impact Analysis**: News categorized by market impact (High, Medium, Low) with animated neon pulse indicators.
+
+---
+
+## 🚀 Getting Started
+
+StockOS runs as a dual-service architecture for maximum performance and reliability.
+
+### 1. Environment Setup
+Create a `.env` file in the root directory with the following tactical keys:
+```env
+NEXT_PUBLIC_SUPABASE_URL=your_supabase_url
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your_anon_key
+SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
+GROWW_API_KEY=your_groww_api_key
+GROWW_TOTP_SECRET=your_totp_secret
+NEXT_PUBLIC_N8N_WEBHOOK_URL=your_n8n_intelligence_endpoint
+```
+
+### 2. Launch the Terminal
+Launch both the **Frontend** and the **Sync Engine** concurrently:
+```bash
+npm run dev
+```
+*The Sync Engine will warm-start on port 3003, while the Next.js dashboard launches on port 3000.*
 
 ---
 
@@ -31,13 +53,11 @@
 | Layer | Technology |
 |---|---|
 | **Framework** | Next.js 14 (App Router) |
-| **Language** | TypeScript |
+| **Backend Engine** | Node.js + Express + `tsx` (SyncEngine.ts) |
 | **Styling** | Tailwind CSS + Framer Motion |
 | **Database** | Supabase (PostgreSQL) |
-| **Sync Engine** | Node.js + Express (Internal Pulse) |
-| **Charts** | Lightweight Charts (TradingView) + Recharts |
-| **APIs** | Groww, Yahoo Finance 2, Supabase Realtime |
-| **Fonts** | Inter, Outfit |
+| **AI Insights** | n8n Webhook Proxy + OpenAI |
+| **Charts** | Lightweight Charts + Recharts |
 
 ---
 
@@ -47,41 +67,19 @@
 StockOS/
 ├── src/
 │   ├── app/
-│   │   ├── dashboard/      # Main Wealth Terminal
-│   │   ├── journal/        # AI Market Intelligence Hub
-│   │   ├── stocks/         # Deep Stock Research views
-│   │   └── layout.tsx      # Global Shell (Tactical Header & Ticker)
-│   ├── components/
-│   │   ├── shared/         # Tactical UI primitives (Search, Header, Ticker)
-│   │   └── dashboard/      # Terminal-specific data visualizations
+│   │   ├── dashboard/      # Main Wealth Terminal & Intelligence Hub
+│   │   ├── api/            # Internal Intelligence Proxy
+│   │   └── stocks/         # Deep Stock Research views
 │   ├── services/
-│   │   ├── SyncEngine.ts   # CORE: Automated Portfolio & Market Sync
+│   │   ├── SyncEngine.ts   # CORE: Automated Portfolio & Market Heartbeat
 │   │   └── DatabaseClient.ts # Centralized Realtime Data Interface
-│   └── lib/
-│       └── utils.ts        # Tactical utility functions
-├── public/                 # Static assets & cinematic shaders
+│   └── components/
+│       └── dashboard/      # Tactical Data Visualizations
 └── tailwind.config.ts      # Premium design system tokens
 ```
 
 ---
 
-## 🌐 APIs & Integrations
-
-| Provider | Purpose | Key Required |
-|---|---|---|
-| [Groww](https://groww.in) | Primary Portfolio & Holdings Source | ✅ Yes |
-| [Yahoo Finance](https://github.com/gadicc/yahoo-finance2) | Backup Pricing & Market Indices | ❌ No |
-| [Supabase](https://supabase.com) | Database & Realtime Subscription | ✅ Yes |
-| [News Engine](https://fnewsbackend.onrender.com) | AI-Distilled Market Intelligence | ❌ No |
-
----
-
 ## 📜 License
 
-MIT — Free to use, modify, and distribute.
-
----
-
-⭐ **Star this Repository if you find it Helpful for your Fintech/Trading Projects!**
-
-Built with ❤️ by [Vaibhav](https://github.com/vaibhavs-h)
+MIT — Built with ❤️ by [Vaibhav](https://github.com/vaibhavs-h)
