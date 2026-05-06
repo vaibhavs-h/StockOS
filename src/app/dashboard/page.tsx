@@ -17,7 +17,14 @@ import {
   ArrowDownRight,
   Activity,
   Menu,
-  ChevronDown
+  ChevronDown,
+  Clock,
+  ShieldAlert,
+  Lightbulb,
+  Percent,
+  AlertCircle,
+  ThumbsUp,
+  ThumbsDown
 } from "lucide-react"
 import { supabase } from "@/services/DatabaseClient"
 import axios from "axios"
@@ -38,6 +45,10 @@ export default function DashboardPage() {
   const [timeRange, setTimeRange] = useState("ALL")
   const [searchResults, setSearchResults] = useState<any[]>([])
   const [isSearching, setIsSearching] = useState(false)
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
 
   const portfolioId = "primary";
@@ -64,6 +75,149 @@ export default function DashboardPage() {
     return true;
   });
 
+  // AI Assistant State
+  const [assistantMessages, setAssistantMessages] = useState<any[]>([])
+  const [assistantLoading, setAssistantLoading] = useState(false)
+
+  // Initialize welcome message on mount to avoid hydration mismatch
+  useEffect(() => {
+    if (mounted) {
+      setAssistantMessages([
+        {
+          role: 'assistant',
+          content: 'Hello! I am your research assistant. Ask me about any stock or portfolio risk.',
+          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          hideFeedback: true
+        }
+      ]);
+    }
+  }, [mounted]);
+  const chatContainerRef = React.useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (chatContainerRef.current) {
+      chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
+    }
+  }, [assistantMessages]);
+
+  const handleAssistantQuery = async (query: string) => {
+    if (!query.trim()) return;
+
+    const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+
+    // Add user message
+    const userMsg = { role: 'user', content: query, timestamp };
+    setAssistantMessages(prev => [...prev, userMsg]);
+    setAssistantLoading(true);
+
+    const assistantUrl = process.env.NEXT_PUBLIC_STOCK_ASSISTANT;
+
+    if (!assistantUrl) {
+      setAssistantMessages(prev => [...prev, {
+        role: 'assistant',
+        content: "Error: AI Assistant URL not found in .env file.",
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+        isError: true
+      }]);
+      setAssistantLoading(false);
+      return;
+    }
+
+    try {
+      const response = await axios.post(assistantUrl, {
+        user_id: "vaibhav_s",
+        user_query: query
+      }, {
+        timeout: 180000
+      });
+
+      const rawData = response.data;
+      let analysisItem = null;
+      console.log("[DEBUG] Raw Assistant Response:", rawData);
+
+      // 1. Robust Nested Array Extraction (Matches your friend's n8n output)
+      if (Array.isArray(rawData) && rawData.length > 0) {
+        const first = rawData[0];
+        // Case: [{ analysis: [{ ... }] }]
+        if (Array.isArray(first.analysis) && first.analysis.length > 0) {
+          analysisItem = first.analysis[0];
+        }
+        // Case: [{ answer: "...", risk: "..." }]
+        else if (first.answer) {
+          analysisItem = {
+            answer: first.answer,
+            portfolio: first.portfolio || 'Analysis complete.',
+            risk: first.risk || 'Unknown',
+            action: first.action || 'HOLD',
+            confidence: {
+              score: first.confidence || 50,
+              reason: first.reason || 'Provided by AI.'
+            }
+          };
+        }
+      }
+      // 2. Simple Object Extraction
+      else if (rawData && !Array.isArray(rawData)) {
+        // Case: { analysis: [{ ... }] }
+        if (Array.isArray(rawData.analysis) && rawData.analysis.length > 0) {
+          analysisItem = rawData.analysis[0];
+        }
+        // Case: { answer: "..." }
+        else if (rawData.answer) {
+          analysisItem = {
+            answer: rawData.answer,
+            portfolio: rawData.portfolio || 'Analysis complete.',
+            risk: rawData.risk || 'Unknown',
+            action: rawData.action || 'HOLD',
+            confidence: {
+              score: rawData.confidence || 50,
+              reason: rawData.reason || 'Provided by AI.'
+            }
+          };
+        }
+      }
+      // 3. Simple String Extraction
+      else if (typeof rawData === 'string') {
+        analysisItem = {
+          answer: rawData,
+          portfolio: 'Analysis complete.',
+          risk: 'Refer to answer',
+          action: 'HOLD',
+          confidence: { score: 100, reason: 'Direct response' }
+        };
+      }
+
+      if (analysisItem) {
+        setAssistantMessages(prev => [...prev, {
+          role: 'assistant',
+          content: analysisItem.answer,
+          analysisData: analysisItem,
+          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        }]);
+      } else {
+        // Ultimate fallback: display something useful
+        const fallbackContent = typeof rawData === 'object' ? JSON.stringify(rawData, null, 2) : String(rawData);
+        setAssistantMessages(prev => [...prev, {
+          role: 'assistant',
+          content: "I received the data but the format is a bit unusual. Here is the raw insight:\n\n" + fallbackContent,
+          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        }]);
+      }
+
+    } catch (err) {
+      console.error("Assistant error:", err);
+      setAssistantMessages(prev => [...prev, {
+        role: 'assistant',
+        content: "Connection Error: Could not reach the AI server. Check if your ngrok tunnel is still active.",
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+        isError: true
+      }]);
+    } finally {
+      setAssistantLoading(false);
+    }
+  };
+
+
   const fetchHoldings = async () => {
     try {
       const { data, error } = await supabase
@@ -83,31 +237,31 @@ export default function DashboardPage() {
 
   const fetchMarketIntelligence = async () => {
     if (intelligenceLoading) return;
-    
+
     setIntelligenceLoading(true);
     try {
       const res = await fetch('/api/market-intelligence');
       const data = await res.json();
-      
+
       const result = Array.isArray(data) ? data[0] : data;
-      
+
       if (result && result.output) {
         const parsed = JSON.parse(result.output);
-        
+
         // Only update if data is different from cache to preserve stable timestamps
         const currentDataStr = localStorage.getItem('stockos_market_intelligence');
         const newDataStr = JSON.stringify(parsed);
-        
+
         if (newDataStr !== currentDataStr) {
           setMarketIntelligence(parsed);
-          const now = new Date().toLocaleString('en-IN', { 
-            day: '2-digit', 
-            month: '2-digit', 
-            year: 'numeric', 
-            hour: '2-digit', 
-            minute: '2-digit', 
+          const now = new Date().toLocaleString('en-IN', {
+            day: '2-digit',
+            month: '2-digit',
+            year: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit',
             second: '2-digit',
-            hour12: true 
+            hour12: true
           });
           setLastIntelligenceFetch(now);
           localStorage.setItem('stockos_market_intelligence', newDataStr);
@@ -185,7 +339,7 @@ export default function DashboardPage() {
         ...(indianAssets || []).map(a => ({ ...a, market: 'IN' })),
         ...(usAssets || []).map(a => ({ ...a, market: 'US', asset_type: 'EQUITY' }))
       ];
-      
+
       setSearchResults(combined);
     } catch (err) {
       console.error("[SEARCH] Global search failed:", err);
@@ -195,12 +349,14 @@ export default function DashboardPage() {
   }
 
   useEffect(() => {
-    setMounted(true);
+    if (!mounted) return;
+
+    window.scrollTo(0, 0);
     fetchHoldings();
     fetchHistory();
     fetchIndices();
     fetchMarketIntelligence();
-    
+
     // Subscribe to Realtime Updates for Holdings & History
     const holdingsSubscription = supabase
       .channel('holdings-changes')
@@ -221,13 +377,13 @@ export default function DashboardPage() {
     // Initial fetch
     fetchMarketIntelligence();
 
-    const interval = setInterval(fetchIndices, 30000); // Live update indices every 30s
+    const interval = setInterval(fetchIndices, 60000); // Live update indices every 1 minute (was 30s)
     const intelligenceInterval = setInterval(fetchMarketIntelligence, 3600000); // Auto-refresh intelligence every 1 hour
     const syncInterval = setInterval(() => {
       fetchHoldings();
       fetchHistory();
-    }, 30000); // Bulletproof heartbeat fallback every 30s
-    
+    }, 120000); // Heartbeat fallback every 2 minutes (was 30s)
+
     return () => {
       clearInterval(interval);
       clearInterval(intelligenceInterval);
@@ -235,7 +391,7 @@ export default function DashboardPage() {
       supabase.removeChannel(holdingsSubscription);
       supabase.removeChannel(historySubscription);
     };
-  }, []);
+  }, [mounted]);
 
 
   const totalNetWorth = holdings.reduce((sum, h) => sum + h.market_value, 0);
@@ -265,14 +421,14 @@ export default function DashboardPage() {
     }
 
     const filtered = history.filter(h => new Date(h.timestamp) >= cutoff);
-    
+
     // Only perform date-dependent logic on client
     if (!mounted || filtered.length === 0) return filtered;
-    
+
     // Stitch live point at the end for visual consistency
     const lastPoint = filtered[filtered.length - 1];
     const nowStr = now.toISOString();
-      
+
     // Only append if the last snapshot isn't already from "now"
     if (new Date(lastPoint.timestamp).getTime() < now.getTime() - 60000) {
       return [...filtered, {
@@ -282,7 +438,7 @@ export default function DashboardPage() {
         portfolio_id: lastPoint.portfolio_id
       }];
     }
-    
+
     return filtered;
   }, [history, timeRange, totalNetWorth, mounted]);
 
@@ -311,7 +467,7 @@ export default function DashboardPage() {
 
       {/* Main Dashboard Grid */}
       <section
-        className="pt-[85px] pb-6 px-6 max-w-[1700px] mx-auto w-full grid grid-cols-1 lg:grid-cols-[1fr_400px] gap-8 relative z-10 items-stretch"
+        className="pt-[112px] pb-6 px-12 max-w-full mx-auto w-full grid grid-cols-1 lg:grid-cols-[1fr_560px] gap-10 relative z-10 items-stretch"
       >
         {/* Left Section: Dashboard Content */}
         <motion.div
@@ -338,10 +494,10 @@ export default function DashboardPage() {
             transition={{ duration: 0.8, ease: [0.16, 1, 0.3, 1] }}
             className="grid grid-cols-1 md:grid-cols-[1.5fr_1fr_1fr] gap-8 mb-0 items-end"
           >
-            <div className="relative group col-span-full -mb-5">
+            <div className="relative group col-span-full">
               <div className="flex items-baseline gap-4">
-                <h2 className="font-headline font-black text-6xl tracking-tighter text-white uppercase">VAIBHAV S.</h2>
-                <motion.div 
+                <h2 className="font-headline font-black text-5xl tracking-tighter text-white uppercase">VAIBHAV S.</h2>
+                <motion.div
                   whileHover={{ y: -1, scale: 1.02 }}
                   className="flex items-center gap-2 group/portfolio cursor-pointer px-3 py-1 rounded-full hover:bg-emerald-500/5 transition-all duration-300 border border-transparent hover:border-emerald-500/10"
                 >
@@ -354,7 +510,7 @@ export default function DashboardPage() {
             <div className="relative group">
               <div className="absolute -inset-4 bg-emerald-500/5 blur-3xl rounded-full opacity-0 group-hover:opacity-100 transition-opacity duration-1000" />
               <span className="font-terminal-label uppercase tracking-wider text-[12px] text-emerald-400 block mb-1 font-bold relative z-10">Total Net Worth</span>
-              <h1 className="font-headline font-bold text-5xl md:text-6xl tracking-tighter text-white tabular-nums leading-none relative z-10">
+              <h1 className="font-headline font-bold text-4xl md:text-5xl tracking-tighter text-white tabular-nums leading-none relative z-10">
                 {formatCurrency(totalNetWorth)}
               </h1>
             </div>
@@ -370,9 +526,9 @@ export default function DashboardPage() {
               </div>
             </div>
             <div className="flex flex-col gap-1 border-l border-white/5 pl-6">
-              <span className="font-terminal-label uppercase tracking-wider text-[12px] text-zinc-300 block mb-2 font-bold">Aggregate P/L</span>
+              <span className="font-terminal-label uppercase tracking-wider text-[11px] text-zinc-400 block font-bold">Aggregate P/L</span>
               <div className="flex items-center gap-4">
-                <span className={`font-headline font-bold text-2xl md:text-3xl tabular-nums ${totalPL >= 0 ? 'text-white' : 'text-red-400'}`}>
+                <span className={`font-headline font-bold text-xl md:text-2xl tabular-nums ${totalPL >= 0 ? 'text-white' : 'text-red-400'}`}>
                   {totalPL >= 0 ? '+' : ''}{formatCurrency(totalPL)}
                 </span>
                 <span className="font-terminal-label bg-white/5 border border-white/10 text-white/60 px-2 py-0.5 rounded-[4px] text-[10px] font-bold">
@@ -406,11 +562,10 @@ export default function DashboardPage() {
                   <button
                     key={range}
                     onClick={() => setTimeRange(range)}
-                    className={`px-4 py-1.5 rounded-lg font-terminal-label text-[11px] font-bold tracking-widest border transition-all duration-300 ${
-                      timeRange === range 
-                        ? (rangeIsPositive ? 'bg-emerald-500/20 border-emerald-500/60 text-emerald-400 shadow-[0_0_25px_rgba(16,185,129,0.15)]' : 'bg-red-500/20 border-red-500/60 text-red-400 shadow-[0_0_25px_rgba(239,68,68,0.15)]')
-                        : 'border-white/10 text-white/60 hover:text-white hover:border-white/20 hover:bg-white/5'
-                    }`}
+                    className={`px-4 py-1.5 rounded-lg font-terminal-label text-[11px] font-bold tracking-widest border transition-all duration-300 ${timeRange === range
+                      ? (rangeIsPositive ? 'bg-emerald-500/20 border-emerald-500/60 text-emerald-400 shadow-[0_0_25px_rgba(16,185,129,0.15)]' : 'bg-red-500/20 border-red-500/60 text-red-400 shadow-[0_0_25px_rgba(239,68,68,0.15)]')
+                      : 'border-white/10 text-white/60 hover:text-white hover:border-white/20 hover:bg-white/5'
+                      }`}
                   >
                     {range}
                   </button>
@@ -457,7 +612,7 @@ export default function DashboardPage() {
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-emerald-500/30 group-focus-within:text-emerald-500 transition-colors w-3 h-3" />
                 <input
                   type="text"
-                  placeholder="SEARCH GLOBAL MARKETS..."
+                  placeholder="FILTER HOLDINGS..."
                   value={searchQuery}
                   onChange={(e) => handleSearch(e.target.value)}
                   onFocus={() => {
@@ -556,25 +711,25 @@ export default function DashboardPage() {
                           onClick={() => router.push(`/stocks/${asset.trading_symbol}`)}
                           className="hover:bg-emerald-500/[0.05] transition-all group cursor-pointer border-b border-white/[0.03]"
                         >
-                        <td className="px-8 py-5">
-                          <div className="flex flex-col">
-                            <span className="font-headline font-bold text-sm text-white tracking-tight group-hover:text-emerald-400 transition-colors">{asset.trading_symbol}</span>
-                            <span className="font-terminal-label text-[9px] text-zinc-600 uppercase tracking-widest mt-1">NSE:EQUITY</span>
-                          </div>
-                        </td>
-                        <td className="px-6 py-5 text-right font-data-md text-xs text-white/50 tabular-nums">{asset.quantity}</td>
-                        <td className="px-6 py-5 text-right font-data-md text-xs text-white/50 tabular-nums">{formatCurrency(asset.invested_value)}</td>
-                        <td className="px-6 py-5 text-right font-data-md text-xs text-white tabular-nums">{formatCurrency(asset.market_value)}</td>
-                        <td className="px-8 py-5 text-right">
-                          <div className="flex flex-col items-end">
-                            <span className={`font-data-md text-sm font-bold tabular-nums ${asset.p_l >= 0 ? 'text-emerald-500' : 'text-red-500'}`}>
-                              {asset.p_l >= 0 ? '+' : ''}{formatCurrency(asset.p_l)}
-                            </span>
-                            <span className={`font-terminal-label text-[10px] font-bold tabular-nums mt-1 ${asset.p_l >= 0 ? 'text-emerald-500/40' : 'text-red-500/40'}`}>
-                              {asset.p_l_percentage.toFixed(2)}%
-                            </span>
-                          </div>
-                        </td>
+                          <td className="px-8 py-5">
+                            <div className="flex flex-col">
+                              <span className="font-headline font-bold text-sm text-white tracking-tight group-hover:text-emerald-400 transition-colors">{asset.trading_symbol}</span>
+                              <span className="font-terminal-label text-[9px] text-zinc-600 uppercase tracking-widest mt-1">NSE:EQUITY</span>
+                            </div>
+                          </td>
+                          <td className="px-6 py-5 text-right font-data-md text-xs text-white/50 tabular-nums">{asset.quantity}</td>
+                          <td className="px-6 py-5 text-right font-data-md text-xs text-white/50 tabular-nums">{formatCurrency(asset.invested_value)}</td>
+                          <td className="px-6 py-5 text-right font-data-md text-xs text-white tabular-nums">{formatCurrency(asset.market_value)}</td>
+                          <td className="px-8 py-5 text-right">
+                            <div className="flex flex-col items-end">
+                              <span className={`font-data-md text-sm font-bold tabular-nums ${asset.p_l >= 0 ? 'text-emerald-500' : 'text-red-500'}`}>
+                                {asset.p_l >= 0 ? '+' : ''}{formatCurrency(asset.p_l)}
+                              </span>
+                              <span className={`font-terminal-label text-[10px] font-bold tabular-nums mt-1 ${asset.p_l >= 0 ? 'text-emerald-500/40' : 'text-red-500/40'}`}>
+                                {asset.p_l_percentage.toFixed(2)}%
+                              </span>
+                            </div>
+                          </td>
                         </motion.tr>
                       ))}
                     </AnimatePresence>
@@ -600,83 +755,263 @@ export default function DashboardPage() {
 
         {/* Sidebar: AI Research Assistant */}
         <motion.aside
-          initial={{ opacity: 0, x: 20 }}
-          animate={{ opacity: 1, x: 0 }}
-          transition={{ duration: 0.8, delay: 0.4, ease: [0.16, 1, 0.3, 1] }}
-          className="glass-panel rounded-3xl border border-white/10 flex flex-col sticky top-24 bg-black/40 backdrop-blur-xl overflow-hidden h-full shadow-[0_0_100px_rgba(16,185,129,0.05)]"
+          className="glass-panel rounded-3xl border border-white/10 sticky top-28 bg-[#0a0d14]/80 backdrop-blur-3xl h-full shadow-[0_40px_100px_rgba(0,0,0,0.4)] group/sidebar min-h-[600px]"
         >
-          <div className="flex flex-col h-full overflow-hidden">
-            {/* Terminal Header */}
-            <div className="px-6 py-4 border-b border-emerald-500/10 bg-emerald-500/[0.05] flex items-center justify-between shrink-0">
-              <div className="flex items-center gap-3">
-                <div className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse shadow-[0_0_15px_#10b981]" />
-                <span className="font-terminal-label text-[11px] uppercase tracking-wider text-white font-black flex items-center gap-3">
-                  <TrendingUp className="w-4 h-4 text-emerald-400" />
-                  AI RESEARCH ASSISTANT
+          <div className="absolute inset-0 flex flex-col overflow-hidden z-10">
+            {/* Clean Header */}
+            <div className="px-8 py-6 border-b border-white/5 flex items-center justify-between shrink-0">
+              <div className="flex items-center gap-4">
+                <div className="w-2.5 h-2.5 rounded-full bg-emerald-500 shadow-[0_0_15px_rgba(16,185,129,0.5)]" />
+                <span className="font-headline text-[13px] uppercase tracking-[0.2em] text-white font-bold">
+                  Research Assistant
                 </span>
               </div>
+              <motion.button
+                whileHover={{ rotate: 180 }}
+                transition={{ duration: 0.5 }}
+                onClick={() => setAssistantMessages([{
+                  role: 'assistant',
+                  content: 'Hello! I am ready to help with your market research. Ask me about any stock or portfolio risk.',
+                  timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                  hideFeedback: true
+                }])}
+                className="p-2 rounded-xl bg-white/5 hover:bg-emerald-500/10 text-zinc-500 hover:text-emerald-400 transition-all duration-300"
+              >
+                <RefreshCcw className="w-4 h-4" />
+              </motion.button>
             </div>
 
-            {/* Chat Area */}
-            <div className="flex-grow p-5 overflow-y-auto custom-scrollbar font-data-sm text-[13px] flex flex-col gap-6 selection:bg-emerald-500/40">
-              {/* AI Insight Block */}
-              <div className="flex flex-col gap-3 group">
-                <div className="flex items-center gap-2">
-                  <span className="px-2.5 py-1 rounded bg-emerald-500/20 text-emerald-400 text-[9px] font-black uppercase tracking-wider border border-emerald-500/30 flex items-center gap-2 shadow-[0_0_15px_rgba(16,185,129,0.1)]">
-                    <Cpu className="w-3 h-3" />
-                    INSIGHT
-                  </span>
-                  <span className="text-[9px] text-zinc-600 font-data-sm">09:42:15</span>
-                </div>
-                <div className="p-4 rounded-lg bg-emerald-500/[0.03] border border-emerald-500/10 text-emerald-50 leading-relaxed font-data-md group-hover:bg-emerald-500/[0.05] transition-colors text-[13px]">
-                  <span className="text-emerald-400 font-bold underline decoration-emerald-500/30 underline-offset-4">HDFCBANK</span> analysis complete. Strong accumulation detected.
-                </div>
-              </div>
+            {/* Chat Area - Bottom-Anchored */}
+            <div
+              ref={chatContainerRef}
+              className="flex-grow p-8 overflow-y-auto custom-scrollbar flex flex-col gap-10 scroll-smooth"
+            >
+              <div className="flex-grow" />
+              <AnimatePresence mode="popLayout" initial={false}>
+                {assistantMessages.map((msg, i) => (
+                  <motion.div
+                    key={`${msg.timestamp}-${i}`}
+                    initial={{ opacity: 0, x: msg.role === 'user' ? 20 : -20, scale: 0.95 }}
+                    animate={{ opacity: 1, x: 0, scale: 1 }}
+                    transition={{
+                      type: "spring",
+                      stiffness: 260,
+                      damping: 20
+                    }}
+                    className={cn(
+                      "flex flex-col gap-4",
+                      msg.role === 'user' ? "items-end" : "items-start"
+                    )}
+                  >
+                    <div className="flex items-center gap-3">
+                      <span className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">
+                        {msg.role === 'assistant' ? 'Assistant' : 'You'}
+                      </span>
+                      <span className="text-[10px] text-zinc-700 font-medium tabular-nums uppercase">{msg.timestamp}</span>
+                    </div>
 
-              {/* Forecast Block */}
-              <div className="flex flex-col gap-3">
-                <div className="flex items-center gap-2">
-                  <span className="px-2.5 py-1 rounded bg-blue-500/20 text-blue-400 text-[9px] font-black uppercase tracking-wider border border-blue-500/30 flex items-center gap-2">
-                    FORECAST
-                  </span>
-                </div>
-                <div className="p-4 rounded-lg bg-blue-500/[0.03] border border-blue-500/10 text-blue-50 leading-relaxed font-data-md text-[13px]">
-                  <span className="text-blue-400 font-bold underline decoration-blue-500/30 underline-offset-4">RELIANCE</span> resistance at ₹2,840 remains unbroken.
-                </div>
-              </div>
+                    <div className={cn(
+                      "relative p-6 rounded-3xl text-[15px] leading-[1.6] transition-all duration-500",
+                      msg.role === 'user'
+                        ? "bg-emerald-500/10 border border-emerald-500/20 text-emerald-50 rounded-tr-sm"
+                        : msg.isError
+                          ? "bg-red-500/10 border border-red-500/20 text-red-200 rounded-tl-sm"
+                          : "bg-white/[0.03] border border-white/10 text-zinc-200 rounded-tl-sm shadow-xl"
+                    )}>
+                      <span className="relative z-10 whitespace-pre-wrap">{msg.content}</span>
+
+                      {/* Analysis Data - Premium Staggered Reveal */}
+                      {msg.analysisData && (
+                        <motion.div
+                          initial="hidden"
+                          animate="visible"
+                          variants={{
+                            hidden: { opacity: 0 },
+                            visible: {
+                              opacity: 1,
+                              transition: { staggerChildren: 0.1, delayChildren: 0.4 }
+                            }
+                          }}
+                          className="mt-8 space-y-4 pt-8 border-t border-white/5"
+                        >
+                          <motion.div variants={{ hidden: { opacity: 0, y: 10 }, visible: { opacity: 1, y: 0 } }} className="p-5 rounded-2xl bg-white/[0.02] border border-white/5 hover:border-white/10 transition-colors">
+                            <div className="flex items-center gap-3 mb-3">
+                              <div className="p-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
+                                <Database className="w-3.5 h-3.5 text-emerald-500" />
+                              </div>
+                              <span className="text-[10px] font-bold uppercase tracking-[0.15em] text-zinc-500">Portfolio Breakdown</span>
+                            </div>
+                            <p className="text-[14px] text-white/90 leading-relaxed font-medium">{msg.analysisData.portfolio}</p>
+                          </motion.div>
+
+                          <div className="grid grid-cols-2 gap-4">
+                            <motion.div variants={{ hidden: { opacity: 0, x: -10 }, visible: { opacity: 1, x: 0 } }} className="p-5 rounded-2xl bg-white/[0.02] border border-white/5 hover:border-red-500/10 transition-colors">
+                              <div className="flex items-center gap-3 mb-4">
+                                <div className="p-1.5 rounded-lg bg-red-500/10 border border-red-500/20">
+                                  <ShieldAlert className="w-3.5 h-3.5 text-red-400" />
+                                </div>
+                                <span className="text-[10px] font-bold uppercase tracking-[0.15em] text-zinc-500">Risk Level</span>
+                              </div>
+                              <p className="text-[14px] text-white font-black tracking-tight">{msg.analysisData.risk}</p>
+                            </motion.div>
+                            <motion.div variants={{ hidden: { opacity: 0, x: 10 }, visible: { opacity: 1, x: 0 } }} className="p-5 rounded-2xl bg-white/[0.02] border border-white/5 hover:border-amber-500/10 transition-colors">
+                              <div className="flex items-center gap-3 mb-4">
+                                <div className="p-1.5 rounded-lg bg-amber-500/10 border border-amber-500/20">
+                                  <Lightbulb className="w-3.5 h-3.5 text-amber-400" />
+                                </div>
+                                <span className="text-[10px] font-bold uppercase tracking-[0.15em] text-zinc-500">Action</span>
+                              </div>
+                              <span className={cn(
+                                "text-[12px] font-black px-4 py-1.5 rounded-xl border",
+                                msg.analysisData.action === 'BUY' ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" :
+                                  msg.analysisData.action === 'SELL' ? "bg-red-500/10 text-red-400 border-red-500/20" :
+                                    "bg-amber-500/10 text-amber-400 border-amber-500/20"
+                              )}>
+                                {msg.analysisData.action}
+                              </span>
+                            </motion.div>
+                          </div>
+
+                          <motion.div variants={{ hidden: { opacity: 0, y: 10 }, visible: { opacity: 1, y: 0 } }} className="p-6 rounded-2xl bg-gradient-to-br from-emerald-500/[0.03] to-transparent border border-white/5">
+                            <div className="flex justify-between items-center mb-5">
+                              <span className="text-[10px] font-bold uppercase tracking-[0.15em] text-zinc-500">AI Confidence</span>
+                              <span className="text-[16px] font-black text-emerald-400 tabular-nums">
+                                {msg.analysisData.confidence.score}%
+                              </span>
+                            </div>
+                            <div className="h-2 w-full bg-black/40 rounded-full overflow-hidden mb-5">
+                              <motion.div
+                                initial={{ width: 0 }}
+                                animate={{ width: `${msg.analysisData.confidence.score}%` }}
+                                transition={{ duration: 1.5, ease: "easeOut" }}
+                                className="h-full bg-gradient-to-r from-emerald-600 to-emerald-400 shadow-[0_0_10px_rgba(16,185,129,0.3)]"
+                              />
+                            </div>
+                            <p className="text-[13px] text-zinc-400 leading-relaxed italic border-l-2 border-emerald-500/20 pl-4 py-1">
+                              "{msg.analysisData.confidence.reason}"
+                            </p>
+                          </motion.div>
+                        </motion.div>
+                      )}
+
+                      {/* Interactive Feedback - Nice & Subtle */}
+                      {msg.role === 'assistant' && !msg.isError && !msg.hideFeedback && (
+                        <motion.div
+                          initial={{ opacity: 0, y: 5 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          transition={{ delay: 1 }}
+                          className="mt-6 pt-4 border-t border-white/5 flex items-center justify-between"
+                        >
+                          <span className="text-[11px] text-zinc-500 font-medium">Was this research helpful?</span>
+                          <div className="flex items-center gap-2">
+                            <button
+                              onClick={() => {
+                                // In a real app, send to analytics
+                                setAssistantMessages(prev => prev.map((m, idx) =>
+                                  idx === i ? { ...m, feedbackProvided: 'positive' } : m
+                                ));
+                              }}
+                              className={cn(
+                                "p-2 rounded-lg transition-all",
+                                msg.feedbackProvided === 'positive' ? "bg-emerald-500 text-white" : "bg-white/5 text-zinc-400 hover:text-emerald-400 hover:bg-emerald-500/10"
+                              )}
+                            >
+                              <ThumbsUp className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              onClick={() => {
+                                setAssistantMessages(prev => prev.map((m, idx) =>
+                                  idx === i ? { ...m, feedbackProvided: 'negative' } : m
+                                ));
+                              }}
+                              className={cn(
+                                "p-2 rounded-lg transition-all",
+                                msg.feedbackProvided === 'negative' ? "bg-red-500 text-white" : "bg-white/5 text-zinc-400 hover:text-red-400 hover:bg-red-500/10"
+                              )}
+                            >
+                              <ThumbsDown className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </motion.div>
+                      )}
+
+                      {msg.feedbackProvided && (
+                        <motion.div
+                          initial={{ opacity: 0, scale: 0.9 }}
+                          animate={{ opacity: 1, scale: 1 }}
+                          className="mt-3 text-[11px] text-emerald-500 font-bold tracking-tight italic"
+                        >
+                          Thank you for your feedback!
+                        </motion.div>
+                      )}
+                    </div>
+                  </motion.div>
+                ))}
+
+                {assistantLoading && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, scale: 0.9 }}
+                    className="flex flex-col gap-4 items-start"
+                  >
+                    <div className="flex items-center gap-3">
+                      <motion.div
+                        animate={{ scale: [1, 1.2, 1], opacity: [1, 0.5, 1] }}
+                        transition={{ repeat: Infinity, duration: 1.5 }}
+                        className="w-2 h-2 rounded-full bg-emerald-500 shadow-[0_0_10px_#10b981]"
+                      />
+                      <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-emerald-500">Researching Portfolio...</span>
+                    </div>
+                    <motion.div
+                      animate={{ opacity: [0.6, 1, 0.6] }}
+                      transition={{ repeat: Infinity, duration: 2 }}
+                      className="px-6 py-4 rounded-2xl bg-white/[0.02] border border-white/5 text-zinc-400 text-[14px] leading-relaxed italic"
+                    >
+                      Gathering market intelligence and analyzing your performance...
+                    </motion.div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+
             </div>
 
-            {/* Terminal Input */}
-            <div className="p-5 bg-zinc-950/40 border-t border-emerald-500/10 backdrop-blur-xl shrink-0 mt-auto">
-              <form 
+            {/* Input - Interactive & Animated */}
+            <div className="p-8 bg-black/40 border-t border-white/5 backdrop-blur-2xl shrink-0 mt-auto">
+              <form
                 onSubmit={(e) => {
                   e.preventDefault();
                   const form = e.target as HTMLFormElement;
                   const input = form.elements.namedItem('ticker') as HTMLInputElement;
-                  const val = input.value.toUpperCase().trim();
-                  if (!val) return;
-                  
-                  // Simple Routing Logic
-                  const isUs = val.length <= 5 && !val.includes('.');
-                  if (isUs) {
-                    router.push(`/us-stocks/${val}`);
-                  } else {
-                    router.push(`/stocks/${val.replace('.NS', '')}`);
-                  }
+                  const val = input.value.trim();
+                  if (!val || assistantLoading) return;
+
+                  handleAssistantQuery(val);
+                  input.value = "";
                 }}
-                className="relative group"
+                className="flex items-center gap-2 bg-white/[0.03] border border-white/10 rounded-2xl px-4 py-2 focus-within:border-emerald-500/50 focus-within:bg-white/[0.05] transition-all group"
               >
-                <Terminal className="absolute left-4 top-1/2 -translate-y-1/2 text-emerald-500/50 group-focus-within:text-emerald-400 transition-colors w-4 h-4" />
-                <input 
+                <input
                   name="ticker"
                   type="text"
-                  placeholder="Analyze ticker..."
+                  placeholder="Ask a question or enter a ticker..."
                   autoComplete="off"
-                  className="w-full bg-black/40 border border-emerald-500/10 rounded-full px-10 py-3.5 text-[12px] text-emerald-100 placeholder:text-emerald-500/20 focus:outline-none focus:border-emerald-500/40 focus:ring-1 focus:ring-emerald-500/40 transition-all font-data-md"
+                  disabled={assistantLoading}
+                  className="flex-grow bg-transparent py-2 text-[14px] text-white placeholder:text-zinc-600 focus:outline-none disabled:opacity-30"
                 />
-                <button type="submit" className="absolute right-4 top-1/2 -translate-y-1/2 text-emerald-500/50 hover:text-emerald-400 transition-colors">
-                  <Send className="w-4 h-4" />
-                </button>
+                <motion.button
+                  type="submit"
+                  disabled={assistantLoading}
+                  whileHover={{ x: 3 }}
+                  whileTap={{ x: -1 }}
+                  className="p-2 rounded-xl text-emerald-500 hover:bg-emerald-500/10 transition-all disabled:opacity-30 shrink-0"
+                >
+                  {assistantLoading ? (
+                    <RefreshCcw className="w-4 h-4 animate-spin text-emerald-500/50" />
+                  ) : (
+                    <Send className="w-5 h-5" />
+                  )}
+                </motion.button>
               </form>
             </div>
           </div>
@@ -684,7 +1019,7 @@ export default function DashboardPage() {
       </section>
 
       {/* Full-Width Market Intelligence Feed */}
-      <div className="max-w-[1700px] mx-auto px-6 pb-16">
+      <div className="max-w-full mx-auto px-12 pb-16">
         <motion.section
           initial={{ opacity: 0, y: 40 }}
           whileInView={{ opacity: 1, y: 0 }}
@@ -727,7 +1062,7 @@ export default function DashboardPage() {
                   <span className="text-[9px] font-black uppercase tracking-wider text-emerald-400 animate-pulse">Updating Insights</span>
                 </div>
               )}
-              <button 
+              <button
                 onClick={fetchMarketIntelligence}
                 disabled={intelligenceLoading}
                 className="p-2.5 rounded-full bg-white/5 border border-white/10 text-zinc-400 hover:text-emerald-500 hover:border-emerald-500/30 transition-all disabled:opacity-50 group"
@@ -740,7 +1075,7 @@ export default function DashboardPage() {
           <div className="p-6 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 relative">
             <AnimatePresence mode="popLayout">
               {intelligenceLoading && !marketIntelligence ? (
-                <motion.div 
+                <motion.div
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
                   exit={{ opacity: 0 }}
@@ -753,7 +1088,7 @@ export default function DashboardPage() {
                   <div className="flex flex-col items-center gap-3">
                     <span className="font-terminal-label text-[11px] uppercase tracking-widest text-emerald-400 animate-pulse font-bold">Analyzing Market Trends</span>
                     <div className="w-80 h-[1px] bg-white/5 relative overflow-hidden">
-                      <motion.div 
+                      <motion.div
                         initial={{ left: '-100%' }}
                         animate={{ left: '100%' }}
                         transition={{ repeat: Infinity, duration: 2.5, ease: "linear" }}
@@ -764,7 +1099,7 @@ export default function DashboardPage() {
                 </motion.div>
               ) : marketIntelligence?.sectors ? (
                 marketIntelligence.sectors.map((sector: any, idx: number) => (
-                  <motion.div 
+                  <motion.div
                     key={sector.sectorName || idx}
                     initial={{ opacity: 0, scale: 0.98, y: 20 }}
                     animate={{ opacity: 1, scale: 1, y: 0 }}
@@ -772,7 +1107,7 @@ export default function DashboardPage() {
                     className="group"
                   >
                     <div className="glass-panel p-5 rounded-2xl border border-white/[0.03] group-hover:border-emerald-500/30 transition-all duration-500 flex flex-col gap-5 h-full bg-black/20 relative overflow-hidden">
-                      
+
                       {/* Background Accents */}
                       <div className="absolute -right-8 -top-8 opacity-[0.02] group-hover:opacity-[0.05] transition-opacity pointer-events-none">
                         <TrendingUp className={cn(
@@ -785,9 +1120,9 @@ export default function DashboardPage() {
                         <div className="space-y-3">
                           <div className={cn(
                             "text-[10px] font-black uppercase tracking-wider px-3 py-1.5 rounded-lg border w-fit shadow-2xl backdrop-blur-md",
-                            sector.sentiment === "BULLISH" ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" : 
-                            sector.sentiment === "BEARISH" ? "bg-red-500/10 text-red-400 border-red-500/20" : 
-                            "bg-zinc-800/40 text-zinc-400 border-zinc-700/50"
+                            sector.sentiment === "BULLISH" ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" :
+                              sector.sentiment === "BEARISH" ? "bg-red-500/10 text-red-400 border-red-500/20" :
+                                "bg-zinc-800/40 text-zinc-400 border-zinc-700/50"
                           )}>
                             {sector.sectorName}
                           </div>
@@ -796,8 +1131,8 @@ export default function DashboardPage() {
                               <div className={cn(
                                 "w-1.5 h-1.5 rounded-full",
                                 sector.riskLevel === "Low" ? "bg-emerald-500 shadow-[0_0_8px_#10b981]" :
-                                sector.riskLevel === "Medium" ? "bg-yellow-500 shadow-[0_0_8px_#f59e0b]" :
-                                "bg-red-500 shadow-[0_0_8px_#ef4444]"
+                                  sector.riskLevel === "Medium" ? "bg-yellow-500 shadow-[0_0_8px_#f59e0b]" :
+                                    "bg-red-500 shadow-[0_0_8px_#ef4444]"
                               )} />
                               <span className="text-[9px] uppercase tracking-wider text-zinc-500 font-black">
                                 {sector.riskLevel} Risk
@@ -829,7 +1164,7 @@ export default function DashboardPage() {
                           </div>
                           <div className="grid grid-cols-2 gap-3">
                             {sector.topStocks.map((stock: any, sIdx: number) => (
-                              <motion.div 
+                              <motion.div
                                 key={stock.symbol || sIdx}
                                 onClick={() => {
                                   const sym = stock.symbol.toUpperCase();
@@ -875,7 +1210,7 @@ export default function DashboardPage() {
           </div>
 
           {(marketIntelligence?.actionableInsights || marketIntelligence?.marketRisks || marketIntelligence?.executiveSummary) && (
-            <motion.div 
+            <motion.div
               initial={{ opacity: 0 }}
               whileInView={{ opacity: 1 }}
               className="p-8 bg-emerald-500/[0.02] border-t border-white/5 grid grid-cols-1 lg:grid-cols-3 gap-10"
