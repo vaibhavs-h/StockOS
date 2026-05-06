@@ -23,7 +23,8 @@ export function MarketTicker() {
     if (pathname === '/') return;
     const fetchIndices = async () => {
       try {
-        const res = await axios.get('http://localhost:3003/api/indices');
+        const engineUrl = process.env.NEXT_PUBLIC_ENGINE_URL || 'http://localhost:3003';
+        const res = await axios.get(`${engineUrl}/api/indices`);
         setIndices(res.data);
       } catch (err) {
         setIndices([

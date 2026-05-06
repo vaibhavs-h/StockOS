@@ -83,7 +83,7 @@ app.get('/api/stocks/:symbol/history', async (req, res) => {
     // Auto-detect indices if prefix is missing
     let yahooSymbol = symbol;
     const commonIndices = ['NSEI', 'BSESN', 'NSEBANK', 'CNXIT', 'CNXAUTO', 'CNXMETAL', 'CNXPHARMA', 'CNXFMCG', 'CNXREALTY', 'CNXINFRA', 'CNXENERGY'];
-    
+
     if (commonIndices.includes(symbol.toUpperCase())) {
       yahooSymbol = `^${symbol.toUpperCase()}`;
     } else if (!symbol.includes('.') && !symbol.startsWith('^')) {
@@ -94,7 +94,7 @@ app.get('/api/stocks/:symbol/history', async (req, res) => {
     const range = (req.query.range as string) || '1Y';
     const period2 = new Date();
     const period1 = new Date();
-    let interval: '1m'|'2m'|'5m'|'15m'|'30m'|'60m'|'90m'|'1h'|'1d'|'5d'|'1wk'|'1mo'|'3mo' = '1d';
+    let interval: '1m' | '2m' | '5m' | '15m' | '30m' | '60m' | '90m' | '1h' | '1d' | '5d' | '1wk' | '1mo' | '3mo' = '1d';
 
     if (range === '1D') {
       period1.setDate(period1.getDate() - 4); // Extra buffer for holidays
@@ -127,7 +127,7 @@ app.get('/api/stocks/:symbol/history', async (req, res) => {
 
     // 4. Format for WealthChart { time, value }
     const isIntraday = interval.includes('m') || interval.includes('h');
-    
+
     // Separate range target for slicing
     const rangeTarget = new Date();
     if (range === '1D') rangeTarget.setDate(rangeTarget.getDate() - 1);
@@ -137,10 +137,10 @@ app.get('/api/stocks/:symbol/history', async (req, res) => {
     else if (range === 'ALL') rangeTarget.setFullYear(rangeTarget.getFullYear() - 10);
 
     const allQuotes = result.quotes.filter((c: any) => c.close !== null);
-    
+
     // Find the "Anchor Point" (last quote BEFORE the range starts)
     const anchorQuote = allQuotes.filter((q: any) => new Date(q.date) < rangeTarget).pop();
-    
+
     // Get actual quotes WITHIN the range
     let filteredQuotes = allQuotes.filter((q: any) => new Date(q.date) >= rangeTarget);
 
@@ -150,15 +150,15 @@ app.get('/api/stocks/:symbol/history', async (req, res) => {
     }
 
     const formatted = filteredQuotes.map((c: any) => {
-        const time = isIntraday 
-          ? Math.floor(new Date(c.date).getTime() / 1000)
-          : c.date.toISOString().split('T')[0];
-        
-        return {
-          time,
-          value: c.close
-        };
-      });
+      const time = isIntraday
+        ? Math.floor(new Date(c.date).getTime() / 1000)
+        : c.date.toISOString().split('T')[0];
+
+      return {
+        time,
+        value: c.close
+      };
+    });
 
     // 5. UNIVERSAL LIVE-STITCHING: Ensure the final point ALWAYS matches the live database price
     if (formatted.length > 0) {
@@ -261,13 +261,13 @@ async function performSync() {
   } catch (err: any) {
     const status = err.response?.status || 'Unknown';
     console.warn(`\n[FAILOVER] Groww API unreachable (${status}). Switching to Backup mode...`);
-    
+
     // FALLBACK: Fetch last known holdings from our own DB
     const { data: dbHoldings, error: dbError } = await supabase
       .from('holdings')
       .select('*')
       .eq('portfolio_id', portfolioId);
-    
+
     if (dbError || !dbHoldings || dbHoldings.length === 0) {
       console.error("[FATAL] Failover failed: No local backup data found in database.");
       return;
@@ -288,150 +288,150 @@ async function performSync() {
     return;
   }
 
-    // 4. Enrich & Verify with Market Assets (Our Internal Source of Truth)
-    const enriched = [];
-    const holdingsSymbols = rawHoldings.map((h: any) => {
-      const s = h.trading_symbol || h.symbol;
-      const t = s.includes(':') ? s.split(':')[1] : s;
-      return t.endsWith('.NS') ? t : `${t}.NS`;
+  // 4. Enrich & Verify with Market Assets (Our Internal Source of Truth)
+  const enriched = [];
+  const holdingsSymbols = rawHoldings.map((h: any) => {
+    const s = h.trading_symbol || h.symbol;
+    const t = s.includes(':') ? s.split(':')[1] : s;
+    return t.endsWith('.NS') ? t : `${t}.NS`;
+  });
+
+  console.log(`[BACKUP] Syncing prices for ${holdingsSymbols.length} holdings via Internal Market Data...`);
+
+  // Fetch all market assets for fuzzy/normalized matching
+  // (This ensures "RELIANCE.NS" matches "RELIANCE" and "Reliance (RELIANCE)")
+  const { data: allMarketData } = await supabase
+    .from('market_assets')
+    .select('symbol, current_price, day_change, prev_close');
+
+  // Create a hyper-compatible map with every possible key variant
+  const marketMap = new Map();
+  (allMarketData || []).forEach(m => {
+    const raw = m.symbol;
+    const dotNS = raw.endsWith('.NS') ? raw : `${raw}.NS`;
+    const noNS = raw.endsWith('.NS') ? raw.replace('.NS', '') : raw;
+
+    // Extract ticker from parentheses if present (e.g. "Reliance (RELIANCE)")
+    const match = raw.match(/\(([^)]+)\)/);
+    const parenTicker = match ? match[1] : null;
+
+    const keys = [raw, dotNS, noNS];
+    if (parenTicker) {
+      keys.push(parenTicker);
+      keys.push(`${parenTicker}.NS`);
+    }
+
+    keys.forEach(k => {
+      if (k && !marketMap.has(k)) marketMap.set(k, m);
     });
+  });
 
-    console.log(`[BACKUP] Syncing prices for ${holdingsSymbols.length} holdings via Internal Market Data...`);
-    
-    // Fetch all market assets for fuzzy/normalized matching
-    // (This ensures "RELIANCE.NS" matches "RELIANCE" and "Reliance (RELIANCE)")
-    const { data: allMarketData } = await supabase
-      .from('market_assets')
-      .select('symbol, current_price, day_change, prev_close');
+  // Identify symbols missing from our internal table to fetch from Yahoo
+  const missingSymbols = holdingsSymbols.filter((s: string) => !marketMap.has(s));
+  let yahooMap = new Map();
 
-    // Create a hyper-compatible map with every possible key variant
-    const marketMap = new Map();
-    (allMarketData || []).forEach(m => {
-      const raw = m.symbol;
-      const dotNS = raw.endsWith('.NS') ? raw : `${raw}.NS`;
-      const noNS = raw.endsWith('.NS') ? raw.replace('.NS', '') : raw;
-      
-      // Extract ticker from parentheses if present (e.g. "Reliance (RELIANCE)")
-      const match = raw.match(/\(([^)]+)\)/);
-      const parenTicker = match ? match[1] : null;
+  if (missingSymbols.length > 0) {
+    console.log(`[INFO] Fetching ${missingSymbols.length} niche assets from Yahoo Finance...`);
+    const liveQuotes = await yahooFinance.quote(missingSymbols);
+    yahooMap = new Map(liveQuotes.map((q: any) => [q.symbol, q]));
+  }
 
-      const keys = [raw, dotNS, noNS];
-      if (parenTicker) {
-        keys.push(parenTicker);
-        keys.push(`${parenTicker}.NS`);
-      }
+  for (const item of rawHoldings) {
+    try {
+      const symbol = item.trading_symbol || item.symbol;
+      const ticker = symbol.includes(':') ? symbol.split(':')[1] : symbol;
+      const yahooSymbol = ticker.endsWith('.NS') ? ticker : `${ticker}.NS`;
 
-      keys.forEach(k => {
-        if (k && !marketMap.has(k)) marketMap.set(k, m);
+      // Priority: 1. Internal Market Table | 2. Yahoo Finance | 3. Groww Fallback
+      const internal = marketMap.get(yahooSymbol) || marketMap.get(ticker);
+      const external = yahooMap.get(yahooSymbol);
+
+      const price = internal?.current_price || external?.regularMarketPrice || parseFloat(item.market_price || item.last_traded_price || 0);
+      const prevClose = internal?.prev_close || external?.regularMarketPreviousClose || price;
+      const dayChangeVal = internal?.day_change || (external ? (external.regularMarketPrice - external.regularMarketPreviousClose) : 0);
+
+      const invested = item.quantity * item.average_price;
+      const marketValue = item.quantity * price;
+      const dayChange = dayChangeVal * item.quantity;
+
+      // Generate a deterministic UUID from portfolioId-symbol to satisfy DB UUID constraint
+      const hash = crypto.createHash('md5').update(`${portfolioId}-${symbol}`).digest('hex');
+      const deterministicId = `${hash.slice(0, 8)}-${hash.slice(8, 12)}-${hash.slice(12, 16)}-${hash.slice(16, 20)}-${hash.slice(20)}`;
+
+      enriched.push({
+        id: deterministicId,
+        portfolio_id: portfolioId,
+        trading_symbol: symbol,
+        quantity: item.quantity,
+        average_price: item.average_price,
+        last_price: price,
+        invested_value: invested,
+        market_value: marketValue,
+        p_l: marketValue - invested,
+        p_l_percentage: invested > 0 ? ((marketValue - invested) / invested) * 100 : 0,
+        day_change: dayChange,
+        day_change_percentage: prevClose > 0 ? ((price - prevClose) / prevClose) * 100 : 0,
+        updated_at: new Date().toISOString()
       });
-    });
-    
-    // Identify symbols missing from our internal table to fetch from Yahoo
-    const missingSymbols = holdingsSymbols.filter((s: string) => !marketMap.has(s));
-    let yahooMap = new Map();
-    
-    if (missingSymbols.length > 0) {
-      console.log(`[INFO] Fetching ${missingSymbols.length} niche assets from Yahoo Finance...`);
-      const liveQuotes = await yahooFinance.quote(missingSymbols);
-      yahooMap = new Map(liveQuotes.map((q: any) => [q.symbol, q]));
+    } catch (e: any) {
+      console.error(`[ERROR] Enrichment failed for ${item.trading_symbol}:`, e.message);
     }
+  }
 
-    for (const item of rawHoldings) {
-      try {
-        const symbol = item.trading_symbol || item.symbol;
-        const ticker = symbol.includes(':') ? symbol.split(':')[1] : symbol;
-        const yahooSymbol = ticker.endsWith('.NS') ? ticker : `${ticker}.NS`;
-        
-        // Priority: 1. Internal Market Table | 2. Yahoo Finance | 3. Groww Fallback
-        const internal = marketMap.get(yahooSymbol) || marketMap.get(ticker);
-        const external = yahooMap.get(yahooSymbol);
+  // 5. Atomic Update: Deterministic Upsert
+  console.log("\n==================================================");
+  console.log(`[PORTFOLIO] Executing Verified Upsert for ${portfolioId}`);
+  console.log("==================================================");
 
-        const price = internal?.current_price || external?.regularMarketPrice || parseFloat(item.market_price || item.last_traded_price || 0);
-        const prevClose = internal?.prev_close || external?.regularMarketPreviousClose || price;
-        const dayChangeVal = internal?.day_change || (external ? (external.regularMarketPrice - external.regularMarketPreviousClose) : 0);
+  const { error: insError } = await supabase.from('holdings').upsert(enriched, { onConflict: 'id' });
+  if (insError) throw insError;
 
-        const invested = item.quantity * item.average_price;
-        const marketValue = item.quantity * price;
-        const dayChange = dayChangeVal * item.quantity;
+  console.log(`[SUCCESS] Synchronized ${enriched.length} holdings:`);
+  enriched.forEach(h => {
+    console.log(`  → ${h.trading_symbol.padEnd(12)} | Qty: ${h.quantity.toString().padEnd(5)} | Price: ₹${h.last_price.toLocaleString('en-IN').padEnd(10)} | Day P/L: ${h.day_change >= 0 ? '+' : ''}₹${h.day_change.toLocaleString('en-IN')}`);
+  });
+  console.log("--------------------------------------------------");
 
-        // Generate a deterministic UUID from portfolioId-symbol to satisfy DB UUID constraint
-        const hash = crypto.createHash('md5').update(`${portfolioId}-${symbol}`).digest('hex');
-        const deterministicId = `${hash.slice(0, 8)}-${hash.slice(8, 12)}-${hash.slice(12, 16)}-${hash.slice(16, 20)}-${hash.slice(20)}`;
+  // 6. Portfolio History (One record per Financial Day)
+  // 9 AM IST to 9 AM IST Logic (9 AM IST = 03:30 UTC)
+  // We subtract 3.5 hours to determine the current "Financial Day"
+  const now = new Date();
+  const financialDate = new Date(now.getTime() - (3 * 60 + 30) * 60 * 1000);
+  const logicalDay = financialDate.toISOString().split('T')[0];
 
-        enriched.push({
-          id: deterministicId,
-          portfolio_id: portfolioId,
-          trading_symbol: symbol,
-          quantity: item.quantity,
-          average_price: item.average_price,
-          last_price: price,
-          invested_value: invested,
-          market_value: marketValue,
-          p_l: marketValue - invested,
-          p_l_percentage: invested > 0 ? ((marketValue - invested) / invested) * 100 : 0,
-          day_change: dayChange,
-          day_change_percentage: prevClose > 0 ? ((price - prevClose) / prevClose) * 100 : 0,
-          updated_at: new Date().toISOString()
-        });
-      } catch (e: any) {
-        console.error(`[ERROR] Enrichment failed for ${item.trading_symbol}:`, e.message);
-      }
-    }
+  const totalInv = enriched.reduce((sum, h) => sum + h.invested_value, 0);
+  const totalMkt = enriched.reduce((sum, h) => sum + h.market_value, 0);
+  const totalPL = enriched.reduce((sum, h) => sum + h.p_l, 0);
 
-    // 5. Atomic Update: Deterministic Upsert
-    console.log("\n==================================================");
-    console.log(`[PORTFOLIO] Executing Verified Upsert for ${portfolioId}`);
-    console.log("==================================================");
-    
-    const { error: insError } = await supabase.from('holdings').upsert(enriched, { onConflict: 'id' });
-    if (insError) throw insError;
+  // Robust Purge: Remove ANY existing record for this financial day
+  const { error: historyDelError } = await supabase
+    .from('portfolio_history')
+    .delete()
+    .eq('portfolio_id', portfolioId)
+    .gte('timestamp', `${logicalDay}T00:00:00.000Z`)
+    .lte('timestamp', `${logicalDay}T23:59:59.999Z`);
 
-    console.log(`[SUCCESS] Synchronized ${enriched.length} holdings:`);
-    enriched.forEach(h => {
-      console.log(`  → ${h.trading_symbol.padEnd(12)} | Qty: ${h.quantity.toString().padEnd(5)} | Price: ₹${h.last_price.toLocaleString('en-IN').padEnd(10)} | Day P/L: ${h.day_change >= 0 ? '+' : ''}₹${h.day_change.toLocaleString('en-IN')}`);
-    });
-    console.log("--------------------------------------------------");
+  if (historyDelError) {
+    console.error("[ERROR] Failed to purge old history for financial day:", historyDelError.message);
+  }
 
-    // 6. Portfolio History (One record per Financial Day)
-    // 9 AM IST to 9 AM IST Logic (9 AM IST = 03:30 UTC)
-    // We subtract 3.5 hours to determine the current "Financial Day"
-    const now = new Date();
-    const financialDate = new Date(now.getTime() - (3 * 60 + 30) * 60 * 1000);
-    const logicalDay = financialDate.toISOString().split('T')[0];
+  const { error: histError } = await supabase.from('portfolio_history').insert([{
+    portfolio_id: portfolioId,
+    total_investment: totalInv,
+    total_market_value: totalMkt,
+    total_p_l: totalPL,
+    p_l_percentage: totalInv > 0 ? (totalPL / totalInv) * 100 : 0,
+    timestamp: now.toISOString() // Record the actual real-world sync time
+  }]);
 
-    const totalInv = enriched.reduce((sum, h) => sum + h.invested_value, 0);
-    const totalMkt = enriched.reduce((sum, h) => sum + h.market_value, 0);
-    const totalPL = enriched.reduce((sum, h) => sum + h.p_l, 0);
-
-    // Robust Purge: Remove ANY existing record for this financial day
-    const { error: historyDelError } = await supabase
-      .from('portfolio_history')
-      .delete()
-      .eq('portfolio_id', portfolioId)
-      .gte('timestamp', `${logicalDay}T00:00:00.000Z`)
-      .lte('timestamp', `${logicalDay}T23:59:59.999Z`);
-
-    if (historyDelError) {
-      console.error("[ERROR] Failed to purge old history for financial day:", historyDelError.message);
-    }
-
-    const { error: histError } = await supabase.from('portfolio_history').insert([{
-      portfolio_id: portfolioId,
-      total_investment: totalInv,
-      total_market_value: totalMkt,
-      total_p_l: totalPL,
-      p_l_percentage: totalInv > 0 ? (totalPL / totalInv) * 100 : 0,
-      timestamp: now.toISOString() // Record the actual real-world sync time
-    }]);
-
-    if (histError) {
-      console.error("[ERROR] Failed to record history snapshot:", histError.message);
-    } else {
-      console.log(`[SUCCESS] Snapshot recorded for ${logicalDay}`);
-    }
+  if (histError) {
+    console.error("[ERROR] Failed to record history snapshot:", histError.message);
+  } else {
+    console.log(`[SUCCESS] Snapshot recorded for ${logicalDay}`);
+  }
 
 
-    console.log(`[INFO] Synchronized ${enriched.length} assets for user and recorded history snapshot.`);
+  console.log(`[INFO] Synchronized ${enriched.length} assets for user and recorded history snapshot.`);
 }
 
 import YahooFinance from 'yahoo-finance2';
@@ -459,7 +459,7 @@ async function syncMarketAssets(fullSync = false) {
     { s: '^CNXREALTY', n: 'NIFTY REALTY', t: 'INDEX' },
     { s: '^CNXINFRA', n: 'NIFTY INFRA', t: 'INDEX' },
     { s: '^CNXENERGY', n: 'NIFTY ENERGY', t: 'INDEX' },
-    
+
     // Nifty 50 Constituents
     { s: 'RELIANCE.NS', n: 'Reliance Industries', t: 'STOCK' },
     { s: 'TCS.NS', n: 'Tata Consultancy Services', t: 'STOCK' },
@@ -516,11 +516,11 @@ async function syncMarketAssets(fullSync = false) {
       // BATCH LIVE QUOTES
       const symbols = assetList.map(a => a.s);
       const quotes = await yahooFinance.quote(symbols);
-      
+
       for (const q of quotes) {
         const symbol = q.symbol.replace('.NS', '').replace('^', '').toUpperCase();
         const assetInfo = assetList.find(a => a.s.replace('.NS', '').replace('^', '').toUpperCase() === symbol);
-        
+
         if (!q.regularMarketPrice) {
           console.warn(`[WARN] Skipping index update for ${symbol}: No live price returned.`);
           continue;
@@ -539,10 +539,10 @@ async function syncMarketAssets(fullSync = false) {
           volume: q.regularMarketVolume,
           updated_at: new Date().toISOString()
         };
-        
+
         // Surgical update: only provided columns will be updated, existing deep data is preserved.
         const { error } = await supabase.from('market_assets').upsert(payload, { onConflict: 'symbol' });
-        
+
         if (error) {
           console.error(`[ERROR] DB update failed for ${symbol}:`, error.message);
         } else {
@@ -561,12 +561,12 @@ async function syncMarketAssets(fullSync = false) {
         try {
           const isIndex = item.t === 'INDEX';
           const symbol = item.s.replace('.NS', '').replace('^', '');
-          
+
           // Indices use fewer modules
-          const modules = isIndex 
-            ? ['summaryDetail'] 
+          const modules = isIndex
+            ? ['summaryDetail']
             : ['summaryProfile', 'summaryDetail', 'defaultKeyStatistics', 'financialData', 'recommendationTrend'];
-          
+
           const q = await yahooFinance.quote(item.s);
           const summary = await yahooFinance.quoteSummary(item.s, { modules: modules as any });
 
@@ -575,7 +575,7 @@ async function syncMarketAssets(fullSync = false) {
           const ks = (summary.defaultKeyStatistics || {}) as any;
           const fd = (summary.financialData || {}) as any;
           const rt = (summary.recommendationTrend?.trend?.[0] || {}) as any;
-          
+
           // 3. HYBRID ENRICHMENT: Fallback to Groww for missing Indian balance sheet data
           if (!isIndex && (!fd.ebitda || !fd.totalDebt || !fd.freeCashflow)) {
             try {
@@ -588,13 +588,13 @@ async function syncMarketAssets(fullSync = false) {
 
               // Groww Public API for deep fundamentals
               const growwRes = await axios.get(`https://groww.in/v1/api/stocks_data/v1/company/search_id/${slug}`, {
-                headers: { 
+                headers: {
                   'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
                   'Accept': 'application/json'
                 },
                 timeout: 5000
               });
-              
+
               const gData = growwRes.data;
               if (gData && gData.stats) {
                 const gs = gData.stats;
@@ -605,7 +605,7 @@ async function syncMarketAssets(fullSync = false) {
                 if (!fd.returnOnEquity) fd.returnOnEquity = (gs.roe || 0) / 100;
                 if (!fd.quickRatio) fd.quickRatio = gs.quickRatio || null;
                 if (!fd.currentRatio) fd.currentRatio = gs.currentRatio || null;
-                
+
                 if (!sp.sector) sp.sector = gData.header?.sectorName || null;
                 if (!sp.industry) sp.industry = gData.header?.industryName || null;
                 if (!sp.longBusinessSummary) sp.longBusinessSummary = gData.header?.description || null;
@@ -667,10 +667,10 @@ async function syncMarketAssets(fullSync = false) {
             ma_200: q.twoHundredDayAverage,
             updated_at: new Date().toISOString()
           };
-          
+
           const { error } = await supabase.from('market_assets').upsert(payload, { onConflict: 'symbol' });
           if (error) console.error(`[DB ERROR] ${symbol}:`, error.message);
-          
+
           // Wait 2000ms (Stealth Mode) to avoid rate limits
           await new Promise(r => setTimeout(r, 2000));
         } catch (e: any) {
@@ -694,9 +694,9 @@ function isMarketOpen() {
   return (hour === 9 && minute >= 15) || (hour > 9 && hour < 15) || (hour === 15 && minute <= 30);
 }
 
-const PORT = process.env.PORT || 3003;
-app.listen(PORT, async () => {
-  console.log(`[SERVER] StockOS Engine running on port ${PORT}`);
+const PORT = Number(process.env.PORT) || 10000;
+app.listen(PORT, '0.0.0.0', async () => {
+  console.log(`[SERVER] StockOS Engine running on 0.0.0.0:${PORT}`);
 
   // 0. WARM START: Sync immediately on startup
   console.log("[WARM START] Initializing engine state...");
@@ -725,3 +725,4 @@ app.listen(PORT, async () => {
     }
   }, { timezone: "Asia/Kolkata" });
 });
+
