@@ -3,6 +3,7 @@ import express from 'express';
 import cors from 'cors';
 import axios from 'axios';
 import { createClient } from '@supabase/supabase-js';
+import { DOW_30, INDIAN_ASSETS } from '../constants/market-constants';
 import { TOTP, generate } from 'otplib';
 import cron from 'node-cron';
 import crypto from 'crypto';
@@ -38,7 +39,9 @@ app.get('/api/indices', async (req, res) => {
       { s: '^NSEBANK', n: 'BANK NIFTY' },
       { s: 'USDINR=X', n: 'USD / INR', type: 'currency' },
       { s: '^DJI', n: 'DOW JONES' },
-      { s: '^GSPC', n: 'S&P 500' }
+      { s: '^GSPC', n: 'S&P 500' },
+      { s: '^IXIC', n: 'NASDAQ 100' },
+      { s: '^VIX', n: 'VIX' }
     ];
 
     const results = await Promise.all(symbols.map(async (item) => {
@@ -76,18 +79,41 @@ app.get('/api/indices', async (req, res) => {
   }
 });
 
-app.get('/api/stocks/:symbol/history', async (req, res) => {
-  const { symbol } = req.params;
+app.get(['/api/stocks/:symbol/history', '/api/us-stocks/:symbol/history'], async (req, res) => {
+  const symbol = req.params.symbol as string;
+  const isUsExplicit = req.path.includes('/us-stocks/');
   try {
     // 1. Format symbol for Yahoo
     // Auto-detect indices if prefix is missing
-    let yahooSymbol = symbol;
+    let isUsStock = false;
+    let yahooSymbol = symbol.toUpperCase();
     const commonIndices = ['NSEI', 'BSESN', 'NSEBANK', 'CNXIT', 'CNXAUTO', 'CNXMETAL', 'CNXPHARMA', 'CNXFMCG', 'CNXREALTY', 'CNXINFRA', 'CNXENERGY'];
+    
+    // Unified Market Logic
+    const s = symbol.toUpperCase().replace('.NS', '').replace('^', '');
+    const isExplicitIndian = commonIndices.includes(s) || [
+      'RELIANCE', 'TCS', 'HDFCBANK', 'INFY', 'ICICIBANK', 'HINDUNILVR', 'ITC', 'SBIN', 'BHARTIARTL', 'KOTAKBANK',
+      'LT', 'AXISBANK', 'BAJFINANCE', 'ASIANPAINT', 'MARUTI', 'TITAN', 'ADANIENT', 'SUNPHARMA', 'ULTRACEMCO', 'WIPRO',
+      'M&M', 'NTPC', 'POWERGRID', 'INDUSINDBK', 'NESTLEIND'
+    ].includes(s);
 
-    if (commonIndices.includes(symbol.toUpperCase())) {
-      yahooSymbol = `^${symbol.toUpperCase()}`;
+    const isUsQuery = req.query.isUsStock === 'true';
+    
+    if (commonIndices.includes(s)) {
+      yahooSymbol = `^${s}`;
+    } else if (isUsExplicit || isUsQuery || (DOW_30.some(d => d.s === s) && !isExplicitIndian)) {
+      yahooSymbol = s;
+      isUsStock = true;
+    } else if (isExplicitIndian) {
+      yahooSymbol = `${s}.NS`;
     } else if (!symbol.includes('.') && !symbol.startsWith('^')) {
-      yahooSymbol = `${symbol}.NS`;
+      const isLikelyUs = s.length <= 5;
+      if (isLikelyUs) {
+        yahooSymbol = s;
+        isUsStock = true;
+      } else {
+        yahooSymbol = `${s}.NS`;
+      }
     }
 
     // 2. Parse range and set time periods/intervals
@@ -163,10 +189,15 @@ app.get('/api/stocks/:symbol/history', async (req, res) => {
     // 5. UNIVERSAL LIVE-STITCHING: Ensure the final point ALWAYS matches the live database price
     if (formatted.length > 0) {
       try {
+        const tableName = isUsStock ? 'us_market_assets' : 'market_assets';
+        const searchSymbol = isUsStock ? symbol.toUpperCase() : symbol;
+        
+        console.log(`[STITCH] Fetching live price for ${searchSymbol} from ${tableName}`);
+        
         const { data: liveData } = await supabase
-          .from('market_assets')
+          .from(tableName)
           .select('current_price')
-          .eq('symbol', symbol)
+          .eq('symbol', searchSymbol)
           .single();
 
         if (liveData && liveData.current_price) {
@@ -216,6 +247,7 @@ app.post('/api/sync', async (req, res) => {
 app.post('/api/market-seed', async (req, res) => {
   console.log("[INFO] Manual market deep-seed requested.");
   await syncMarketAssets(true);
+  await syncUsMarketAssets(true);
   res.json({ success: true });
 });
 
@@ -446,68 +478,7 @@ const yahooFinance = new YahooFinance();
  * @param fullSync - If true, fetches Deep Stats (Analyst targets, Financials). If false, only fetches Live Stats (Price/Vol).
  */
 async function syncMarketAssets(fullSync = false) {
-  const assetList = [
-    // Indices
-    { s: '^NSEI', n: 'NIFTY 50', t: 'INDEX' },
-    { s: '^BSESN', n: 'SENSEX', t: 'INDEX' },
-    { s: '^NSEBANK', n: 'BANK NIFTY', t: 'INDEX' },
-    { s: '^CNXIT', n: 'NIFTY IT', t: 'INDEX' },
-    { s: '^CNXAUTO', n: 'NIFTY AUTO', t: 'INDEX' },
-    { s: '^CNXMETAL', n: 'NIFTY METAL', t: 'INDEX' },
-    { s: '^CNXPHARMA', n: 'NIFTY PHARMA', t: 'INDEX' },
-    { s: '^CNXFMCG', n: 'NIFTY FMCG', t: 'INDEX' },
-    { s: '^CNXREALTY', n: 'NIFTY REALTY', t: 'INDEX' },
-    { s: '^CNXINFRA', n: 'NIFTY INFRA', t: 'INDEX' },
-    { s: '^CNXENERGY', n: 'NIFTY ENERGY', t: 'INDEX' },
-
-    // Nifty 50 Constituents
-    { s: 'RELIANCE.NS', n: 'Reliance Industries', t: 'STOCK' },
-    { s: 'TCS.NS', n: 'Tata Consultancy Services', t: 'STOCK' },
-    { s: 'HDFCBANK.NS', n: 'HDFC Bank', t: 'STOCK' },
-    { s: 'INFY.NS', n: 'Infosys', t: 'STOCK' },
-    { s: 'ICICIBANK.NS', n: 'ICICI Bank', t: 'STOCK' },
-    { s: 'HINDUNILVR.NS', n: 'Hindustan Unilever', t: 'STOCK' },
-    { s: 'ITC.NS', n: 'ITC Limited', t: 'STOCK' },
-    { s: 'SBIN.NS', n: 'State Bank of India', t: 'STOCK' },
-    { s: 'BHARTIARTL.NS', n: 'Bharti Airtel', t: 'STOCK' },
-    { s: 'KOTAKBANK.NS', n: 'Kotak Mahindra Bank', t: 'STOCK' },
-    { s: 'LT.NS', n: 'Larsen & Toubro', t: 'STOCK' },
-    { s: 'AXISBANK.NS', n: 'Axis Bank', t: 'STOCK' },
-    { s: 'BAJFINANCE.NS', n: 'Bajaj Finance', t: 'STOCK' },
-    { s: 'ASIANPAINT.NS', n: 'Asian Paints', t: 'STOCK' },
-    { s: 'MARUTI.NS', n: 'Maruti Suzuki', t: 'STOCK' },
-    { s: 'TITAN.NS', n: 'Titan Company', t: 'STOCK' },
-    { s: 'ADANIENT.NS', n: 'Adani Enterprises', t: 'STOCK' },
-    { s: 'SUNPHARMA.NS', n: 'Sun Pharmaceutical', t: 'STOCK' },
-    { s: 'ULTRACEMCO.NS', n: 'UltraTech Cement', t: 'STOCK' },
-    { s: 'WIPRO.NS', n: 'Wipro', t: 'STOCK' },
-    { s: 'M&M.NS', n: 'Mahindra & Mahindra', t: 'STOCK' },
-    { s: 'NTPC.NS', n: 'NTPC Limited', t: 'STOCK' },
-    { s: 'POWERGRID.NS', n: 'Power Grid Corporation', t: 'STOCK' },
-    { s: 'INDUSINDBK.NS', n: 'IndusInd Bank', t: 'STOCK' },
-    { s: 'NESTLEIND.NS', n: 'Nestle India', t: 'STOCK' },
-    { s: 'ADANIPORTS.NS', n: 'Adani Ports', t: 'STOCK' },
-    { s: 'BAJAJ-AUTO.NS', n: 'Bajaj Auto', t: 'STOCK' },
-    { s: 'TATASTEEL.NS', n: 'Tata Steel', t: 'STOCK' },
-    { s: 'ONGC.NS', n: 'Oil & Natural Gas Corp', t: 'STOCK' },
-    { s: 'JSWSTEEL.NS', n: 'JSW Steel', t: 'STOCK' },
-    { s: 'TATAMOTORS.NS', n: 'Tata Motors', t: 'STOCK' },
-    { s: 'GRASIM.NS', n: 'Grasim Industries', t: 'STOCK' },
-    { s: 'TECHM.NS', n: 'Tech Mahindra', t: 'STOCK' },
-    { s: 'HCLTECH.NS', n: 'HCL Technologies', t: 'STOCK' },
-    { s: 'HDFCLIFE.NS', n: 'HDFC Life', t: 'STOCK' },
-    { s: 'SBILIFE.NS', n: 'SBI Life Insurance', t: 'STOCK' },
-    { s: 'BRITANNIA.NS', n: 'Britannia Industries', t: 'STOCK' },
-    { s: 'EICHERMOT.NS', n: 'Eicher Motors', t: 'STOCK' },
-    { s: 'COALINDIA.NS', n: 'Coal India', t: 'STOCK' },
-    { s: 'CIPLA.NS', n: 'Cipla', t: 'STOCK' },
-    { s: 'DIVISLAB.NS', n: 'Divi\'s Laboratories', t: 'STOCK' },
-    { s: 'APOLLOHOSP.NS', n: 'Apollo Hospitals', t: 'STOCK' },
-    { s: 'HEROMOTOCO.NS', n: 'Hero MotoCorp', t: 'STOCK' },
-    { s: 'DRREDDY.NS', n: 'Dr. Reddy\'s Laboratories', t: 'STOCK' },
-    { s: 'BPCL.NS', n: 'Bharat Petroleum', t: 'STOCK' },
-    { s: 'LTIM.NS', n: 'LTIMindtree', t: 'STOCK' }
-  ];
+  const assetList = INDIAN_ASSETS;
 
   console.log(`[MARKET] ${fullSync ? 'DEEP' : 'LIVE'} sync via yahoo-finance2...`);
 
@@ -537,6 +508,8 @@ async function syncMarketAssets(fullSync = false) {
           low_price: q.regularMarketDayLow,
           prev_close: q.regularMarketPreviousClose,
           volume: q.regularMarketVolume,
+          pe_ratio: q.trailingPE || null,
+          eps_trailing: q.epsTrailingTwelveMonths || null,
           updated_at: new Date().toISOString()
         };
 
@@ -694,6 +667,177 @@ function isMarketOpen() {
   return (hour === 9 && minute >= 15) || (hour > 9 && hour < 15) || (hour === 15 && minute <= 30);
 }
 
+// ---------------------------------------------------------
+// US MARKET ENGINE (DOW 30)
+// ---------------------------------------------------------
+
+/**
+ * syncUsMarketAssets: The US Heartbeat
+ * @param deepSearch - If true, uses Alpha Vantage for Sentiment/Overview
+ */
+async function syncUsMarketAssets(deepSearch = false) {
+  console.log(`[US-ENGINE] Starting ${deepSearch ? 'DEEP' : 'LIVE'} pulse for Dow 30...`);
+  
+  try {
+    const symbols = DOW_30.map(d => d.s);
+    const quotes = await yahooFinance.quote(symbols);
+    
+    for (const q of quotes) {
+      const assetInfo = DOW_30.find(d => d.s === q.symbol);
+      
+      // Session-Aware Price Detection
+      let price = q.regularMarketPrice;
+      let change = q.regularMarketChange;
+      let changePercent = q.regularMarketChangePercent;
+
+      if (q.marketState === 'PRE' && q.preMarketPrice) {
+        price = q.preMarketPrice;
+        change = q.preMarketChange;
+        changePercent = q.preMarketChangePercent;
+      } else if (q.marketState === 'POST' && q.postMarketPrice) {
+        price = q.postMarketPrice;
+        change = q.postMarketChange;
+        changePercent = q.postMarketChangePercent;
+      }
+
+      const payload: any = {
+        symbol: q.symbol,
+        name: assetInfo?.n || q.symbol,
+        current_price: price,
+        day_change: change,
+        day_change_percentage: changePercent,
+        prev_close: q.regularMarketPreviousClose,
+        market_cap: q.marketCap || 0,
+        average_volume: q.averageDailyVolume10Day || q.regularMarketVolume || 0,
+        pe_ratio: q.trailingPE || 0,
+        forward_pe: q.forwardPE || 0,
+        eps_trailing: q.epsTrailingTwelveMonths || 0,
+        regularmarketdayhigh: q.regularMarketDayHigh,
+        regularmarketdaylow: q.regularMarketDayLow,
+        updated_at: new Date().toISOString()
+      };
+
+      // 2. DEEP ENRICHMENT (Only when deepSearch is true)
+      if (deepSearch) {
+        try {
+          let success = false;
+          const avKey = process.env.ALPHA_VANTAGE_API_KEY;
+          const tdKey = process.env.TWELVE_DATA_API_KEY;
+
+          // --- STEP 1: ALPHA VANTAGE ---
+          if (avKey && !success) {
+            try {
+              const avRes = await axios.get(`https://www.alphavantage.co/query?function=OVERVIEW&symbol=${q.symbol}&apikey=${avKey}`);
+              const av = avRes.data;
+              
+              if (av && av.Symbol) {
+                payload.description = av.Description || payload.description;
+                payload.sector = av.Sector || payload.sector;
+                payload.industry = av.Industry || payload.industry;
+                payload.pe_ratio = parseFloat(av.PERatio) || payload.pe_ratio;
+                payload.forward_pe = parseFloat(av.ForwardPE) || payload.forward_pe;
+                payload.price_to_book = parseFloat(av.PriceToBookRatio) || payload.price_to_book;
+                payload.dividend_yield = parseFloat(av.DividendYield) || payload.dividend_yield;
+                payload.eps_trailing = parseFloat(av.EPS) || payload.eps_trailing;
+                payload.revenue_growth = parseFloat(av.QuarterlyRevenueGrowthYOY) || payload.revenue_growth;
+                payload.profit_margins = parseFloat(av.ProfitMargin) || payload.profit_margins;
+                payload.target_price = parseFloat(av.AnalystTargetPrice) || payload.target_price;
+                success = true;
+              }
+            } catch (e: any) {
+              console.warn(`[DEEP-US] Alpha Vantage FAILED for ${q.symbol}`);
+            }
+          }
+
+          // --- STEP 2: YAHOO FINANCE (Primary or Fallback) ---
+          if (!success) {
+            try {
+              const summary = await yahooFinance.quoteSummary(q.symbol, { 
+                modules: ['summaryProfile', 'summaryDetail', 'defaultKeyStatistics', 'financialData'] 
+              });
+
+              if (summary) {
+                const sp = (summary.summaryProfile || {}) as any;
+                const sd = (summary.summaryDetail || {}) as any;
+                const ks = (summary.defaultKeyStatistics || {}) as any;
+                const fd = (summary.financialData || {}) as any;
+
+                payload.description = sp.longBusinessSummary || payload.description;
+                payload.sector = sp.sector || payload.sector;
+                payload.industry = sp.industry || payload.industry;
+                payload.pe_ratio = sd.trailingPE || q.trailingPE || payload.pe_ratio;
+                payload.forward_pe = sd.forwardPE || q.forwardPE || payload.forward_pe;
+                payload.price_to_book = sd.priceToBook || payload.price_to_book;
+                payload.eps_trailing = ks.trailingEps || q.epsTrailingTwelveMonths || payload.eps_trailing;
+                payload.dividend_yield = sd.dividendYield || sd.trailingAnnualDividendYield || payload.dividend_yield;
+                payload.total_debt = fd.totalDebt || payload.total_debt;
+                payload.total_cash = fd.totalCash || payload.total_cash;
+                payload.revenue_growth = fd.revenueGrowth || payload.revenue_growth;
+                payload.earnings_growth = ks.earningsQuarterlyGrowth || payload.earnings_growth;
+                payload.profit_margins = fd.profitMargins || payload.profit_margins;
+                payload.held_percent_institutions = ks.heldPercentInstitutions || payload.held_percent_institutions;
+                payload.target_price = fd.targetMeanPrice || payload.target_price;
+                success = true;
+              }
+            } catch (e: any) {
+              console.warn(`[DEEP-US] Yahoo Finance FAILED for ${q.symbol}`);
+            }
+          }
+
+          // --- STEP 3: TWELVE DATA (Final Fallback) ---
+          if (!success && tdKey) {
+            try {
+              const tdRes = await axios.get(`https://api.twelvedata.com/statistics?symbol=${q.symbol}&apikey=${tdKey}`);
+              const td = tdRes.data;
+
+              if (td && td.statistics) {
+                const ts = td.statistics;
+                payload.pe_ratio = ts.valuations_measures?.forward_pe || payload.pe_ratio;
+                payload.profit_margins = ts.financials?.profit_margin || payload.profit_margins;
+                payload.revenue_growth = ts.financials?.revenue_growth || payload.revenue_growth;
+                success = true;
+              }
+            } catch (e: any) {
+              console.warn(`[DEEP-US] Twelve Data FAILED for ${q.symbol}`);
+            }
+          }
+
+        } catch (enrichErr: any) {
+          console.error(`[DEEP-US] GLOBAL ENRICH ERROR for ${q.symbol}`);
+        }
+      }
+
+      const { error } = await supabase.from('us_market_assets').upsert(payload, { onConflict: 'symbol' });
+      
+      if (error) {
+        console.error(`[DB ERROR] US ${q.symbol}: ${error.message}`);
+      } else {
+        console.log(`  ✓ Updated ${assetInfo?.n || q.symbol} (${q.symbol}): $${q.regularMarketPrice.toLocaleString('en-US', { minimumFractionDigits: 2 })}`);
+      }
+    }
+    
+    console.log("--------------------------------------------------");
+    console.log(`[US-ENGINE] Pulse complete at ${new Date().toLocaleTimeString()}`);
+    console.log("==================================================\n");
+  } catch (e: any) {
+    console.error(`[US-ENGINE] Fatal Error:`, e.message);
+  }
+}
+
+// Helper to check if current time is within US Market Hours
+function isUsMarketOpen() {
+  const now = new Date();
+  const istOffset = 5.5 * 60 * 60 * 1000;
+  const istTime = new Date(now.getTime() + istOffset);
+  const hour = istTime.getUTCHours();
+  const minute = istTime.getUTCMinutes();
+  
+  const isAfternoonIST = (hour === 13 && minute >= 30) || (hour > 13);
+  const isEarlyMorningIST = (hour < 5) || (hour === 5 && minute <= 30);
+  
+  return isAfternoonIST || isEarlyMorningIST;
+}
+
 const PORT = Number(process.env.PORT) || 10000;
 app.listen(PORT, '0.0.0.0', async () => {
   console.log(`[SERVER] StockOS Engine running on 0.0.0.0:${PORT}`);
@@ -724,5 +868,38 @@ app.listen(PORT, '0.0.0.0', async () => {
       await performSync();
     }
   }, { timezone: "Asia/Kolkata" });
+
+  // 4. US MARKET PULSE: Every 5 Minutes (16-Hour Window)
+  cron.schedule('*/5 13-23,0-5 * * 1-6', async () => {
+    if (isUsMarketOpen()) {
+      console.log(`[PULSE] US Market Pulse triggered.`);
+      await syncUsMarketAssets(false);
+    }
+  }, { timezone: "Asia/Kolkata" });
+
+  // 5. US DEEP PULSE: Once per day at 3:00 AM IST (After US Close)
+  cron.schedule('0 3 * * 2-6', async () => {
+    console.log("[ENGINE] US Market closed. Executing deep fundamental enrichment...");
+    await syncUsMarketAssets(true);
+  }, { timezone: "Asia/Kolkata" });
+
+  // 6. INDIAN DEEP PULSE: Once per day at 4:00 PM IST (After Indian Close)
+  cron.schedule('0 16 * * 1-5', async () => {
+    console.log("[ENGINE] Indian Market closed. Executing deep fundamental enrichment...");
+    await syncMarketAssets(true);
+  }, { timezone: "Asia/Kolkata" });
+
+  // 0. WARM START: Sync immediately on startup
+  console.log("[WARM START] Initializing engine state...");
+  await syncMarketAssets(false); 
+  await syncUsMarketAssets(false);
+  await performSync();     
 });
+
+app.post('/api/us-market-seed', async (req, res) => {
+  console.log("[MANUAL] US Market Deep Seed requested.");
+  syncUsMarketAssets(true);
+  res.json({ status: "US Deep Seed Initiated" });
+});
+
 

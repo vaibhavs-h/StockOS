@@ -2,21 +2,24 @@
 
 **An Institutional-Grade Wealth Terminal** — An AI-powered stock portfolio management system featuring a self-healing data pipeline, multi-source failover architecture, and a high-fidelity tactical interface.
 
+[![Live Terminal](https://img.shields.io/badge/Live_Terminal-stock--os--kappa.vercel.app-10b981?style=for-the-badge&logo=vercel)](https://stock-os-kappa.vercel.app)
+
 ---
 
 ## ✨ Features
 
 ### 🛡️ Resilient Data Pipeline
 - **Always-Online Architecture**: Automated failover between **Groww API** and **Yahoo Finance**.
-- **Sync Engine**: The core `SyncEngine.ts` service handles 5-minute automated pulses for holdings, history, and market assets.
+- **Sync Engine**: The core `SyncEngine.ts` service handles automated pulses for holdings, history, and market assets.
 - **Self-Healing Indices**: Real-time market data for **NIFTY 50**, **SENSEX**, and global benchmarks, served via an internal high-performance proxy.
 
 ### 🎨 Institutional Terminal UI
 - **Market Intelligence Hub**: A high-density tactical feed with AI-distilled sector analysis, actionable recommendations, and risk assessments.
-- **AI Research Assistant**: A dedicated terminal sidebar for real-time stock analysis and portfolio insights, locked vertically to your holdings data.
+- **Smart Market Routing**: Intelligent asset detection that jumps from AI insights directly into specialized **US** or **Indian** research terminals.
+- **Personalized Profile Header**: Custom-tailored dashboard with user-specific profile branding and interactive multi-portfolio switching.
+- **High-Density Dashboard**: Ultra-compact vertical layout optimized for data-heavy institutional monitoring.
 - **Stale-While-Revalidate Persistence**: Instant-on dashboard loading via `localStorage` caching—new data fetches in the background while you stay productive.
 - **Geometric Harmonization**: A unified `rounded-3xl` design language across all consoles, creating a premium, cohesive aesthetic.
-- **Pulse Indicators**: Visual confirmation of background data refreshes and "Last Updated" timestamps in **IST**.
 
 ### 🏛️ Insight Desk (Journal)
 - **High-Fidelity Dossiers**: Redesigned news feed featuring cinematic glassmorphism and institutional typography.
@@ -39,8 +42,12 @@ GROWW_TOTP_SECRET=your_totp_secret
 NEXT_PUBLIC_N8N_WEBHOOK_URL=your_n8n_intelligence_endpoint
 ```
 
-### 2. Launch the Terminal
-Launch both the **Frontend** and the **Sync Engine** concurrently:
+### 2. Live Access
+Access the production terminal directly at:
+👉 **[stock-os-kappa.vercel.app](https://stock-os-kappa.vercel.app)**
+
+### 3. Local Development
+Launch the **Frontend** and the **Sync Engine** concurrently:
 ```bash
 npm run dev
 ```
@@ -53,6 +60,7 @@ npm run dev
 | Layer | Technology |
 |---|---|
 | **Framework** | Next.js 14 (App Router) |
+| **Deployment** | Vercel (Frontend) + Render (SyncEngine) |
 | **Backend Engine** | Node.js + Express + `tsx` (SyncEngine.ts) |
 | **Styling** | Tailwind CSS + Framer Motion |
 | **Database** | Supabase (PostgreSQL) |
@@ -69,7 +77,8 @@ StockOS/
 │   ├── app/
 │   │   ├── dashboard/      # Main Wealth Terminal & Intelligence Hub
 │   │   ├── api/            # Internal Intelligence Proxy
-│   │   └── stocks/         # Deep Stock Research views
+│   │   ├── stocks/         # Deep Stock Research (India)
+│   │   └── us-stocks/      # Deep Stock Research (US)
 │   ├── services/
 │   │   ├── SyncEngine.ts   # CORE: Automated Portfolio & Market Heartbeat
 │   │   └── DatabaseClient.ts # Centralized Realtime Data Interface

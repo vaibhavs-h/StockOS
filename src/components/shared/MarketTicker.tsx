@@ -5,6 +5,8 @@ import axios from "axios";
 import { TrendingUp, TrendingDown, Globe } from "lucide-react";
 import { usePathname } from "next/navigation";
 import { motion } from "framer-motion";
+import { cn } from "@/lib/utils";
+import { getMarketStatus } from "@/constants/market-constants";
 
 interface IndexData {
   label: string;
@@ -77,6 +79,9 @@ export function MarketTicker() {
             {marqueeItems.map((item, idx) => {
               const isCurrency = item.type === 'currency';
               const isPositive = item.positive;
+              const isUsMarket = item.label.includes('DOW') || item.label.includes('S&P') || item.label.includes('NASDAQ');
+              const market = isUsMarket ? 'US' : 'IN';
+              const status = isCurrency ? 'OPEN' : getMarketStatus(market);
               
               return (
                 <div 
@@ -89,11 +94,19 @@ export function MarketTicker() {
                         : 'bg-red-500/10 border-red-500/30'
                   }`}
                 >
-                  <span className={`font-terminal-label text-[10px] font-black uppercase tracking-[0.1em] ${
-                    isCurrency ? 'text-amber-400' : isPositive ? 'text-emerald-400' : 'text-red-400'
-                  }`}>
-                    {item.label}
-                  </span>
+                  <div className="flex items-center gap-1.5">
+                    <div className={cn(
+                      "size-1 rounded-full",
+                      status === 'OPEN' ? "bg-emerald-400 animate-pulse shadow-[0_0_5px_rgba(52,211,153,0.8)]" : 
+                      status === 'CLOSED' ? "bg-zinc-600" :
+                      "bg-amber-400 shadow-[0_0_5px_rgba(251,191,36,0.8)]"
+                    )} title={`Market ${status}`} />
+                    <span className={`font-terminal-label text-[10px] font-black uppercase tracking-[0.1em] ${
+                      isCurrency ? 'text-amber-400' : isPositive ? 'text-emerald-400' : 'text-red-400'
+                    }`}>
+                      {item.label}
+                    </span>
+                  </div>
                   
                   <span className="font-headline font-bold text-[11px] text-white/90 tabular-nums">
                     {item.value}

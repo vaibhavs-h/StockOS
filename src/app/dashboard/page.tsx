@@ -1,5 +1,7 @@
 "use client"
 
+export const dynamic = 'force-dynamic';
+
 import React, { useState, useEffect, useMemo } from "react"
 import { motion, AnimatePresence } from "framer-motion"
 import {
@@ -14,7 +16,8 @@ import {
   ArrowUpRight,
   ArrowDownRight,
   Activity,
-  Menu
+  Menu,
+  ChevronDown
 } from "lucide-react"
 import { supabase } from "@/services/DatabaseClient"
 import axios from "axios"
@@ -24,7 +27,7 @@ import { cn } from "@/lib/utils"
 
 export default function DashboardPage() {
   const router = useRouter()
-  const [isMounted, setIsMounted] = useState(false)
+  const [mounted, setMounted] = useState(false)
   const [holdings, setHoldings] = useState<any[]>([])
   const [indices, setIndices] = useState<any[]>([])
   const [history, setHistory] = useState<any[]>([])
@@ -33,7 +36,8 @@ export default function DashboardPage() {
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [searchQuery, setSearchQuery] = useState("")
   const [timeRange, setTimeRange] = useState("ALL")
-  const [mounted, setMounted] = useState(false)
+  const [searchResults, setSearchResults] = useState<any[]>([])
+  const [isSearching, setIsSearching] = useState(false)
 
 
   const portfolioId = "primary";
@@ -78,7 +82,7 @@ export default function DashboardPage() {
   }
 
   const fetchMarketIntelligence = async () => {
-    if (marketIntelligence && intelligenceLoading) return; // Prevent concurrent fetches
+    if (intelligenceLoading) return;
     
     setIntelligenceLoading(true);
     try {
@@ -89,11 +93,26 @@ export default function DashboardPage() {
       
       if (result && result.output) {
         const parsed = JSON.parse(result.output);
-        setMarketIntelligence(parsed);
-        const now = new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' });
-        setLastIntelligenceFetch(now);
-        localStorage.setItem('stockos_market_intelligence', JSON.stringify(parsed));
-        localStorage.setItem('stockos_intelligence_timestamp', now);
+        
+        // Only update if data is different from cache to preserve stable timestamps
+        const currentDataStr = localStorage.getItem('stockos_market_intelligence');
+        const newDataStr = JSON.stringify(parsed);
+        
+        if (newDataStr !== currentDataStr) {
+          setMarketIntelligence(parsed);
+          const now = new Date().toLocaleString('en-IN', { 
+            day: '2-digit', 
+            month: '2-digit', 
+            year: 'numeric', 
+            hour: '2-digit', 
+            minute: '2-digit', 
+            second: '2-digit',
+            hour12: true 
+          });
+          setLastIntelligenceFetch(now);
+          localStorage.setItem('stockos_market_intelligence', newDataStr);
+          localStorage.setItem('stockos_intelligence_timestamp', now);
+        }
       }
     } catch (err) {
       console.error("[DASHBOARD] Intelligence fetch failed:", err);
@@ -137,6 +156,42 @@ export default function DashboardPage() {
     }
     await Promise.all([fetchHoldings(), fetchHistory(), fetchIndices(), fetchMarketIntelligence()]);
     setTimeout(() => setIsRefreshing(false), 800); // Visual polish delay
+  }
+
+  const handleSearch = async (query: string) => {
+    setSearchQuery(query);
+    if (query.length < 2) {
+      setSearchResults([]);
+      return;
+    }
+
+    setIsSearching(true);
+    try {
+      // 1. Search Indian Market Assets
+      const { data: indianAssets } = await supabase
+        .from('market_assets')
+        .select('symbol, name, asset_type')
+        .or(`symbol.ilike.%${query}%,name.ilike.%${query}%`)
+        .limit(5);
+
+      // 2. Search US Market Assets
+      const { data: usAssets } = await supabase
+        .from('us_market_assets')
+        .select('symbol, name')
+        .or(`symbol.ilike.%${query}%,name.ilike.%${query}%`)
+        .limit(5);
+
+      const combined = [
+        ...(indianAssets || []).map(a => ({ ...a, market: 'IN' })),
+        ...(usAssets || []).map(a => ({ ...a, market: 'US', asset_type: 'EQUITY' }))
+      ];
+      
+      setSearchResults(combined);
+    } catch (err) {
+      console.error("[SEARCH] Global search failed:", err);
+    } finally {
+      setIsSearching(false);
+    }
   }
 
   useEffect(() => {
@@ -256,7 +311,7 @@ export default function DashboardPage() {
 
       {/* Main Dashboard Grid */}
       <section
-        className="pt-24 pb-6 px-6 max-w-[1700px] mx-auto w-full grid grid-cols-1 lg:grid-cols-[1fr_400px] gap-8 relative z-10 items-stretch"
+        className="pt-[85px] pb-6 px-6 max-w-[1700px] mx-auto w-full grid grid-cols-1 lg:grid-cols-[1fr_400px] gap-8 relative z-10 items-stretch"
       >
         {/* Left Section: Dashboard Content */}
         <motion.div
@@ -281,17 +336,30 @@ export default function DashboardPage() {
               visible: { opacity: 1, y: 0 }
             }}
             transition={{ duration: 0.8, ease: [0.16, 1, 0.3, 1] }}
-            className="grid grid-cols-1 md:grid-cols-[1.5fr_1fr_1fr] gap-8 mb-4 items-end"
+            className="grid grid-cols-1 md:grid-cols-[1.5fr_1fr_1fr] gap-8 mb-0 items-end"
           >
+            <div className="relative group col-span-full -mb-5">
+              <div className="flex items-baseline gap-4">
+                <h2 className="font-headline font-black text-6xl tracking-tighter text-white uppercase">VAIBHAV S.</h2>
+                <motion.div 
+                  whileHover={{ y: -1, scale: 1.02 }}
+                  className="flex items-center gap-2 group/portfolio cursor-pointer px-3 py-1 rounded-full hover:bg-emerald-500/5 transition-all duration-300 border border-transparent hover:border-emerald-500/10"
+                >
+                  <span className="font-headline font-medium text-2xl text-zinc-400 tracking-tight group-hover/portfolio:text-white transition-colors">Groww Portfolio</span>
+                  <ChevronDown className="w-5 h-5 text-emerald-500/70 group-hover/portfolio:text-emerald-400 transition-all duration-300" />
+                </motion.div>
+              </div>
+            </div>
+
             <div className="relative group">
               <div className="absolute -inset-4 bg-emerald-500/5 blur-3xl rounded-full opacity-0 group-hover:opacity-100 transition-opacity duration-1000" />
-              <span className="font-terminal-label uppercase tracking-wider text-[12px] text-emerald-400 block mb-3 font-bold relative z-10">Total Net Worth</span>
+              <span className="font-terminal-label uppercase tracking-wider text-[12px] text-emerald-400 block mb-1 font-bold relative z-10">Total Net Worth</span>
               <h1 className="font-headline font-bold text-5xl md:text-6xl tracking-tighter text-white tabular-nums leading-none relative z-10">
                 {formatCurrency(totalNetWorth)}
               </h1>
             </div>
             <div className="flex flex-col gap-1 border-l border-white/5 pl-6">
-              <span className="font-terminal-label uppercase tracking-wider text-[12px] text-zinc-300 block mb-2 font-bold">Daily P/L</span>
+              <span className="font-terminal-label uppercase tracking-wider text-[12px] text-zinc-300 block mb-1 font-bold">Daily P/L</span>
               <div className="flex items-center gap-4">
                 <span className={`font-headline font-bold text-2xl md:text-3xl tabular-nums ${totalDayChange >= 0 ? 'text-emerald-500' : 'text-red-500'}`}>
                   {totalDayChange >= 0 ? '+' : ''}{formatCurrency(totalDayChange)}
@@ -321,11 +389,11 @@ export default function DashboardPage() {
               visible: { opacity: 1, y: 0, filter: 'blur(0px)' }
             }}
             transition={{ duration: 0.8, ease: [0.16, 1, 0.3, 1] }}
-            className="glass-panel rounded-3xl p-8 pb-4 relative overflow-hidden group border border-white/10 shadow-[0_20px_50px_rgba(0,0,0,0.5)] bg-gradient-to-b from-white/[0.04] to-transparent"
+            className="glass-panel rounded-3xl pt-4 px-6 pb-4 relative overflow-hidden group border border-white/10 shadow-[0_20px_50px_rgba(0,0,0,0.5)] bg-gradient-to-b from-white/[0.04] to-transparent"
           >
-            <div className="flex justify-between items-center mb-8 relative z-10">
+            <div className="flex justify-between items-center mb-4 relative z-10">
               <div>
-                <h3 className="font-terminal-label text-[12px] uppercase tracking-wider text-zinc-300 mb-3 font-bold">Historical Performance</h3>
+                <h3 className="font-terminal-label text-[12px] uppercase tracking-wider text-zinc-300 mb-1 font-bold">Historical Performance</h3>
                 <div className="flex items-baseline gap-4">
                   <span className="font-headline font-bold text-4xl tracking-tighter text-white tabular-nums">{formatCurrency(totalNetWorth)}</span>
                   <span className={`font-terminal-label text-[10px] border px-2 py-0.5 rounded-[4px] uppercase tracking-widest font-bold ${rangeIsPositive ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-red-500/10 text-red-500 border-red-500/20'}`}>
@@ -389,11 +457,59 @@ export default function DashboardPage() {
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-emerald-500/30 group-focus-within:text-emerald-500 transition-colors w-3 h-3" />
                 <input
                   type="text"
-                  placeholder="FILTER..."
+                  placeholder="SEARCH GLOBAL MARKETS..."
                   value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="bg-black/60 border border-white/5 text-[9px] tracking-wider font-terminal-label pl-8 pr-4 py-2 w-48 rounded-full focus:ring-1 focus:ring-emerald-500/40 focus:outline-none placeholder:text-white/10 transition-all"
+                  onChange={(e) => handleSearch(e.target.value)}
+                  onFocus={() => {
+                    if (searchQuery.length >= 2) handleSearch(searchQuery);
+                  }}
+                  className="bg-black/60 border border-white/5 text-[9px] tracking-wider font-terminal-label pl-8 pr-4 py-2 w-64 rounded-full focus:ring-1 focus:ring-emerald-500/40 focus:outline-none placeholder:text-white/10 transition-all"
                 />
+
+                {/* Search Results Dropdown */}
+                <AnimatePresence>
+                  {searchResults.length > 0 && searchQuery.length >= 2 && (
+                    <motion.div
+                      initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                      animate={{ opacity: 1, y: 0, scale: 1 }}
+                      exit={{ opacity: 0, y: 10, scale: 0.95 }}
+                      className="absolute right-0 top-full mt-4 w-80 glass-panel rounded-2xl border border-white/10 shadow-[0_20px_50px_rgba(0,0,0,0.5)] bg-black/80 backdrop-blur-2xl z-50 overflow-hidden"
+                    >
+                      <div className="p-2 flex flex-col gap-1">
+                        <div className="px-3 py-2 border-b border-white/5 flex justify-between items-center">
+                          <span className="text-[9px] font-black text-emerald-500/60 uppercase tracking-widest">Global Asset Discovery</span>
+                          {isSearching && <RefreshCcw className="w-2.5 h-2.5 text-emerald-500 animate-spin" />}
+                        </div>
+                        {searchResults.map((result, idx) => (
+                          <button
+                            key={`${result.market}-${result.symbol}`}
+                            onClick={() => {
+                              const route = result.market === 'US' ? `/us-stocks/${result.symbol}` : `/stocks/${result.symbol}`;
+                              router.push(route);
+                              setSearchResults([]);
+                              setSearchQuery("");
+                            }}
+                            className="flex items-center justify-between p-3 rounded-xl hover:bg-emerald-500/10 transition-all group text-left"
+                          >
+                            <div className="flex flex-col">
+                              <div className="flex items-center gap-2">
+                                <span className="font-headline font-bold text-xs text-white group-hover:text-emerald-400 transition-colors">{result.symbol}</span>
+                                <span className={cn(
+                                  "text-[7px] font-black px-1.5 py-0.5 rounded uppercase tracking-tighter",
+                                  result.market === 'US' ? "bg-blue-500/10 text-blue-400 border border-blue-500/20" : "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
+                                )}>
+                                  {result.market}
+                                </span>
+                              </div>
+                              <span className="text-[9px] text-zinc-500 font-medium truncate w-40">{result.name}</span>
+                            </div>
+                            <ArrowUpRight className="w-3 h-3 text-zinc-700 group-hover:text-emerald-500 transition-colors" />
+                          </button>
+                        ))}
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
               </div>
             </div>
 
@@ -532,17 +648,36 @@ export default function DashboardPage() {
 
             {/* Terminal Input */}
             <div className="p-5 bg-zinc-950/40 border-t border-emerald-500/10 backdrop-blur-xl shrink-0 mt-auto">
-              <div className="relative group">
+              <form 
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  const form = e.target as HTMLFormElement;
+                  const input = form.elements.namedItem('ticker') as HTMLInputElement;
+                  const val = input.value.toUpperCase().trim();
+                  if (!val) return;
+                  
+                  // Simple Routing Logic
+                  const isUs = val.length <= 5 && !val.includes('.');
+                  if (isUs) {
+                    router.push(`/us-stocks/${val}`);
+                  } else {
+                    router.push(`/stocks/${val.replace('.NS', '')}`);
+                  }
+                }}
+                className="relative group"
+              >
                 <Terminal className="absolute left-4 top-1/2 -translate-y-1/2 text-emerald-500/50 group-focus-within:text-emerald-400 transition-colors w-4 h-4" />
                 <input 
+                  name="ticker"
                   type="text"
                   placeholder="Analyze ticker..."
+                  autoComplete="off"
                   className="w-full bg-black/40 border border-emerald-500/10 rounded-full px-10 py-3.5 text-[12px] text-emerald-100 placeholder:text-emerald-500/20 focus:outline-none focus:border-emerald-500/40 focus:ring-1 focus:ring-emerald-500/40 transition-all font-data-md"
                 />
-                <button className="absolute right-4 top-1/2 -translate-y-1/2 text-emerald-500/50 hover:text-emerald-400 transition-colors">
+                <button type="submit" className="absolute right-4 top-1/2 -translate-y-1/2 text-emerald-500/50 hover:text-emerald-400 transition-colors">
                   <Send className="w-4 h-4" />
                 </button>
-              </div>
+              </form>
             </div>
           </div>
         </motion.aside>
@@ -567,7 +702,7 @@ export default function DashboardPage() {
                 <div className="flex items-center gap-2 mt-0.5">
                   <Activity className="w-2.5 h-2.5 text-emerald-500/40" />
                   <p className="text-[9px] text-emerald-500/40 uppercase tracking-wider font-bold">
-                    LAST UPDATED: {(isMounted && lastIntelligenceFetch) ? lastIntelligenceFetch : 'SYNCHRONIZING...'}
+                    LAST UPDATED: {(mounted && lastIntelligenceFetch) ? lastIntelligenceFetch : 'SYNCHRONIZING...'}
                   </p>
                 </div>
               </div>
@@ -696,8 +831,14 @@ export default function DashboardPage() {
                             {sector.topStocks.map((stock: any, sIdx: number) => (
                               <motion.div 
                                 key={stock.symbol || sIdx}
-                                whileHover={{ y: -2, backgroundColor: 'rgba(16,185,129,0.05)', borderColor: 'rgba(16,185,129,0.2)' }}
-                                onClick={() => router.push(`/stocks/${stock.symbol}`)}
+                                onClick={() => {
+                                  const sym = stock.symbol.toUpperCase();
+                                  // Institutional Heuristic: US symbols are typically <= 5 chars and alphabetic
+                                  // Indian symbols in our DB are often longer or mapped differently
+                                  const isUs = sym.length <= 5 && !sym.includes('.');
+                                  const route = isUs ? `/us-stocks/${sym}` : `/stocks/${sym}`;
+                                  router.push(route);
+                                }}
                                 className="bg-zinc-900/40 p-3 rounded-xl border border-white/[0.03] flex flex-col gap-2 transition-all duration-300 cursor-pointer group/stock"
                               >
                                 <div className="flex justify-between items-start">

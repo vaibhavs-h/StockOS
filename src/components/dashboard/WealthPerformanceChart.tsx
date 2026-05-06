@@ -6,9 +6,17 @@ import { motion } from 'framer-motion';
 
 interface WealthChartProps {
   data: { time: string; value: number }[];
+  currency?: string;
+  locale?: string;
+  timezoneLabel?: string;
 }
 
-export const WealthPerformanceChart: React.FC<WealthChartProps> = ({ data }) => {
+export const WealthPerformanceChart: React.FC<WealthChartProps> = ({ 
+  data, 
+  currency = 'INR', 
+  locale = 'en-IN',
+  timezoneLabel = 'IST'
+}) => {
   const chartContainerRef = useRef<HTMLDivElement>(null);
   const tooltipRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
@@ -88,9 +96,9 @@ export const WealthPerformanceChart: React.FC<WealthChartProps> = ({ data }) => 
       },
       localization: {
         priceFormatter: (price: number) => {
-          return new Intl.NumberFormat('en-IN', {
+          return new Intl.NumberFormat(locale, {
             style: 'currency',
-            currency: 'INR',
+            currency: currency,
             maximumFractionDigits: 0
           }).format(price);
         },
@@ -98,10 +106,10 @@ export const WealthPerformanceChart: React.FC<WealthChartProps> = ({ data }) => 
           const isUnix = typeof time === 'number';
           const date = new Date(isUnix ? time * 1000 : time);
           if (isUnix) {
-            return date.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }) + ' ' +
-              date.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: false });
+            return date.toLocaleDateString(locale, { day: '2-digit', month: 'short' }) + ' ' +
+              date.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit', hour12: false });
           }
-          return date.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: '2-digit' });
+          return date.toLocaleDateString(locale, { day: '2-digit', month: 'short', year: '2-digit' });
         },
       },
     });
@@ -145,32 +153,66 @@ export const WealthPerformanceChart: React.FC<WealthChartProps> = ({ data }) => 
       } else {
         const isUnix = typeof param.time === 'number';
         const date = new Date(isUnix ? (param.time as number) * 1000 : (param.time as any));
-        let dateStr = date.toLocaleDateString('en-IN', {
+        let dateStr = date.toLocaleDateString(locale, {
           day: '2-digit',
           month: 'short',
           year: 'numeric'
         });
         if (isUnix) {
-          dateStr += ' | ' + date.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: false }) + ' IST';
+          const hours = date.getUTCHours();
+          const minutes = date.getUTCMinutes();
+          const totalMinutes = hours * 60 + minutes;
+          
+          // EST is UTC-5 (approx, for session labeling)
+          // Actually, let's use the local hours of the date if we assume the date object is correct
+          // But to be precise for US market (EST), we need to check the EST time.
+          const estDate = new Date(date.toLocaleString("en-US", { timeZone: "America/New_York" }));
+          const estHours = estDate.getHours();
+          const estMinutes = estDate.getMinutes();
+          const estTotal = estHours * 60 + estMinutes;
+
+          let sessionLabel = "";
+          let sessionColor = "text-zinc-500";
+          if (timezoneLabel === 'EST') {
+            if (estTotal >= 240 && estTotal < 570) {
+              sessionLabel = "Pre-Market";
+              sessionColor = "text-amber-400";
+            }
+            else if (estTotal >= 570 && estTotal < 960) {
+              sessionLabel = "Regular Market";
+              sessionColor = "text-emerald-400";
+            }
+            else if (estTotal >= 960 && estTotal <= 1200) {
+              sessionLabel = "After Hours";
+              sessionColor = "text-purple-400";
+            }
+          }
+
+          dateStr += ' | ' + date.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit', hour12: false }) + ' ' + timezoneLabel;
+
+          tooltipRef.current!.style.display = 'block';
+          tooltipRef.current!.style.borderColor = `rgba(${rgba}, 0.4)`;
+          const data = param.seriesData.get(areaSeries);
+          const price = (data as any)?.value !== undefined ? (data as any).value : (data as any)?.close;
+
+          const formattedPrice = new Intl.NumberFormat(locale, {
+            style: 'currency',
+            currency: currency,
+            maximumFractionDigits: 2
+          }).format(price);
+
+          tooltipRef.current!.innerHTML = `
+            <div class="flex flex-col gap-2">
+              <div class="flex items-center justify-between gap-6">
+                <div class="text-xl font-black text-white font-mono tracking-tighter">${formattedPrice}</div>
+                ${sessionLabel ? `<div class="text-[7px] font-black uppercase tracking-[0.2em] px-2 py-1 rounded bg-white/5 border border-white/10 ${sessionColor}">${sessionLabel}</div>` : ''}
+              </div>
+              <div class="text-[9px] text-zinc-500 font-bold tracking-widest uppercase border-t border-white/5 pt-2">
+                ${dateStr}
+              </div>
+            </div>
+          `;
         }
-
-        tooltipRef.current!.style.display = 'block';
-        tooltipRef.current!.style.borderColor = `rgba(${rgba}, 0.4)`;
-        const data = param.seriesData.get(areaSeries);
-        const price = (data as any)?.value !== undefined ? (data as any).value : (data as any)?.close;
-
-        const formattedPrice = new Intl.NumberFormat('en-IN', {
-          style: 'currency',
-          currency: 'INR',
-          maximumFractionDigits: 2
-        }).format(price);
-
-        tooltipRef.current!.innerHTML = `
-          <div class="flex flex-col gap-1">
-            <div class="text-lg font-bold text-white font-mono tracking-tight">${formattedPrice}</div>
-            <div class="text-[9px] text-${isProfit ? 'emerald' : 'red'}-400/60 font-medium tracking-[0.15em] uppercase border-t border-white/5 pt-1 mt-0.5">${dateStr}</div>
-          </div>
-        `;
 
         const tooltipWidth = 145;
         const tooltipHeight = 55;

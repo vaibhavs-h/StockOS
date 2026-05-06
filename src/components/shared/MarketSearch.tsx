@@ -21,19 +21,23 @@ export function MarketSearch({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     setMounted(true);
     const fetchData = async () => {
-      // Fetch Total
-      const { count } = await supabase
-        .from("market_assets")
-        .select("*", { count: "exact", head: true });
-      if (count) setTotalAssets(count);
+      // Fetch Total (Both Markets)
+      const [{ count: inCount }, { count: usCount }] = await Promise.all([
+        supabase.from("market_assets").select("*", { count: "exact", head: true }),
+        supabase.from("us_market_assets").select("*", { count: "exact", head: true })
+      ]);
+      setTotalAssets((inCount || 0) + (usCount || 0));
 
-      // Fetch Nifty, Sensex, and Bank Nifty (Explicit Discovery)
-      const { data: indexData } = await supabase
-        .from("market_assets")
-        .select("*")
-        .in("symbol", ["NSEI", "BSESN", "NSEBANK"])
-        .order('symbol', { ascending: true });
-      if (indexData) setIndices(indexData);
+      // Fetch Global Indices
+      const [{ data: inIndices }, { data: usIndices }] = await Promise.all([
+        supabase.from("market_assets").select("*").in("symbol", ["NSEI", "BSESN", "NSEBANK"]),
+        supabase.from("us_market_assets").select("*").in("symbol", ["AAPL", "MSFT", "GOOGL"]) // Placeholder US "Indices" for UI
+      ]);
+      
+      setIndices([
+        ...(inIndices || []).map(i => ({ ...i, market: 'IN' })),
+        ...(usIndices || []).map(i => ({ ...i, market: 'US' }))
+      ]);
     };
     fetchData();
   }, []);
@@ -50,14 +54,17 @@ export function MarketSearch({ children }: { children: React.ReactNode }) {
       if (query.length < 1) return;
 
       try {
-        const { data, error } = await supabase
-          .from("market_assets")
-          .select("*")
-          .or(`symbol.ilike.%${query}%,name.ilike.%${query}%`)
-          .limit(8);
+        const [{ data: inData }, { data: usData }] = await Promise.all([
+          supabase.from("market_assets").select("*").or(`symbol.ilike.%${query}%,name.ilike.%${query}%`).limit(5),
+          supabase.from("us_market_assets").select("*").or(`symbol.ilike.%${query}%,name.ilike.%${query}%`).limit(5)
+        ]);
 
-        if (error) throw error;
-        setResults(data || []);
+        const combined = [
+          ...(inData || []).map(a => ({ ...a, market: 'IN' })),
+          ...(usData || []).map(a => ({ ...a, market: 'US' }))
+        ];
+        
+        setResults(combined);
       } catch (err) {
         console.error("Search failed:", err);
       } finally {
@@ -93,10 +100,10 @@ export function MarketSearch({ children }: { children: React.ReactNode }) {
     }
   }, [isOpen]);
 
-  const formatCurrency = (val: number) => {
-    return new Intl.NumberFormat('en-IN', {
+  const formatCurrency = (val: number, market: 'IN' | 'US' = 'IN') => {
+    return new Intl.NumberFormat(market === 'US' ? 'en-US' : 'en-IN', {
       style: 'currency',
-      currency: 'INR',
+      currency: market === 'US' ? 'USD' : 'INR',
       maximumFractionDigits: 2
     }).format(val);
   }
@@ -152,9 +159,10 @@ export function MarketSearch({ children }: { children: React.ReactNode }) {
                       </p>
                       {results.map((stock) => (
                         <button
-                          key={stock.symbol}
+                          key={`${stock.market}-${stock.symbol}`}
                           onClick={() => {
-                            router.push(`/stocks/${stock.symbol}`);
+                            const route = stock.market === 'US' ? `/us-stocks/${stock.symbol}` : `/stocks/${stock.symbol}`;
+                            router.push(route);
                             setIsOpen(false);
                           }}
                           className={cn(
@@ -169,20 +177,28 @@ export function MarketSearch({ children }: { children: React.ReactNode }) {
                               {stock.symbol[0]}
                             </div>
                             <div className="text-left">
-                              <p className={cn(
-                                "text-sm font-black font-headline tracking-tighter transition-colors drop-shadow-[0_0_5px_rgba(255,255,255,0.05)]",
-                                stock.day_change_percentage >= 0 ? "group-hover:text-emerald-400" : "group-hover:text-rose-400"
-                              )}>
-                                {stock.symbol}
-                              </p>
-                              <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest font-headline opacity-60">
+                              <div className="flex items-center gap-2">
+                                <p className={cn(
+                                  "text-sm font-black font-headline tracking-tighter transition-colors drop-shadow-[0_0_5px_rgba(255,255,255,0.05)]",
+                                  stock.day_change_percentage >= 0 ? "group-hover:text-emerald-400" : "group-hover:text-rose-400"
+                                )}>
+                                  {stock.symbol}
+                                </p>
+                                <span className={cn(
+                                  "text-[7px] font-black px-1 py-0.5 rounded uppercase tracking-tighter",
+                                  stock.market === 'US' ? "bg-blue-500/10 text-blue-400" : "bg-emerald-500/10 text-emerald-400"
+                                )}>
+                                  {stock.market}
+                                </span>
+                              </div>
+                              <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest font-headline opacity-60 truncate w-32">
                                 {stock.name}
                               </p>
                             </div>
                           </div>
                           <div className="text-right">
                             <p className="text-sm font-bold font-headline tabular-nums text-white drop-shadow-[0_0_8px_rgba(255,255,255,0.1)]">
-                              {formatCurrency(stock.current_price)}
+                              {formatCurrency(stock.current_price, stock.market)}
                             </p>
                             <div className="flex items-center justify-end gap-1">
                               <p className={cn(
@@ -205,25 +221,25 @@ export function MarketSearch({ children }: { children: React.ReactNode }) {
                     <div className="py-6 px-4 flex flex-col items-center justify-center text-center">
                       <div className="grid grid-cols-3 gap-2 w-full mb-6">
                         {indices
-                          .sort((a, b) => {
-                            const order = ["NSEI", "BSESN", "NSEBANK"];
-                            return order.indexOf(a.symbol) - order.indexOf(b.symbol);
-                          })
                           .map(idx => (
                            <div 
-                             key={idx.symbol} 
+                             key={`${idx.market}-${idx.symbol}`} 
                              onClick={() => {
-                               router.push(`/stocks/${idx.symbol}`);
+                               const route = idx.market === 'US' ? `/us-stocks/${idx.symbol}` : `/stocks/${idx.symbol}`;
+                               router.push(route);
                                setIsOpen(false);
                              }}
                              className="bg-white/[0.02] backdrop-blur-md border border-white/10 rounded-xl p-3 text-left hover:bg-emerald-500/10 hover:border-emerald-500/40 hover:scale-[1.02] hover:brightness-110 transition-all cursor-pointer group overflow-hidden"
                            >
                             <div className="flex items-center justify-between mb-1.5">
-                              <p className="text-[9px] font-black text-emerald-400 uppercase tracking-widest font-headline drop-shadow-[0_0_5px_rgba(52,211,153,0.3)]">{idx.symbol}</p>
-                              <div className="size-1 rounded-full bg-emerald-400 animate-pulse shadow-[0_0_10px_rgba(52,211,153,0.8)]" />
+                              <div className="flex items-center gap-1.5">
+                                <p className={cn("text-[9px] font-black uppercase tracking-widest font-headline drop-shadow-[0_0_5px_rgba(52,211,153,0.3)]", idx.market === 'US' ? 'text-blue-400' : 'text-emerald-400')}>{idx.symbol}</p>
+                                <span className={cn("text-[6px] font-black px-1 rounded uppercase", idx.market === 'US' ? 'bg-blue-500/10 text-blue-400' : 'bg-emerald-500/10 text-emerald-400')}>{idx.market}</span>
+                              </div>
+                              <div className={cn("size-1 rounded-full animate-pulse shadow-[0_0_10px_rgba(52,211,153,0.8)]", idx.market === 'US' ? 'bg-blue-400' : 'bg-emerald-400')} />
                             </div>
                             <div className="space-y-0">
-                              <p className="text-sm font-bold font-headline tabular-nums tracking-tighter text-white leading-none mb-1 drop-shadow-[0_0_8px_rgba(255,255,255,0.1)]">{formatCurrency(idx.current_price)}</p>
+                              <p className="text-sm font-bold font-headline tabular-nums tracking-tighter text-white leading-none mb-1 drop-shadow-[0_0_8px_rgba(255,255,255,0.1)]">{formatCurrency(idx.current_price, idx.market)}</p>
                               <p className={cn("text-[9px] font-black font-headline drop-shadow-[0_0_5px_rgba(52,211,153,0.2)]", idx.day_change_percentage >= 0 ? "text-emerald-400" : "text-red-500")}>
                                 {idx.day_change_percentage >= 0 ? "+" : ""}{idx.day_change_percentage?.toFixed(2)}%
                               </p>
@@ -243,7 +259,7 @@ export function MarketSearch({ children }: { children: React.ReactNode }) {
 
                 <div className="px-6 py-3 bg-black/40 border-t border-white/5 flex items-center justify-center text-[9px] font-black text-zinc-600 tracking-[0.2em] uppercase font-headline">
                   <span>
-                    Showing <span className="text-white">{results.length}</span> of <span className="text-white">{totalAssets}</span> Holdings
+                    Showing <span className="text-white">{results.length}</span> of <span className="text-white">{totalAssets}</span> Global Assets
                   </span>
                 </div>
               </motion.div>
