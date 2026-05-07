@@ -388,13 +388,13 @@ async function performSync() {
       const internal = marketMap.get(yahooSymbol) || marketMap.get(ticker);
       const external = yahooMap.get(yahooSymbol);
 
-      const price = internal?.current_price || external?.regularMarketPrice || parseFloat(item.market_price || item.last_traded_price || 0);
-      const prevClose = internal?.prev_close || external?.regularMarketPreviousClose || price;
-      const dayChangeVal = internal?.day_change || (external ? (external.regularMarketPrice - external.regularMarketPreviousClose) : 0);
+      const price = Number(internal?.current_price || external?.regularMarketPrice || item.market_price || item.last_traded_price || 0);
+      const prevClose = Number(internal?.prev_close || external?.regularMarketPreviousClose || price || 0);
+      const dayChangeVal = Number(internal?.day_change || (external ? (external.regularMarketPrice - external.regularMarketPreviousClose) : 0) || 0);
 
-      const invested = item.quantity * item.average_price;
-      const marketValue = item.quantity * price;
-      const dayChange = dayChangeVal * item.quantity;
+      const invested = (Number(item.quantity) || 0) * (Number(item.average_price) || 0);
+      const marketValue = (Number(item.quantity) || 0) * price;
+      const dayChange = dayChangeVal * (Number(item.quantity) || 0);
 
       // Generate a deterministic UUID from portfolioId-symbol to satisfy DB UUID constraint
       const hash = crypto.createHash('md5').update(`${portfolioId}-${symbol}`).digest('hex');
@@ -404,9 +404,10 @@ async function performSync() {
         id: deterministicId,
         portfolio_id: portfolioId,
         trading_symbol: symbol,
-        quantity: item.quantity,
-        average_price: item.average_price,
+        quantity: Number(item.quantity) || 0,
+        average_price: Number(item.average_price) || 0,
         last_price: price,
+        close_price: prevClose, // Added for new schema compatibility
         invested_value: invested,
         market_value: marketValue,
         p_l: marketValue - invested,
@@ -425,8 +426,18 @@ async function performSync() {
   console.log(`[PORTFOLIO] Executing Verified Upsert for ${portfolioId}`);
   console.log("==================================================");
 
-  const { error: insError } = await supabase.from('holdings').upsert(enriched, { onConflict: 'id' });
-  if (insError) throw insError;
+  try {
+    const { error: insError } = await supabase.from('holdings').upsert(enriched, { onConflict: 'id' });
+    if (insError) {
+      console.error("[DB ERROR] Upsert failed:", insError.message);
+      console.error("Details:", insError.details);
+      console.error("Hint:", insError.hint);
+      throw insError;
+    }
+  } catch (upsertErr: any) {
+    console.error("[CRITICAL] Portfolio Upsert failed. Check RLS policies or Service Role Key.");
+    throw upsertErr;
+  }
 
   console.log(`[SUCCESS] Synchronized ${enriched.length} holdings:`);
   enriched.forEach(h => {
@@ -901,9 +912,15 @@ app.listen(PORT, '0.0.0.0', async () => {
 
   // 0. WARM START: Sync immediately on startup
   console.log("[WARM START] Initializing engine state...");
-  await syncMarketAssets(false); 
-  await syncUsMarketAssets(false);
-  await performSync();     
+  try {
+    await syncMarketAssets(false); 
+    await syncUsMarketAssets(false);
+    await performSync();     
+  } catch (startupError: any) {
+    console.error("[FATAL STARTUP ERROR] Sync failed:", startupError.message || startupError);
+    if (startupError.details) console.error("Details:", startupError.details);
+    if (startupError.hint) console.error("Hint:", startupError.hint);
+  }
 });
 
 app.post('/api/us-market-seed', async (req, res) => {

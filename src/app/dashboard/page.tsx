@@ -694,7 +694,7 @@ export default function DashboardPage() {
                                 {asset.p_l >= 0 ? '+' : ''}{formatCurrency(asset.p_l)}
                               </span>
                               <span className={`font-terminal-label text-[10px] font-bold tabular-nums mt-1 ${asset.p_l >= 0 ? 'text-emerald-500/40' : 'text-red-500/40'}`}>
-                                {asset.p_l_percentage.toFixed(2)}%
+                                {(Number(asset.p_l_percentage) || 0).toFixed(2)}%
                               </span>
                             </div>
                           </td>
