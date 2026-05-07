@@ -16,7 +16,7 @@ export default function StockPage() {
   const [history, setHistory] = useState<any[]>([]);
   const [timeRange, setTimeRange] = useState('1Y');
   const [isLoading, setIsLoading] = useState(true);
-  const [status, setStatus] = useState<'OPEN' | 'CLOSED'>('CLOSED');
+  const [status, setStatus] = useState<'OPEN' | 'CLOSED' | 'PRE' | 'AFTER'>('CLOSED');
   const isPositive = data?.day_change_percentage >= 0;
 
   useEffect(() => {
@@ -133,7 +133,9 @@ export default function StockPage() {
                       "size-1.5 rounded-full animate-pulse",
                       status === 'OPEN' ? "bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.5)]" : "bg-zinc-500"
                     )} />
-                    MARKET {status}
+                    {status === 'OPEN' ? 'MARKET LIVE' : 
+                     status === 'PRE' ? 'PRE-MARKET' : 
+                     status === 'AFTER' ? 'AFTER-HOURS' : 'MARKET CLOSED'}
                   </div>
                   <span className="text-zinc-500 font-medium tracking-tight">/ Institutional Intel</span>
                 </div>

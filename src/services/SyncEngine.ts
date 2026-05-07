@@ -239,9 +239,19 @@ app.get(['/api/stocks/:symbol/history', '/api/us-stocks/:symbol/history'], async
 // PORTFOLIO SYNC ENGINE
 // ---------------------------------------------------------
 app.post('/api/sync', async (req, res) => {
-  console.log("[INFO] Manual portfolio sync requested.");
-  await performSync();
-  res.json({ success: true });
+  console.log("\n" + "=".repeat(50));
+  console.log(`[TACTICAL] MANUAL SYNC TRIGGERED AT ${new Date().toLocaleTimeString()}`);
+  console.log("=".repeat(50));
+  
+  try {
+    await performSync();
+    console.log("[SUCCESS] Manual sync completed successfully.");
+    console.log("=".repeat(50) + "\n");
+    res.json({ success: true });
+  } catch (err: any) {
+    console.error(`[FATAL] Manual sync failed: ${err.message}`);
+    res.status(500).json({ success: false, error: err.message });
+  }
 });
 
 app.post('/api/market-seed', async (req, res) => {
@@ -664,7 +674,7 @@ function isMarketOpen() {
   const istTime = new Date(now.getTime() + istOffset);
   const hour = istTime.getUTCHours();
   const minute = istTime.getUTCMinutes();
-  return (hour === 9 && minute >= 15) || (hour > 9 && hour < 15) || (hour === 15 && minute <= 30);
+  return (hour === 9 && minute >= 15) || (hour > 9 && hour < 16);
 }
 
 // ---------------------------------------------------------

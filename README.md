@@ -25,6 +25,13 @@
 - **High-Fidelity Dossiers**: Redesigned news feed featuring cinematic glassmorphism and institutional typography.
 - **Dynamic Performance Hovers**: News items react to stock performance—hovering triggers **Neon Emerald** for gains and **Vibrant Rose** for losses.
 
+### 🛠️ Recent Terminal Refinements
+- **Universal Price Intel**: Fixed chart tooltips to handle all timeframes (1M, 1Y, ALL) by adding format-aware parsing for date strings and timestamps.
+- **Institutional Market Labels**: Corrected market session terminology to professional standards: **PRE-MARKET**, **AFTER-HOURS**, and **MARKET LIVE**.
+- **Refined Asset Discovery**: Simplified the holdings filter to prevent "Global Asset Discovery" overlap, keeping the portfolio view focused and tactical.
+- **AI Assistant UX**: Perfected the Research Assistant interface with overflow-aware rounding and intuitive "Good/Bad" Lucide feedback triggers.
+- **Stabilized Dev Environment**: Optimized local development porting (3003) to eliminate indices synchronization errors.
+
 ---
 
 ## 🚀 Getting Started

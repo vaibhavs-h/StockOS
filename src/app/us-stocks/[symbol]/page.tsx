@@ -136,7 +136,9 @@ export default function USStockPage() {
                       status === 'PRE' || status === 'AFTER' ? "bg-amber-400" :
                       "bg-zinc-500"
                     )} />
-                    MARKET {status}
+                    {status === 'OPEN' ? 'MARKET LIVE' : 
+                     status === 'PRE' ? 'PRE-MARKET' : 
+                     status === 'AFTER' ? 'AFTER-HOURS' : 'MARKET CLOSED'}
                   </div>
                   <span className="text-zinc-500 font-medium tracking-tight">/ Institutional Intel</span>
                 </div>

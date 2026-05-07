@@ -153,26 +153,24 @@ export const WealthPerformanceChart: React.FC<WealthChartProps> = ({
       } else {
         const isUnix = typeof param.time === 'number';
         const date = new Date(isUnix ? (param.time as number) * 1000 : (param.time as any));
+        
+        // 1. Format the Date
         let dateStr = date.toLocaleDateString(locale, {
           day: '2-digit',
           month: 'short',
           year: 'numeric'
         });
+
+        // 2. Handle Intraday Labels (1D/1W only)
+        let sessionLabel = "";
+        let sessionColor = "text-zinc-500";
+        
         if (isUnix) {
-          const hours = date.getUTCHours();
-          const minutes = date.getUTCMinutes();
-          const totalMinutes = hours * 60 + minutes;
-          
-          // EST is UTC-5 (approx, for session labeling)
-          // Actually, let's use the local hours of the date if we assume the date object is correct
-          // But to be precise for US market (EST), we need to check the EST time.
           const estDate = new Date(date.toLocaleString("en-US", { timeZone: "America/New_York" }));
           const estHours = estDate.getHours();
           const estMinutes = estDate.getMinutes();
           const estTotal = estHours * 60 + estMinutes;
 
-          let sessionLabel = "";
-          let sessionColor = "text-zinc-500";
           if (timezoneLabel === 'EST') {
             if (estTotal >= 240 && estTotal < 570) {
               sessionLabel = "Pre-Market";
@@ -187,14 +185,17 @@ export const WealthPerformanceChart: React.FC<WealthChartProps> = ({
               sessionColor = "text-purple-400";
             }
           }
-
           dateStr += ' | ' + date.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit', hour12: false }) + ' ' + timezoneLabel;
+        }
 
-          tooltipRef.current!.style.display = 'block';
-          tooltipRef.current!.style.borderColor = `rgba(${rgba}, 0.4)`;
-          const data = param.seriesData.get(areaSeries);
-          const price = (data as any)?.value !== undefined ? (data as any).value : (data as any)?.close;
+        // 3. Render the Tooltip
+        tooltipRef.current!.style.display = 'block';
+        tooltipRef.current!.style.borderColor = `rgba(${rgba}, 0.4)`;
+        
+        const data = param.seriesData.get(areaSeries);
+        const price = (data as any)?.value !== undefined ? (data as any).value : (data as any)?.close;
 
+        if (price !== undefined) {
           const formattedPrice = new Intl.NumberFormat(locale, {
             style: 'currency',
             currency: currency,
@@ -212,6 +213,8 @@ export const WealthPerformanceChart: React.FC<WealthChartProps> = ({
               </div>
             </div>
           `;
+        } else {
+          tooltipRef.current!.style.display = 'none';
         }
 
         const tooltipWidth = 145;

@@ -292,8 +292,9 @@ export default function DashboardPage() {
 
 
   const fetchIndices = async () => {
+    const engineUrl = process.env.NEXT_PUBLIC_ENGINE_URL || 'http://localhost:3003';
     try {
-      const res = await axios.get('http://localhost:3003/api/indices');
+      const res = await axios.get(`${engineUrl}/api/indices`);
       setIndices(res.data);
     } catch (err) {
       console.warn("[DASHBOARD] Fetch indices failed:", err);
@@ -302,14 +303,29 @@ export default function DashboardPage() {
 
   const refreshAll = async () => {
     setIsRefreshing(true);
+    console.log("[SYSTEM] Initializing manual sync...");
+    const engineUrl = process.env.NEXT_PUBLIC_ENGINE_URL || 'http://localhost:3003';
+    
     try {
-      // Trigger a manual backend sync to get fresh data from Groww
-      await axios.post('http://localhost:3003/api/sync');
+      console.log("[SYNC] Fetching live Groww portfolio data...");
+      await axios.post(`${engineUrl}/api/sync`);
+      console.log("[SYNC] Groww sync complete.");
     } catch (err: any) {
-      // Silent fail, rely on local cache
+      console.warn("[ERROR] Groww sync failed. Using cache.");
     }
-    await Promise.all([fetchHoldings(), fetchHistory(), fetchIndices(), fetchMarketIntelligence()]);
-    setTimeout(() => setIsRefreshing(false), 800); // Visual polish delay
+
+    console.log("[DASHBOARD] Refreshing local state buffers...");
+    await Promise.all([
+      fetchHoldings().then(() => console.log("[LOAD] Holdings data updated.")),
+      fetchHistory().then(() => console.log("[LOAD] Portfolio history synced.")),
+      fetchIndices().then(() => console.log("[LOAD] Market indices updated.")),
+      fetchMarketIntelligence().then(() => console.log("[LOAD] AI Intel pool refreshed."))
+    ]);
+    
+    console.log("[SYSTEM] Sync complete. Dashboard stabilized.");
+    setTimeout(() => {
+      setIsRefreshing(false);
+    }, 800); 
   }
 
   const handleSearch = async (query: string) => {
@@ -467,7 +483,7 @@ export default function DashboardPage() {
 
       {/* Main Dashboard Grid */}
       <section
-        className="pt-[112px] pb-6 px-12 max-w-full mx-auto w-full grid grid-cols-1 lg:grid-cols-[1fr_560px] gap-10 relative z-10 items-stretch"
+        className="pt-[140px] pb-6 px-12 max-w-full mx-auto w-full grid grid-cols-1 lg:grid-cols-[1fr_560px] gap-10 relative z-10 items-stretch"
       >
         {/* Left Section: Dashboard Content */}
         <motion.div
@@ -494,9 +510,9 @@ export default function DashboardPage() {
             transition={{ duration: 0.8, ease: [0.16, 1, 0.3, 1] }}
             className="grid grid-cols-1 md:grid-cols-[1.5fr_1fr_1fr] gap-8 mb-0 items-end"
           >
-            <div className="relative group col-span-full">
+            <div className="relative group col-span-full -mt-12 -mb-4">
               <div className="flex items-baseline gap-4">
-                <h2 className="font-headline font-black text-5xl tracking-tighter text-white uppercase">VAIBHAV S.</h2>
+                <h2 className="font-headline font-black text-7xl tracking-tighter text-white uppercase leading-none">VAIBHAV S.</h2>
                 <motion.div
                   whileHover={{ y: -1, scale: 1.02 }}
                   className="flex items-center gap-2 group/portfolio cursor-pointer px-3 py-1 rounded-full hover:bg-emerald-500/5 transition-all duration-300 border border-transparent hover:border-emerald-500/10"
@@ -614,57 +630,9 @@ export default function DashboardPage() {
                   type="text"
                   placeholder="FILTER HOLDINGS..."
                   value={searchQuery}
-                  onChange={(e) => handleSearch(e.target.value)}
-                  onFocus={() => {
-                    if (searchQuery.length >= 2) handleSearch(searchQuery);
-                  }}
+                  onChange={(e) => setSearchQuery(e.target.value)}
                   className="bg-black/60 border border-white/5 text-[9px] tracking-wider font-terminal-label pl-8 pr-4 py-2 w-64 rounded-full focus:ring-1 focus:ring-emerald-500/40 focus:outline-none placeholder:text-white/10 transition-all"
                 />
-
-                {/* Search Results Dropdown */}
-                <AnimatePresence>
-                  {searchResults.length > 0 && searchQuery.length >= 2 && (
-                    <motion.div
-                      initial={{ opacity: 0, y: 10, scale: 0.95 }}
-                      animate={{ opacity: 1, y: 0, scale: 1 }}
-                      exit={{ opacity: 0, y: 10, scale: 0.95 }}
-                      className="absolute right-0 top-full mt-4 w-80 glass-panel rounded-2xl border border-white/10 shadow-[0_20px_50px_rgba(0,0,0,0.5)] bg-black/80 backdrop-blur-2xl z-50 overflow-hidden"
-                    >
-                      <div className="p-2 flex flex-col gap-1">
-                        <div className="px-3 py-2 border-b border-white/5 flex justify-between items-center">
-                          <span className="text-[9px] font-black text-emerald-500/60 uppercase tracking-widest">Global Asset Discovery</span>
-                          {isSearching && <RefreshCcw className="w-2.5 h-2.5 text-emerald-500 animate-spin" />}
-                        </div>
-                        {searchResults.map((result, idx) => (
-                          <button
-                            key={`${result.market}-${result.symbol}`}
-                            onClick={() => {
-                              const route = result.market === 'US' ? `/us-stocks/${result.symbol}` : `/stocks/${result.symbol}`;
-                              router.push(route);
-                              setSearchResults([]);
-                              setSearchQuery("");
-                            }}
-                            className="flex items-center justify-between p-3 rounded-xl hover:bg-emerald-500/10 transition-all group text-left"
-                          >
-                            <div className="flex flex-col">
-                              <div className="flex items-center gap-2">
-                                <span className="font-headline font-bold text-xs text-white group-hover:text-emerald-400 transition-colors">{result.symbol}</span>
-                                <span className={cn(
-                                  "text-[7px] font-black px-1.5 py-0.5 rounded uppercase tracking-tighter",
-                                  result.market === 'US' ? "bg-blue-500/10 text-blue-400 border border-blue-500/20" : "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
-                                )}>
-                                  {result.market}
-                                </span>
-                              </div>
-                              <span className="text-[9px] text-zinc-500 font-medium truncate w-40">{result.name}</span>
-                            </div>
-                            <ArrowUpRight className="w-3 h-3 text-zinc-700 group-hover:text-emerald-500 transition-colors" />
-                          </button>
-                        ))}
-                      </div>
-                    </motion.div>
-                  )}
-                </AnimatePresence>
               </div>
             </div>
 
@@ -755,7 +723,7 @@ export default function DashboardPage() {
 
         {/* Sidebar: AI Research Assistant */}
         <motion.aside
-          className="glass-panel rounded-3xl border border-white/10 sticky top-28 bg-[#0a0d14]/80 backdrop-blur-3xl h-full shadow-[0_40px_100px_rgba(0,0,0,0.4)] group/sidebar min-h-[600px]"
+          className="glass-panel rounded-3xl border border-white/10 sticky top-[140px] bg-[#0a0d14]/80 backdrop-blur-3xl h-full shadow-[0_40px_100px_rgba(0,0,0,0.4)] group/sidebar min-h-[600px] overflow-hidden"
         >
           <div className="absolute inset-0 flex flex-col overflow-hidden z-10">
             {/* Clean Header */}
@@ -912,11 +880,13 @@ export default function DashboardPage() {
                                 ));
                               }}
                               className={cn(
-                                "p-2 rounded-lg transition-all",
+                                "px-3 py-1.5 rounded-xl transition-all",
                                 msg.feedbackProvided === 'positive' ? "bg-emerald-500 text-white" : "bg-white/5 text-zinc-400 hover:text-emerald-400 hover:bg-emerald-500/10"
                               )}
                             >
-                              <ThumbsUp className="w-3.5 h-3.5" />
+                              <span className="text-[10px] font-black uppercase tracking-wider flex items-center gap-1.5">
+                                Good <ThumbsUp className="w-3 h-3" />
+                              </span>
                             </button>
                             <button
                               onClick={() => {
@@ -925,11 +895,13 @@ export default function DashboardPage() {
                                 ));
                               }}
                               className={cn(
-                                "p-2 rounded-lg transition-all",
+                                "px-3 py-1.5 rounded-xl transition-all",
                                 msg.feedbackProvided === 'negative' ? "bg-red-500 text-white" : "bg-white/5 text-zinc-400 hover:text-red-400 hover:bg-red-500/10"
                               )}
                             >
-                              <ThumbsDown className="w-3.5 h-3.5" />
+                              <span className="text-[10px] font-black uppercase tracking-wider flex items-center gap-1.5">
+                                Bad <ThumbsDown className="w-3 h-3" />
+                              </span>
                             </button>
                           </div>
                         </motion.div>
