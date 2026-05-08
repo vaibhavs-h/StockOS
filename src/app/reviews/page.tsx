@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { BackgroundShader } from "@/components/shared/BackgroundShader";
 import { Footer } from "@/components/shared/Footer";
 import { motion, AnimatePresence } from "framer-motion";
 import { Star, MessageSquare, Filter, Send, Check, X, User as UserIcon } from "lucide-react";
@@ -188,11 +187,7 @@ export default function ReviewsPage() {
       : "0.0";
 
   return (
-    <div className="relative min-h-screen w-full flex flex-col overflow-x-hidden bg-black">
-      {/* Background */}
-      <div className="fixed inset-0 z-0">
-        <BackgroundShader />
-      </div>
+    <div className="relative min-h-screen w-full flex flex-col overflow-x-hidden bg-transparent">
 
       <main className="relative z-10 flex-1 py-32 px-4 sm:px-6 lg:px-8">
         <div className="max-w-5xl mx-auto">

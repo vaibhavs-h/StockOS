@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { BackgroundShader } from "@/components/shared/BackgroundShader";
 import { Footer } from "@/components/shared/Footer";
 import { motion, AnimatePresence } from "framer-motion";
 import { Check, X, Zap, Star, Shield, Award } from "lucide-react";
@@ -21,7 +20,7 @@ const PLANS = [
     popular: false,
     icon: Star,
     features: [
-      { text: "10 AI Assistant Message Usage", included: true },
+      { text: "10 AI Chat Requests", included: true },
       { text: "Basic market data", included: true },
       { text: "Portfolio tracking (1 portfolio)", included: true },
       { text: "Advanced analytics", included: false },
@@ -38,7 +37,7 @@ const PLANS = [
     popular: false,
     icon: Zap,
     features: [
-      { text: "20 AI assistant Message Usage per day", included: true },
+      { text: "20 AI Chat Requests/Per Day", included: true },
       { text: "Real-time market data", included: true },
       { text: "Portfolio tracking (5 portfolios)", included: true },
       { text: "Email support", included: true },
@@ -57,7 +56,7 @@ const PLANS = [
     popular: true,
     icon: Award,
     features: [
-      { text: "50 AI assistant Message Usages per day", included: true },
+      { text: "50 AI Chat Requests/Per day", included: true },
       { text: "Real-time market data", included: true },
       { text: "Unlimited portfolio tracking", included: true },
       { text: "Priority 24/7 support", included: true },
@@ -96,7 +95,7 @@ export default function PricingPage() {
 
     try {
       const res = await axios.post('/api/user/subscription', { tier: planId });
-      
+
       if (res.data.success) {
         setToast({
           message: `Successfully activated ${planId.toUpperCase()} plan!`,
@@ -106,9 +105,9 @@ export default function PricingPage() {
         await update();
       }
     } catch (err: any) {
-      setToast({ 
-        message: err.response?.data?.error || "Failed to update subscription", 
-        type: "error" 
+      setToast({
+        message: err.response?.data?.error || "Failed to update subscription",
+        type: "error"
       });
     } finally {
       setIsUpdating(null);
@@ -117,11 +116,7 @@ export default function PricingPage() {
   };
 
   return (
-    <div className="relative min-h-screen w-full flex flex-col overflow-x-hidden bg-black">
-      {/* Background */}
-      <div className="fixed inset-0 z-0">
-        <BackgroundShader />
-      </div>
+    <div className="relative min-h-screen w-full flex flex-col overflow-x-hidden bg-transparent">
 
       <main className="relative z-10 flex-1 py-32 px-4 sm:px-6 lg:px-8">
         <div className="max-w-7xl mx-auto">
@@ -176,16 +171,16 @@ export default function PricingPage() {
 
                 <div className={cn(
                   "relative h-full glass-panel rounded-3xl p-8 flex flex-col border transition-all duration-500",
-                  plan.popular 
-                    ? "bg-zinc-950/60 border-emerald-500/30 shadow-[0_20px_50px_rgba(16,185,129,0.15)]" 
+                  plan.popular
+                    ? "bg-zinc-950/60 border-emerald-500/30 shadow-[0_20px_50px_rgba(16,185,129,0.15)]"
                     : "bg-zinc-950/40 border-white/5 hover:border-white/10"
                 )}>
                   {/* Plan Icon & Name */}
                   <div className="mb-8">
                     <div className={cn(
                       "w-12 h-12 rounded-2xl flex items-center justify-center mb-6 border transition-transform duration-500 group-hover:scale-110",
-                      plan.popular 
-                        ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-400" 
+                      plan.popular
+                        ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-400"
                         : "bg-white/5 border-white/10 text-zinc-400"
                     )}>
                       <plan.icon className="size-6" />
@@ -218,7 +213,7 @@ export default function PricingPage() {
                     disabled={isUpdating !== null || currentTier === plan.id}
                     className={cn(
                       "w-full py-4 px-6 rounded-2xl font-bold text-xs uppercase tracking-widest transition-all duration-300 mb-8 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed",
-                      plan.id === currentTier 
+                      plan.id === currentTier
                         ? "bg-zinc-800 text-zinc-400 border border-zinc-700"
                         : plan.popular
                           ? "bg-emerald-500 text-black hover:bg-emerald-400 shadow-[0_10px_20px_rgba(16,185,129,0.2)] hover:shadow-[0_15px_30px_rgba(16,185,129,0.3)]"
@@ -289,8 +284,8 @@ export default function PricingPage() {
           >
             <div className={cn(
               "px-6 py-4 rounded-2xl shadow-2xl backdrop-blur-xl border flex items-center gap-4",
-              toast.type === "success" 
-                ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-400" 
+              toast.type === "success"
+                ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-400"
                 : "bg-red-500/10 border-red-500/20 text-red-400"
             )}>
               <div className={cn(

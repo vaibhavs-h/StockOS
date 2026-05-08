@@ -592,10 +592,6 @@ export default function DashboardPage() {
                   {totalPLPerc.toFixed(1)}%
                 </span>
               </div>
-              {/* Internal Debug Overlay - Hidden in production */}
-              <div className="fixed bottom-4 right-4 z-[200] bg-black/80 p-2 rounded text-[8px] font-mono text-emerald-500 pointer-events-none opacity-50 max-w-[300px] break-all">
-                L:{holdings.length} | NW:{totalNetWorth.toFixed(0)} | DC:{totalDayChange.toFixed(0)} | Keys:{holdings[0] ? Object.keys(holdings[0]).join(',') : 'NONE'}
-              </div>
             </div>
           </motion.section>
 

@@ -1,21 +1,15 @@
 "use client"
 
 import { signIn } from "next-auth/react"
-import { BackgroundShader } from "@/components/shared/BackgroundShader"
-import { Footer } from "@/components/shared/Footer"
 import { motion } from "framer-motion"
 import { Chrome } from "lucide-react"
 
 export default function LoginPage() {
   return (
-    <div className="relative min-h-screen w-full flex flex-col">
-      {/* Background */}
-      <div className="fixed inset-0 z-0">
-        <BackgroundShader />
-      </div>
+    <div className="relative min-h-screen w-full flex flex-col bg-transparent">
 
       {/* Main Content */}
-      <main className="relative z-10 flex-1 flex flex-col items-center justify-center px-4 py-24">
+      <main className="relative z-10 flex-1 flex flex-col items-center justify-center px-4 pt-24 pb-12">
         <motion.div 
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
@@ -66,14 +60,13 @@ export default function LoginPage() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ delay: 0.5 }}
-            className="mt-8 text-center text-zinc-500 text-sm"
+            className="mt-4 text-center text-zinc-500 text-xs italic max-w-[280px] mx-auto leading-relaxed"
           >
-            Don&apos;t have an account? <span className="text-white font-medium cursor-pointer hover:underline" onClick={() => signIn("google", { callbackUrl: "/dashboard" })}>Request Access</span>
+            Disclaimer: Our platform currently supports automatic data fetch for <span className="text-emerald-500 font-bold">Groww</span> holdings only.
           </motion.p>
         </motion.div>
       </main>
 
-      <Footer />
     </div>
   )
 }

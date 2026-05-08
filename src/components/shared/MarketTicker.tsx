@@ -22,7 +22,7 @@ export function MarketTicker() {
   const pathname = usePathname();
 
   useEffect(() => {
-    if (pathname === '/') return;
+    if (pathname === '/' || pathname === '/auth/login') return;
     const fetchIndices = async () => {
       try {
         const engineUrl = process.env.NEXT_PUBLIC_ENGINE_URL || 'http://localhost:3003';
@@ -47,7 +47,7 @@ export function MarketTicker() {
     return () => clearInterval(interval);
   }, [pathname]);
 
-  if (pathname === '/') return null;
+  if (pathname === '/' || pathname === '/auth/login') return null;
 
   // Duplicate indices for seamless marquee
   const marqueeItems = [...indices, ...indices, ...indices];
