@@ -6,6 +6,8 @@ import { Footer } from "@/components/shared/Footer";
 import { motion, AnimatePresence } from "framer-motion";
 import { Check, X, Zap, Star, Shield, Award } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useSession } from "next-auth/react";
+import axios from "axios";
 
 /** Plan configuration — single source of truth */
 const PLANS = [
@@ -67,24 +69,51 @@ const PLANS = [
 ];
 
 export default function PricingPage() {
+  const { data: session, update } = useSession();
+  const currentTier = (session?.user as any)?.subscription_tier || 'free';
+
   const [toast, setToast] = useState<{
     message: string;
     type: "success" | "error";
   } | null>(null);
 
-  /** Subscribe to a plan (Static Mock) */
-  const handleSubscribe = (planId: string) => {
-    console.log(`Plan selected: ${planId}`);
+  const [isUpdating, setIsUpdating] = useState<string | null>(null);
+
+  /** Subscribe to a plan */
+  const handleSubscribe = async (planId: string) => {
+    if (!session) {
+      setToast({ message: "Please sign in to upgrade", type: "error" });
+      return;
+    }
+
+    if (planId === currentTier) {
+      setToast({ message: "You are already on this plan", type: "success" });
+      return;
+    }
+
+    setIsUpdating(planId);
     setToast(null);
 
-    // Simulate success without a network request
-    setToast({
-      message: `Successfully selected the ${planId.toUpperCase()} plan!`,
-      type: "success",
-    });
-
-    // Auto-hide toast
-    setTimeout(() => setToast(null), 3000);
+    try {
+      const res = await axios.post('/api/user/subscription', { tier: planId });
+      
+      if (res.data.success) {
+        setToast({
+          message: `Successfully activated ${planId.toUpperCase()} plan!`,
+          type: "success",
+        });
+        // Update the session to reflect new tier
+        await update();
+      }
+    } catch (err: any) {
+      setToast({ 
+        message: err.response?.data?.error || "Failed to update subscription", 
+        type: "error" 
+      });
+    } finally {
+      setIsUpdating(null);
+      setTimeout(() => setToast(null), 3000);
+    }
   };
 
   return (
@@ -186,14 +215,23 @@ export default function PricingPage() {
                   {/* CTA Button */}
                   <button
                     onClick={() => handleSubscribe(plan.id)}
+                    disabled={isUpdating !== null || currentTier === plan.id}
                     className={cn(
-                      "w-full py-4 px-6 rounded-2xl font-bold text-xs uppercase tracking-widest transition-all duration-300 mb-8 active:scale-[0.98]",
-                      plan.popular
-                        ? "bg-emerald-500 text-black hover:bg-emerald-400 shadow-[0_10px_20px_rgba(16,185,129,0.2)] hover:shadow-[0_15px_30px_rgba(16,185,129,0.3)]"
-                        : "bg-white/5 border border-white/10 text-white hover:bg-white/10"
+                      "w-full py-4 px-6 rounded-2xl font-bold text-xs uppercase tracking-widest transition-all duration-300 mb-8 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed",
+                      plan.id === currentTier 
+                        ? "bg-zinc-800 text-zinc-400 border border-zinc-700"
+                        : plan.popular
+                          ? "bg-emerald-500 text-black hover:bg-emerald-400 shadow-[0_10px_20px_rgba(16,185,129,0.2)] hover:shadow-[0_15px_30px_rgba(16,185,129,0.3)]"
+                          : "bg-white/5 border border-white/10 text-white hover:bg-white/10"
                     )}
                   >
-                    {plan.cta}
+                    {isUpdating === plan.id ? (
+                      <div className="size-4 border-2 border-current border-t-transparent rounded-full animate-spin mx-auto" />
+                    ) : plan.id === currentTier ? (
+                      "Current Plan"
+                    ) : (
+                      plan.cta
+                    )}
                   </button>
 
                   {/* Features */}

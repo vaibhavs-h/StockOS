@@ -74,9 +74,18 @@ export function TacticalHeader() {
                   size="icon"
                   variant="ghost"
                   onClick={() => setProfileOpen(!profileOpen)}
-                  className="h-11 w-11 rounded-full border-2 border-black bg-white text-black hover:bg-zinc-100 shadow-[0_4px_15px_rgba(0,0,0,0.1)] group relative overflow-hidden p-0"
+                  className="h-11 w-11 rounded-full border-2 border-black bg-white text-black hover:bg-zinc-100 shadow-[0_4px_15px_rgba(0,0,0,0.1)] group relative p-0"
                 >
                   <ProfileImage src={session?.user?.image} name={session?.user?.name} />
+                  {/* Tier Indicator on icon */}
+                  {(session?.user as any)?.subscription_tier && (session?.user as any)?.subscription_tier !== 'free' && (
+                    <div className={cn(
+                      "absolute -top-1 -right-1 size-4 rounded-full border-2 border-white flex items-center justify-center shadow-sm",
+                      (session?.user as any).subscription_tier === 'pro' ? "bg-emerald-500" : "bg-blue-500"
+                    )}>
+                      <div className="size-1.5 rounded-full bg-white animate-pulse" />
+                    </div>
+                  )}
                 </Button>
 
                 <AnimatePresence>
@@ -95,12 +104,34 @@ export function TacticalHeader() {
                         exit={{ opacity: 0, scale: 0.95, y: 10 }}
                         className="absolute right-0 mt-3 w-64 bg-white border-2 border-black rounded-3xl shadow-[0_20px_50px_rgba(0,0,0,0.3)] z-20 overflow-hidden"
                       >
-                        <div className="p-5 border-b-2 border-black/5 bg-zinc-50">
+                        <div className="p-5 border-b-2 border-black/5 bg-zinc-50 relative">
+                          {/* Tier Badge in Menu */}
+                          <div className={cn(
+                            "absolute top-5 right-5 px-2 py-0.5 rounded-full text-[8px] font-black uppercase tracking-widest border",
+                            (session?.user as any)?.subscription_tier === 'pro' ? "bg-emerald-500/10 text-emerald-600 border-emerald-500/20" :
+                            (session?.user as any)?.subscription_tier === 'lite' ? "bg-blue-500/10 text-blue-600 border-blue-500/20" :
+                            "bg-zinc-100 text-zinc-400 border-zinc-200"
+                          )}>
+                            {(session?.user as any)?.subscription_tier || 'FREE'}
+                          </div>
+                          
                           <p className="text-[10px] font-black uppercase tracking-widest text-zinc-400 mb-1">Signed in as</p>
-                          <p className="font-headline font-bold text-black truncate">{session?.user?.name || session?.user?.email || "Agent Guest"}</p>
+                          <p className="font-headline font-bold text-black truncate pr-12">{session?.user?.name || session?.user?.email || "Agent Guest"}</p>
                           <p className="text-[11px] text-zinc-500 font-medium truncate">{session?.user?.email || "vaibhav@stockos.internal"}</p>
                         </div>
                         <div className="p-2">
+                          <Link href="/subscription">
+                            <Button
+                              variant="ghost"
+                              className="w-full justify-start gap-3 rounded-2xl text-black hover:bg-zinc-100 transition-colors mb-1"
+                              onClick={() => setProfileOpen(false)}
+                            >
+                              <div className="size-4 rounded-full bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center">
+                                <div className="size-1.5 rounded-full bg-emerald-500" />
+                              </div>
+                              <span className="font-bold text-xs uppercase tracking-widest">Manage Plan</span>
+                            </Button>
+                          </Link>
                           <Button
                             variant="ghost"
                             className="w-full justify-start gap-3 rounded-2xl text-red-500 hover:text-red-600 hover:bg-red-50 transition-colors"

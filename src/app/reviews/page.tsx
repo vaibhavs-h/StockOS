@@ -10,7 +10,7 @@ import { cn } from "@/lib/utils";
 /** 
  * API Configuration
  */
-const API_URL = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:5001").replace(/\/$/, "");
+const API_URL = (process.env.FEEDBACK_URL || "http://localhost:5001").replace(/\/$/, "");
 
 interface Review {
   _id: string;
@@ -35,10 +35,10 @@ function Stars({
 }) {
   const [hover, setHover] = useState(0);
 
-  const sizes = { 
-    sm: "size-4", 
-    md: "size-5", 
-    lg: "size-8" 
+  const sizes = {
+    sm: "size-4",
+    md: "size-5",
+    lg: "size-8"
   };
 
   return (
@@ -60,8 +60,8 @@ function Stars({
             className={cn(
               sizes[size],
               "transition-colors duration-150",
-              (hover || rating) >= star 
-                ? "fill-emerald-500 text-emerald-500" 
+              (hover || rating) >= star
+                ? "fill-emerald-500 text-emerald-500"
                 : "fill-transparent text-zinc-700"
             )}
             strokeWidth={1.5}
@@ -103,11 +103,11 @@ export default function ReviewsPage() {
   const fetchReviews = useCallback(async () => {
     setLoadingReviews(true);
     const targetUrl = `${API_URL}/api/reviews?sort=${sortBy}`;
-    
+
     try {
       console.log(`🌐 Fetching: ${targetUrl}`);
       const res = await fetch(targetUrl);
-      
+
       if (!res.ok) {
         throw new Error(`HTTP Error: ${res.status} ${res.statusText}`);
       }
@@ -170,7 +170,7 @@ export default function ReviewsPage() {
     } catch (err: any) {
       console.error("❌ Submit error:", err);
       setToast({
-        message: err.message === "Failed to fetch" 
+        message: err.message === "Failed to fetch"
           ? `Network Error: Could not reach backend.`
           : (err.message || "Something went wrong"),
         type: "error",
@@ -227,7 +227,7 @@ export default function ReviewsPage() {
 
             {/* Aggregate stats */}
             {reviews.length > 0 && (
-              <motion.div 
+              <motion.div
                 initial={{ opacity: 0, scale: 0.9 }}
                 animate={{ opacity: 1, scale: 1 }}
                 transition={{ delay: 0.3 }}
@@ -431,8 +431,8 @@ export default function ReviewsPage() {
           >
             <div className={cn(
               "px-6 py-4 rounded-2xl shadow-2xl backdrop-blur-xl border flex items-center gap-4",
-              toast.type === "success" 
-                ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-400" 
+              toast.type === "success"
+                ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-400"
                 : "bg-red-500/10 border-red-500/20 text-red-400"
             )}>
               <div className={cn(
