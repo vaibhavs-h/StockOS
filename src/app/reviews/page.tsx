@@ -10,7 +10,7 @@ import { cn } from "@/lib/utils";
 /** 
  * API Configuration
  */
-const API_URL = (process.env.FEEDBACK_URL || "http://localhost:5001").replace(/\/$/, "");
+const API_URL = (process.env.NEXT_PUBLIC_FEEDBACK_URL || "http://localhost:5001").replace(/\/$/, "");
 
 interface Review {
   _id: string;
