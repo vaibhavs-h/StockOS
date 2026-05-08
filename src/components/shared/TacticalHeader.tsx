@@ -1,7 +1,7 @@
 "use client"
 
 import React, { useRef, useState } from "react";
-import { MenuIcon, SearchIcon } from 'lucide-react';
+import { MenuIcon, SearchIcon, User, LogOut } from 'lucide-react';
 import { Sheet, SheetContent, SheetFooter } from '@/components/shared/Sheet';
 import { Button } from '@/components/shared/Button';
 import { cn } from '@/lib/utils';
@@ -9,10 +9,13 @@ import { MarketSearch } from '@/components/shared/MarketSearch';
 import { motion, AnimatePresence } from "framer-motion";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useSession, signOut } from "next-auth/react";
 
 export function TacticalHeader() {
   const [open, setOpen] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
   const pathname = usePathname();
+  const { data: session } = useSession();
 
   // Hide header on landing page
   if (pathname === '/') return null;
@@ -20,6 +23,8 @@ export function TacticalHeader() {
   const links = [
     { label: 'Dashboard', href: '/dashboard' },
     { label: 'Journal', href: '/journal' },
+    { label: 'Subscription', href: '/subscription' },
+    { label: 'Reviews', href: '/reviews' },
   ];
 
   return (
@@ -45,23 +50,70 @@ export function TacticalHeader() {
             </div>
 
             {/* Flexible Search Area */}
-            <div className="flex-1 hidden md:block">
+            <div className="flex-1 max-w-2xl mx-auto hidden md:block">
               <MarketSearch>
                 <Button
-                  className="w-full h-12 justify-start px-6 bg-white border-2 border-black rounded-[100px] hover:bg-zinc-100 transition-colors shadow-[0_4px_20px_rgba(0,0,0,0.1)]"
+                  className="w-full h-11 justify-start px-6 bg-white border-2 border-black rounded-[100px] hover:bg-zinc-100 transition-colors shadow-[0_4px_20px_rgba(0,0,0,0.1)]"
                 >
                   <div className="flex items-center gap-3">
                     <SearchIcon className="size-4 text-black" />
-                    <span className="text-sm font-medium tracking-tight text-black">Search Stocks...</span>
+                    <span className="text-xs font-bold tracking-tight text-black">Search Stocks...</span>
                   </div>
                 </Button>
               </MarketSearch>
             </div>
 
-            <div className="flex items-center gap-6">
+            <div className="flex items-center gap-4">
               {/* Desktop Navigation Pill */}
               <div className="hidden lg:flex items-center">
                 <AnimatedTabs links={links} />
+              </div>
+
+              <div className="relative">
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  onClick={() => setProfileOpen(!profileOpen)}
+                  className="h-11 w-11 rounded-full border-2 border-black bg-white text-black hover:bg-zinc-100 shadow-[0_4px_15px_rgba(0,0,0,0.1)] group relative overflow-hidden p-0"
+                >
+                  <ProfileImage src={session?.user?.image} name={session?.user?.name} />
+                </Button>
+
+                <AnimatePresence>
+                  {profileOpen && (
+                    <>
+                      <motion.div
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        onClick={() => setProfileOpen(false)}
+                        className="fixed inset-0 z-10"
+                      />
+                      <motion.div
+                        initial={{ opacity: 0, scale: 0.95, y: 10 }}
+                        animate={{ opacity: 1, scale: 1, y: 0 }}
+                        exit={{ opacity: 0, scale: 0.95, y: 10 }}
+                        className="absolute right-0 mt-3 w-64 bg-white border-2 border-black rounded-3xl shadow-[0_20px_50px_rgba(0,0,0,0.3)] z-20 overflow-hidden"
+                      >
+                        <div className="p-5 border-b-2 border-black/5 bg-zinc-50">
+                          <p className="text-[10px] font-black uppercase tracking-widest text-zinc-400 mb-1">Signed in as</p>
+                          <p className="font-headline font-bold text-black truncate">{session?.user?.name || session?.user?.email || "Agent Guest"}</p>
+                          <p className="text-[11px] text-zinc-500 font-medium truncate">{session?.user?.email || "vaibhav@stockos.internal"}</p>
+                        </div>
+                        <div className="p-2">
+                          <Button
+                            variant="ghost"
+                            className="w-full justify-start gap-3 rounded-2xl text-red-500 hover:text-red-600 hover:bg-red-50 transition-colors"
+                            onClick={() => signOut({ callbackUrl: '/' })}
+                          >
+                            <LogOut className="size-4" />
+                            <span className="font-bold text-xs uppercase tracking-widest">Logout System</span>
+                          </Button>
+                        </div>
+                      </motion.div>
+                    </>
+                  )}
+                </AnimatePresence>
               </div>
 
               <Sheet open={open} onOpenChange={setOpen}>
@@ -90,8 +142,13 @@ export function TacticalHeader() {
                     ))}
                   </div>
                   <SheetFooter className="mt-12 pt-8 border-t border-white/5">
-                    <Button variant="outline" className="w-full">Settings</Button>
-                    <Button className="w-full">Logout</Button>
+                    <Button variant="outline" className="w-full" onClick={() => setOpen(false)}>Settings</Button>
+                    <Button 
+                      className="w-full bg-red-500 hover:bg-red-600 border-none"
+                      onClick={() => signOut({ callbackUrl: '/' })}
+                    >
+                      Logout
+                    </Button>
                   </SheetFooter>
                 </SheetContent>
               </Sheet>
@@ -100,6 +157,27 @@ export function TacticalHeader() {
         </motion.header>
       )}
     </AnimatePresence>
+  );
+}
+
+function ProfileImage({ src, name }: { src?: string | null; name?: string | null }) {
+  const [error, setError] = useState(false);
+
+  if (!src || error) {
+    return (
+      <div className="w-full h-full flex items-center justify-center bg-zinc-50">
+        <User className="size-5 text-black transition-transform group-hover:scale-110" />
+      </div>
+    );
+  }
+
+  return (
+    <img
+      src={src}
+      alt={name || "User"}
+      className="w-full h-full object-cover"
+      onError={() => setError(true)}
+    />
   );
 }
 

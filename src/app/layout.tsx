@@ -4,6 +4,8 @@ import "./globals.css"
 import { TacticalHeader as Header } from "@/components/shared/TacticalHeader"
 import { MarketTicker as Ticker } from "@/components/shared/MarketTicker"
 import HeroWave from "@/components/shared/HeroWave"
+import { Providers } from "./providers"
+
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter" })
 const outfit = Outfit({ subsets: ["latin"], variable: "--font-outfit" })
@@ -24,12 +26,14 @@ export default function RootLayout({
   return (
     <html lang="en" className="dark">
       <body className={`${inter.variable} ${outfit.variable} font-sans bg-black text-white antialiased`}>
-        <Header />
-        <main id="terminal-main">
-          <HeroWave />
-          {children}
-        </main>
-        <Ticker />
+        <Providers>
+          <Header />
+          <main id="terminal-main">
+            <HeroWave />
+            {children}
+          </main>
+          <Ticker />
+        </Providers>
       </body>
     </html>
   )

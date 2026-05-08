@@ -135,56 +135,74 @@ export default function DashboardPage() {
       let analysisItem = null;
       console.log("[DEBUG] Raw Assistant Response:", rawData);
 
-      // 1. Robust Nested Array Extraction (Matches your friend's n8n output)
-      if (Array.isArray(rawData) && rawData.length > 0) {
-        const first = rawData[0];
-        // Case: [{ analysis: [{ ... }] }]
-        if (Array.isArray(first.analysis) && first.analysis.length > 0) {
-          analysisItem = first.analysis[0];
-        }
-        // Case: [{ answer: "...", risk: "..." }]
-        else if (first.answer) {
-          analysisItem = {
-            answer: first.answer,
-            portfolio: first.portfolio || 'Analysis complete.',
-            risk: first.risk || 'Unknown',
-            action: first.action || 'HOLD',
-            confidence: {
-              score: first.confidence || 50,
-              reason: first.reason || 'Provided by AI.'
-            }
+      // --- 0. Partial/Malformed JSON Extraction (The "n8n Truncation" Case) ---
+      let processedData = rawData;
+      
+      // If we got a nested 'output' or 'raw_output' string, try to recover data from it
+      const firstItem = Array.isArray(rawData) ? rawData[0] : rawData;
+      const rawStr = firstItem?.output || firstItem?.raw_output;
+      
+      if (rawStr && typeof rawStr === 'string') {
+        try {
+          // Attempt 1: Try to fix trailing truncation by adding closing braces/brackets
+          // We try multiple closing variations to be safe
+          let repaired = rawStr.trim();
+          if (!repaired.endsWith(']')) repaired += '"}]'; 
+          processedData = JSON.parse(repaired);
+        } catch (e) {
+          // Attempt 2: Use regex to extract key fields if JSON is too broken
+          const extractField = (field: string) => {
+            const regex = new RegExp(`"${field}"\\s*:\\s*"([^"]+)"`, 'i');
+            const match = rawStr.match(regex);
+            return match ? match[1] : null;
           };
+
+          analysisItem = {
+            answer: extractField('answer') || "I analyzed your portfolio, but the response format was slightly different. Here is the partial insight:",
+            portfolio: extractField('portfolio') || "Portfolio summary available.",
+            analysis: extractField('analysis') || "Analysis details were partially retrieved.",
+            risk: extractField('risk') || "Moderate (Inferred)",
+            action: extractField('action') || "HOLD",
+            confidence: { score: 50, reason: "Inferred from partial data" },
+            isPartial: true
+          };
+          
+          if (analysisItem.answer && analysisItem.answer.length > 20) {
+             // Success!
+          } else {
+             analysisItem = null;
+          }
         }
       }
-      // 2. Simple Object Extraction
-      else if (rawData && !Array.isArray(rawData)) {
-        // Case: { analysis: [{ ... }] }
-        if (Array.isArray(rawData.analysis) && rawData.analysis.length > 0) {
-          analysisItem = rawData.analysis[0];
+
+      // --- 1. Standard Robust Extraction ---
+      if (!analysisItem) {
+        const dataToParse = Array.isArray(processedData) ? processedData : [processedData];
+        if (dataToParse.length > 0) {
+          const first = dataToParse[0];
+          // Case: [{ analysis: [{ ... }] }]
+          if (Array.isArray(first.analysis) && first.analysis.length > 0) {
+            analysisItem = first.analysis[0];
+          }
+          // Case: [{ answer: "...", risk: "..." }]
+          else if (first.answer) {
+            analysisItem = {
+              answer: first.answer,
+              portfolio: first.portfolio || 'Analysis complete.',
+              risk: first.risk || 'Unknown',
+              action: first.action || 'HOLD',
+              confidence: {
+                score: (typeof first.confidence === 'object' && first.confidence !== null) 
+                  ? (first.confidence.score || 50) 
+                  : (first.confidence || 50),
+                reason: (typeof first.confidence === 'object' && first.confidence !== null) 
+                  ? (first.confidence.reason || first.reason || 'Provided by AI.') 
+                  : (first.reason || 'Provided by AI.')
+              },
+              recommended_stocks: first.recommended_stocks || []
+            };
+          }
         }
-        // Case: { answer: "..." }
-        else if (rawData.answer) {
-          analysisItem = {
-            answer: rawData.answer,
-            portfolio: rawData.portfolio || 'Analysis complete.',
-            risk: rawData.risk || 'Unknown',
-            action: rawData.action || 'HOLD',
-            confidence: {
-              score: rawData.confidence || 50,
-              reason: rawData.reason || 'Provided by AI.'
-            }
-          };
-        }
-      }
-      // 3. Simple String Extraction
-      else if (typeof rawData === 'string') {
-        analysisItem = {
-          answer: rawData,
-          portfolio: 'Analysis complete.',
-          risk: 'Refer to answer',
-          action: 'HOLD',
-          confidence: { score: 100, reason: 'Direct response' }
-        };
       }
 
       if (analysisItem) {
@@ -410,10 +428,33 @@ export default function DashboardPage() {
   }, [mounted]);
 
 
-  const totalNetWorth = holdings.reduce((sum, h) => sum + h.market_value, 0);
-  const totalDayChange = holdings.reduce((sum, h) => sum + h.day_change, 0);
-  const totalInvested = holdings.reduce((sum, h) => sum + h.invested_value, 0);
-  const dayChangePerc = totalNetWorth > 0 ? (totalDayChange / (totalNetWorth - totalDayChange)) * 100 : 0;
+  const totalNetWorth = holdings.reduce((sum, h) => sum + (Number(h.market_value) || 0), 0);
+  const totalInvested = holdings.reduce((sum, h) => sum + (Number(h.invested_value) || 0), 0);
+
+  // Calculate Daily P/L by comparing current Net Worth with yesterday's historical snapshot
+  const totalDayChange = useMemo(() => {
+    if (!history || history.length === 0) return 0;
+    
+    const today = new Date().toISOString().split('T')[0];
+    // Find the latest snapshot that is NOT from today
+    const baselineSnapshot = [...history].reverse().find(h => {
+      const snapshotDay = new Date(h.timestamp).toISOString().split('T')[0];
+      return snapshotDay !== today;
+    });
+
+    // Fallback: If all history is from today, use the first ever snapshot or default to 0
+    const baselineValue = baselineSnapshot 
+      ? Number(baselineSnapshot.total_market_value) 
+      : (history.length > 0 ? Number(history[0].total_market_value) : totalNetWorth);
+
+    return totalNetWorth - baselineValue;
+  }, [holdings, history, totalNetWorth]);
+
+  const baselineForPerc = totalNetWorth - totalDayChange;
+  const dayChangePerc = (totalNetWorth > 0 && baselineForPerc > 0) 
+    ? (totalDayChange / baselineForPerc) * 100 
+    : 0;
+    
   const totalPL = totalNetWorth - totalInvested;
   const totalPLPerc = totalInvested > 0 ? (totalPL / totalInvested) * 100 : 0;
 
@@ -467,9 +508,9 @@ export default function DashboardPage() {
   }
 
   const startValue = useMemo(() => {
-    if (filteredHistory.length === 0) return totalNetWorth - totalDayChange;
+    if (filteredHistory.length === 0) return Number(totalNetWorth - totalDayChange) || 0;
     // Use the very first point in our filtered range as the base
-    return filteredHistory[0].total_market_value;
+    return Number(filteredHistory[0].total_market_value) || 0;
   }, [filteredHistory, totalNetWorth, totalDayChange]);
 
   const rangeIsPositive = totalNetWorth >= startValue;
@@ -550,6 +591,10 @@ export default function DashboardPage() {
                 <span className="font-terminal-label bg-white/5 border border-white/10 text-white/60 px-2 py-0.5 rounded-[4px] text-[10px] font-bold">
                   {totalPLPerc.toFixed(1)}%
                 </span>
+              </div>
+              {/* Internal Debug Overlay - Hidden in production */}
+              <div className="fixed bottom-4 right-4 z-[200] bg-black/80 p-2 rounded text-[8px] font-mono text-emerald-500 pointer-events-none opacity-50 max-w-[300px] break-all">
+                L:{holdings.length} | NW:{totalNetWorth.toFixed(0)} | DC:{totalDayChange.toFixed(0)} | Keys:{holdings[0] ? Object.keys(holdings[0]).join(',') : 'NONE'}
               </div>
             </div>
           </motion.section>
@@ -686,14 +731,14 @@ export default function DashboardPage() {
                             </div>
                           </td>
                           <td className="px-6 py-5 text-right font-data-md text-xs text-white/50 tabular-nums">{asset.quantity}</td>
-                          <td className="px-6 py-5 text-right font-data-md text-xs text-white/50 tabular-nums">{formatCurrency(asset.invested_value)}</td>
-                          <td className="px-6 py-5 text-right font-data-md text-xs text-white tabular-nums">{formatCurrency(asset.market_value)}</td>
+                          <td className="px-6 py-5 text-right font-data-md text-xs text-white/50 tabular-nums">{formatCurrency(Number(asset.invested_value) || 0)}</td>
+                          <td className="px-6 py-5 text-right font-data-md text-xs text-white tabular-nums">{formatCurrency(Number(asset.market_value) || 0)}</td>
                           <td className="px-8 py-5 text-right">
                             <div className="flex flex-col items-end">
-                              <span className={`font-data-md text-sm font-bold tabular-nums ${asset.p_l >= 0 ? 'text-emerald-500' : 'text-red-500'}`}>
-                                {asset.p_l >= 0 ? '+' : ''}{formatCurrency(asset.p_l)}
+                              <span className={`font-data-md text-sm font-bold tabular-nums ${Number(asset.p_l) >= 0 ? 'text-emerald-500' : 'text-red-500'}`}>
+                                {Number(asset.p_l) >= 0 ? '+' : ''}{formatCurrency(Number(asset.p_l) || 0)}
                               </span>
-                              <span className={`font-terminal-label text-[10px] font-bold tabular-nums mt-1 ${asset.p_l >= 0 ? 'text-emerald-500/40' : 'text-red-500/40'}`}>
+                              <span className={`font-terminal-label text-[10px] font-bold tabular-nums mt-1 ${Number(asset.p_l) >= 0 ? 'text-emerald-500/40' : 'text-red-500/40'}`}>
                                 {(Number(asset.p_l_percentage) || 0).toFixed(2)}%
                               </span>
                             </div>
@@ -839,6 +884,36 @@ export default function DashboardPage() {
                               </span>
                             </motion.div>
                           </div>
+
+
+
+                          {/* Recommended Stocks Section */}
+                          {msg.analysisData.recommended_stocks && msg.analysisData.recommended_stocks.length > 0 && (
+                            <motion.div variants={{ hidden: { opacity: 0, y: 10 }, visible: { opacity: 1, y: 0 } }} className="p-5 rounded-2xl bg-white/[0.02] border border-white/5 space-y-4">
+                              <div className="flex items-center gap-3">
+                                <div className="p-1.5 rounded-lg bg-blue-500/10 border border-blue-500/20">
+                                  <TrendingUp className="w-3.5 h-3.5 text-blue-400" />
+                                </div>
+                                <span className="text-[10px] font-bold uppercase tracking-[0.15em] text-zinc-500">Actionable Suggestions</span>
+                              </div>
+                              <div className="space-y-3">
+                                {msg.analysisData.recommended_stocks.map((stock: any, sidx: number) => (
+                                  <div key={sidx} className="flex justify-between items-center p-3 rounded-xl bg-black/20 border border-white/5">
+                                    <div className="flex flex-col">
+                                      <span className="text-[13px] font-black text-white">{stock.symbol}</span>
+                                      <span className="text-[11px] text-zinc-500 line-clamp-1 italic">{stock.reason}</span>
+                                    </div>
+                                    <span className={cn(
+                                      "text-[9px] font-black px-3 py-1 rounded-lg border",
+                                      stock.action === 'BUY' ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" : "bg-red-500/10 text-red-400 border-red-500/20"
+                                    )}>
+                                      {stock.action}
+                                    </span>
+                                  </div>
+                                ))}
+                              </div>
+                            </motion.div>
+                          )}
 
                           <motion.div variants={{ hidden: { opacity: 0, y: 10 }, visible: { opacity: 1, y: 0 } }} className="p-6 rounded-2xl bg-gradient-to-br from-emerald-500/[0.03] to-transparent border border-white/5">
                             <div className="flex justify-between items-center mb-5">
@@ -1115,7 +1190,7 @@ export default function DashboardPage() {
 
                         <div className="flex flex-col items-end gap-1">
                           <span className="text-[22px] font-black font-data tabular-nums text-white group-hover:text-emerald-400 transition-colors leading-none tracking-tight">
-                            {sector.confidence}
+                            {typeof sector.confidence === 'object' ? sector.confidence.score : sector.confidence}
                           </span>
                           <span className="text-[9px] uppercase tracking-wider text-zinc-500 font-black">Confidence</span>
                         </div>

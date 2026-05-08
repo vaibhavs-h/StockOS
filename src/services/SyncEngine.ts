@@ -88,7 +88,7 @@ app.get(['/api/stocks/:symbol/history', '/api/us-stocks/:symbol/history'], async
     let isUsStock = false;
     let yahooSymbol = symbol.toUpperCase();
     const commonIndices = ['NSEI', 'BSESN', 'NSEBANK', 'CNXIT', 'CNXAUTO', 'CNXMETAL', 'CNXPHARMA', 'CNXFMCG', 'CNXREALTY', 'CNXINFRA', 'CNXENERGY'];
-    
+
     // Unified Market Logic
     const s = symbol.toUpperCase().replace('.NS', '').replace('^', '');
     const isExplicitIndian = commonIndices.includes(s) || [
@@ -98,7 +98,7 @@ app.get(['/api/stocks/:symbol/history', '/api/us-stocks/:symbol/history'], async
     ].includes(s);
 
     const isUsQuery = req.query.isUsStock === 'true';
-    
+
     if (commonIndices.includes(s)) {
       yahooSymbol = `^${s}`;
     } else if (isUsExplicit || isUsQuery || (DOW_30.some(d => d.s === s) && !isExplicitIndian)) {
@@ -191,9 +191,9 @@ app.get(['/api/stocks/:symbol/history', '/api/us-stocks/:symbol/history'], async
       try {
         const tableName = isUsStock ? 'us_market_assets' : 'market_assets';
         const searchSymbol = isUsStock ? symbol.toUpperCase() : symbol;
-        
+
         console.log(`[STITCH] Fetching live price for ${searchSymbol} from ${tableName}`);
-        
+
         const { data: liveData } = await supabase
           .from(tableName)
           .select('current_price')
@@ -242,7 +242,7 @@ app.post('/api/sync', async (req, res) => {
   console.log("\n" + "=".repeat(50));
   console.log(`[TACTICAL] MANUAL SYNC TRIGGERED AT ${new Date().toLocaleTimeString()}`);
   console.log("=".repeat(50));
-  
+
   try {
     await performSync();
     console.log("[SUCCESS] Manual sync completed successfully.");
@@ -388,13 +388,13 @@ async function performSync() {
       const internal = marketMap.get(yahooSymbol) || marketMap.get(ticker);
       const external = yahooMap.get(yahooSymbol);
 
-      const price = Number(internal?.current_price || external?.regularMarketPrice || item.market_price || item.last_traded_price || 0);
-      const prevClose = Number(internal?.prev_close || external?.regularMarketPreviousClose || price || 0);
-      const dayChangeVal = Number(internal?.day_change || (external ? (external.regularMarketPrice - external.regularMarketPreviousClose) : 0) || 0);
+      const price = internal?.current_price || external?.regularMarketPrice || parseFloat(item.market_price || item.last_traded_price || 0);
+      const prevClose = internal?.prev_close || external?.regularMarketPreviousClose || price;
+      const dayChangeVal = internal?.day_change || (external ? (external.regularMarketPrice - external.regularMarketPreviousClose) : 0);
 
-      const invested = (Number(item.quantity) || 0) * (Number(item.average_price) || 0);
-      const marketValue = (Number(item.quantity) || 0) * price;
-      const dayChange = dayChangeVal * (Number(item.quantity) || 0);
+      const invested = item.quantity * item.average_price;
+      const marketValue = item.quantity * price;
+      const dayChange = dayChangeVal * item.quantity;
 
       // Generate a deterministic UUID from portfolioId-symbol to satisfy DB UUID constraint
       const hash = crypto.createHash('md5').update(`${portfolioId}-${symbol}`).digest('hex');
@@ -404,10 +404,9 @@ async function performSync() {
         id: deterministicId,
         portfolio_id: portfolioId,
         trading_symbol: symbol,
-        quantity: Number(item.quantity) || 0,
-        average_price: Number(item.average_price) || 0,
+        quantity: item.quantity,
+        average_price: item.average_price,
         last_price: price,
-        close_price: prevClose, // Added for new schema compatibility
         invested_value: invested,
         market_value: marketValue,
         p_l: marketValue - invested,
@@ -416,28 +415,23 @@ async function performSync() {
         day_change_percentage: prevClose > 0 ? ((price - prevClose) / prevClose) * 100 : 0,
         updated_at: new Date().toISOString()
       });
+
+      console.log(`[DEBUG] ${symbol}: Q=${item.quantity}, P=${price}, DCV=${dayChangeVal}, MV=${marketValue}`);
     } catch (e: any) {
       console.error(`[ERROR] Enrichment failed for ${item.trading_symbol}:`, e.message);
     }
   }
 
-  // 5. Atomic Update: Deterministic Upsert
+  // 5. Atomic Update: Clear and Sync
   console.log("\n==================================================");
-  console.log(`[PORTFOLIO] Executing Verified Upsert for ${portfolioId}`);
+  console.log(`[PORTFOLIO] Purging stale holdings for ${portfolioId}`);
+  await supabase.from('holdings').delete().eq('portfolio_id', portfolioId);
+  
+  console.log(`[PORTFOLIO] Executing fresh Sync for ${portfolioId}`);
   console.log("==================================================");
 
-  try {
-    const { error: insError } = await supabase.from('holdings').upsert(enriched, { onConflict: 'id' });
-    if (insError) {
-      console.error("[DB ERROR] Upsert failed:", insError.message);
-      console.error("Details:", insError.details);
-      console.error("Hint:", insError.hint);
-      throw insError;
-    }
-  } catch (upsertErr: any) {
-    console.error("[CRITICAL] Portfolio Upsert failed. Check RLS policies or Service Role Key.");
-    throw upsertErr;
-  }
+  const { error: insError } = await supabase.from('holdings').upsert(enriched, { onConflict: 'id' });
+  if (insError) throw insError;
 
   console.log(`[SUCCESS] Synchronized ${enriched.length} holdings:`);
   enriched.forEach(h => {
@@ -698,14 +692,14 @@ function isMarketOpen() {
  */
 async function syncUsMarketAssets(deepSearch = false) {
   console.log(`[US-ENGINE] Starting ${deepSearch ? 'DEEP' : 'LIVE'} pulse for Dow 30...`);
-  
+
   try {
     const symbols = DOW_30.map(d => d.s);
     const quotes = await yahooFinance.quote(symbols);
-    
+
     for (const q of quotes) {
       const assetInfo = DOW_30.find(d => d.s === q.symbol);
-      
+
       // Session-Aware Price Detection
       let price = q.regularMarketPrice;
       let change = q.regularMarketChange;
@@ -750,7 +744,7 @@ async function syncUsMarketAssets(deepSearch = false) {
             try {
               const avRes = await axios.get(`https://www.alphavantage.co/query?function=OVERVIEW&symbol=${q.symbol}&apikey=${avKey}`);
               const av = avRes.data;
-              
+
               if (av && av.Symbol) {
                 payload.description = av.Description || payload.description;
                 payload.sector = av.Sector || payload.sector;
@@ -773,8 +767,8 @@ async function syncUsMarketAssets(deepSearch = false) {
           // --- STEP 2: YAHOO FINANCE (Primary or Fallback) ---
           if (!success) {
             try {
-              const summary = await yahooFinance.quoteSummary(q.symbol, { 
-                modules: ['summaryProfile', 'summaryDetail', 'defaultKeyStatistics', 'financialData'] 
+              const summary = await yahooFinance.quoteSummary(q.symbol, {
+                modules: ['summaryProfile', 'summaryDetail', 'defaultKeyStatistics', 'financialData']
               });
 
               if (summary) {
@@ -829,14 +823,14 @@ async function syncUsMarketAssets(deepSearch = false) {
       }
 
       const { error } = await supabase.from('us_market_assets').upsert(payload, { onConflict: 'symbol' });
-      
+
       if (error) {
         console.error(`[DB ERROR] US ${q.symbol}: ${error.message}`);
       } else {
         console.log(`  ✓ Updated ${assetInfo?.n || q.symbol} (${q.symbol}): $${q.regularMarketPrice.toLocaleString('en-US', { minimumFractionDigits: 2 })}`);
       }
     }
-    
+
     console.log("--------------------------------------------------");
     console.log(`[US-ENGINE] Pulse complete at ${new Date().toLocaleTimeString()}`);
     console.log("==================================================\n");
@@ -852,10 +846,10 @@ function isUsMarketOpen() {
   const istTime = new Date(now.getTime() + istOffset);
   const hour = istTime.getUTCHours();
   const minute = istTime.getUTCMinutes();
-  
+
   const isAfternoonIST = (hour === 13 && minute >= 30) || (hour > 13);
   const isEarlyMorningIST = (hour < 5) || (hour === 5 && minute <= 30);
-  
+
   return isAfternoonIST || isEarlyMorningIST;
 }
 
@@ -912,15 +906,9 @@ app.listen(PORT, '0.0.0.0', async () => {
 
   // 0. WARM START: Sync immediately on startup
   console.log("[WARM START] Initializing engine state...");
-  try {
-    await syncMarketAssets(false); 
-    await syncUsMarketAssets(false);
-    await performSync();     
-  } catch (startupError: any) {
-    console.error("[FATAL STARTUP ERROR] Sync failed:", startupError.message || startupError);
-    if (startupError.details) console.error("Details:", startupError.details);
-    if (startupError.hint) console.error("Hint:", startupError.hint);
-  }
+  await syncMarketAssets(false);
+  await syncUsMarketAssets(false);
+  await performSync();
 });
 
 app.post('/api/us-market-seed', async (req, res) => {
