@@ -36,3 +36,8 @@ next-env.d.ts
 *.txt
 .tempmediaStorage/
 .gemini/
+
+# StockOS Ingestion State
+data/
+*.csv
+src/scheduler/test-sync.ts

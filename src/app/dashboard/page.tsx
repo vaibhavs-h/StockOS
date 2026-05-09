@@ -133,21 +133,20 @@ export default function DashboardPage() {
 
       const rawData = response.data;
       let analysisItem = null;
-      console.log("[DEBUG] Raw Assistant Response:", rawData);
 
       // --- 0. Partial/Malformed JSON Extraction (The "n8n Truncation" Case) ---
       let processedData = rawData;
-      
+
       // If we got a nested 'output' or 'raw_output' string, try to recover data from it
       const firstItem = Array.isArray(rawData) ? rawData[0] : rawData;
       const rawStr = firstItem?.output || firstItem?.raw_output;
-      
+
       if (rawStr && typeof rawStr === 'string') {
         try {
           // Attempt 1: Try to fix trailing truncation by adding closing braces/brackets
           // We try multiple closing variations to be safe
           let repaired = rawStr.trim();
-          if (!repaired.endsWith(']')) repaired += '"}]'; 
+          if (!repaired.endsWith(']')) repaired += '"}]';
           processedData = JSON.parse(repaired);
         } catch (e) {
           // Attempt 2: Use regex to extract key fields if JSON is too broken
@@ -166,11 +165,11 @@ export default function DashboardPage() {
             confidence: { score: 50, reason: "Inferred from partial data" },
             isPartial: true
           };
-          
+
           if (analysisItem.answer && analysisItem.answer.length > 20) {
-             // Success!
+            // Success!
           } else {
-             analysisItem = null;
+            analysisItem = null;
           }
         }
       }
@@ -192,11 +191,11 @@ export default function DashboardPage() {
               risk: first.risk || 'Unknown',
               action: first.action || 'HOLD',
               confidence: {
-                score: (typeof first.confidence === 'object' && first.confidence !== null) 
-                  ? (first.confidence.score || 50) 
+                score: (typeof first.confidence === 'object' && first.confidence !== null)
+                  ? (first.confidence.score || 50)
                   : (first.confidence || 50),
-                reason: (typeof first.confidence === 'object' && first.confidence !== null) 
-                  ? (first.confidence.reason || first.reason || 'Provided by AI.') 
+                reason: (typeof first.confidence === 'object' && first.confidence !== null)
+                  ? (first.confidence.reason || first.reason || 'Provided by AI.')
                   : (first.reason || 'Provided by AI.')
               },
               recommended_stocks: first.recommended_stocks || []
@@ -321,29 +320,24 @@ export default function DashboardPage() {
 
   const refreshAll = async () => {
     setIsRefreshing(true);
-    console.log("[SYSTEM] Initializing manual sync...");
     const engineUrl = process.env.NEXT_PUBLIC_ENGINE_URL || 'http://localhost:3003';
-    
+
     try {
-      console.log("[SYNC] Fetching live Groww portfolio data...");
       await axios.post(`${engineUrl}/api/sync`);
-      console.log("[SYNC] Groww sync complete.");
     } catch (err: any) {
       console.warn("[ERROR] Groww sync failed. Using cache.");
     }
 
-    console.log("[DASHBOARD] Refreshing local state buffers...");
     await Promise.all([
-      fetchHoldings().then(() => console.log("[LOAD] Holdings data updated.")),
-      fetchHistory().then(() => console.log("[LOAD] Portfolio history synced.")),
-      fetchIndices().then(() => console.log("[LOAD] Market indices updated.")),
-      fetchMarketIntelligence().then(() => console.log("[LOAD] AI Intel pool refreshed."))
+      fetchHoldings(),
+      fetchHistory(),
+      fetchIndices(),
+      fetchMarketIntelligence()
     ]);
-    
-    console.log("[SYSTEM] Sync complete. Dashboard stabilized.");
+
     setTimeout(() => {
       setIsRefreshing(false);
-    }, 800); 
+    }, 800);
   }
 
   const handleSearch = async (query: string) => {
@@ -434,7 +428,7 @@ export default function DashboardPage() {
   // Calculate Daily P/L by comparing current Net Worth with yesterday's historical snapshot
   const totalDayChange = useMemo(() => {
     if (!history || history.length === 0) return 0;
-    
+
     const today = new Date().toISOString().split('T')[0];
     // Find the latest snapshot that is NOT from today
     const baselineSnapshot = [...history].reverse().find(h => {
@@ -443,18 +437,18 @@ export default function DashboardPage() {
     });
 
     // Fallback: If all history is from today, use the first ever snapshot or default to 0
-    const baselineValue = baselineSnapshot 
-      ? Number(baselineSnapshot.total_market_value) 
+    const baselineValue = baselineSnapshot
+      ? Number(baselineSnapshot.total_market_value)
       : (history.length > 0 ? Number(history[0].total_market_value) : totalNetWorth);
 
     return totalNetWorth - baselineValue;
   }, [holdings, history, totalNetWorth]);
 
   const baselineForPerc = totalNetWorth - totalDayChange;
-  const dayChangePerc = (totalNetWorth > 0 && baselineForPerc > 0) 
-    ? (totalDayChange / baselineForPerc) * 100 
+  const dayChangePerc = (totalNetWorth > 0 && baselineForPerc > 0)
+    ? (totalDayChange / baselineForPerc) * 100
     : 0;
-    
+
   const totalPL = totalNetWorth - totalInvested;
   const totalPLPerc = totalInvested > 0 ? (totalPL / totalInvested) * 100 : 0;
 
@@ -524,7 +518,7 @@ export default function DashboardPage() {
 
       {/* Main Dashboard Grid */}
       <section
-        className="pt-[140px] pb-6 px-12 max-w-full mx-auto w-full grid grid-cols-1 lg:grid-cols-[1fr_560px] gap-10 relative z-10 items-stretch"
+        className="pt-[130px] pb-6 px-12 max-w-full mx-auto w-full grid grid-cols-1 lg:grid-cols-[1fr_560px] gap-10 relative z-10 items-stretch"
       >
         {/* Left Section: Dashboard Content */}
         <motion.div
@@ -540,7 +534,7 @@ export default function DashboardPage() {
               }
             }
           }}
-          className="flex flex-col gap-8"
+          className="flex flex-col gap-6"
         >
           {/* Zen Hero Section: Net Worth Overview */}
           <motion.section
@@ -551,7 +545,7 @@ export default function DashboardPage() {
             transition={{ duration: 0.8, ease: [0.16, 1, 0.3, 1] }}
             className="grid grid-cols-1 md:grid-cols-[1.5fr_1fr_1fr] gap-8 mb-0 items-end"
           >
-            <div className="relative group col-span-full -mt-12 -mb-4">
+            <div className="relative group col-span-full -mt-8 -mb-4">
               <div className="flex items-baseline gap-4">
                 <h2 className="font-headline font-black text-7xl tracking-tighter text-white uppercase leading-none">VAIBHAV S.</h2>
                 <motion.div
@@ -764,7 +758,7 @@ export default function DashboardPage() {
 
         {/* Sidebar: AI Research Assistant */}
         <motion.aside
-          className="glass-panel rounded-3xl border border-white/10 sticky top-[140px] bg-[#0a0d14]/80 backdrop-blur-3xl h-full shadow-[0_40px_100px_rgba(0,0,0,0.4)] group/sidebar min-h-[600px] overflow-hidden"
+          className="glass-panel rounded-3xl border border-white/10 sticky top-[122px] bg-[#0a0d14]/80 backdrop-blur-3xl shadow-[0_40px_100px_rgba(0,0,0,0.4)] group/sidebar h-[632px] overflow-hidden"
         >
           <div className="absolute inset-0 flex flex-col overflow-hidden z-10">
             {/* Clean Header */}

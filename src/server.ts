@@ -3,14 +3,49 @@ import express from 'express';
 import cors from 'cors';
 import axios from 'axios';
 import { createClient } from '@supabase/supabase-js';
-import { DOW_30, INDIAN_ASSETS } from '../constants/market-constants';
+import { SymbolUniverseManager, normalizeStorageSymbol, normalizeDisplaySymbol } from './constants/market-constants';
 import { TOTP, generate } from 'otplib';
 import cron from 'node-cron';
 import crypto from 'crypto';
+import { MarketStatusEngine } from './scheduler/core/MarketStatusEngine';
+import { MarketRegion } from './scheduler/core/types';
+import { initializeScheduler } from './scheduler/index';
+import { syncOrchestrator } from './scheduler/core/orchestrator';
+import { IndianLiveSyncJob } from './scheduler/jobs/IndianLiveSyncJob';
+import { UsLiveSyncJob } from './scheduler/jobs/UsLiveSyncJob';
+import { IndianDeepSyncJob } from './scheduler/jobs/IndianDeepSyncJob';
+import { UsDeepSyncJob } from './scheduler/jobs/UsDeepSyncJob';
+import { PortfolioSyncJob } from './scheduler/jobs/PortfolioSyncJob';
 
 const app = express();
 app.use(cors());
 app.use(express.json());
+
+// ---------------------------------------------------------
+// HEARTBEAT & HEALTH (Keep-Alive for Render Free Tier)
+// ---------------------------------------------------------
+app.get('/api/health', (req, res) => {
+  res.json({ 
+    status: 'online', 
+    timestamp: new Date().toISOString(),
+    region: process.env.RENDER_REGION || 'local',
+    version: '1.0.0'
+  });
+});
+
+// Self-Ping Task: Pings itself every 10 minutes to stay awake on Render
+// Note: This only works if the server is already running. 
+// For waking up from "cold sleep", use Cron-Job.org pointing to /api/health.
+cron.schedule('*/10 * * * *', async () => {
+  const url = process.env.SERVER_URL || `http://localhost:${process.env.PORT || 3003}`;
+  try {
+    await axios.get(`${url}/api/health`);
+    console.log(`[HEARTBEAT] ❤️  Self-pulse sent to ${url}`);
+  } catch (err: any) {
+    console.warn(`[HEARTBEAT] 💔 Self-pulse failed: ${err.message}`);
+  }
+});
+
 
 // 1. Supabase Initialization
 const supabase = createClient(
@@ -90,29 +125,32 @@ app.get(['/api/stocks/:symbol/history', '/api/us-stocks/:symbol/history'], async
     const commonIndices = ['NSEI', 'BSESN', 'NSEBANK', 'CNXIT', 'CNXAUTO', 'CNXMETAL', 'CNXPHARMA', 'CNXFMCG', 'CNXREALTY', 'CNXINFRA', 'CNXENERGY'];
 
     // Unified Market Logic
-    const s = symbol.toUpperCase().replace('.NS', '').replace('^', '');
-    const isExplicitIndian = commonIndices.includes(s) || [
-      'RELIANCE', 'TCS', 'HDFCBANK', 'INFY', 'ICICIBANK', 'HINDUNILVR', 'ITC', 'SBIN', 'BHARTIARTL', 'KOTAKBANK',
-      'LT', 'AXISBANK', 'BAJFINANCE', 'ASIANPAINT', 'MARUTI', 'TITAN', 'ADANIENT', 'SUNPHARMA', 'ULTRACEMCO', 'WIPRO',
-      'M&M', 'NTPC', 'POWERGRID', 'INDUSINDBK', 'NESTLEIND'
-    ].includes(s);
-
     const isUsQuery = req.query.isUsStock === 'true';
+    const s = normalizeDisplaySymbol(symbol);
+    const rawStorage = normalizeStorageSymbol(symbol);
+    
+    // Resolve Canonical Asset
+    const usAsset = SymbolUniverseManager.getUniqueUsEquities().find(d => normalizeDisplaySymbol(d.s) === s || normalizeStorageSymbol(d.s) === rawStorage);
+    const indianAsset = SymbolUniverseManager.getUniqueIndianEquities().find(d => normalizeDisplaySymbol(d.s) === s || normalizeStorageSymbol(d.s) === rawStorage);
+    const indexAsset = SymbolUniverseManager.getGlobalIndices().find(d => normalizeDisplaySymbol(d.s) === s || normalizeStorageSymbol(d.s) === rawStorage);
 
-    if (commonIndices.includes(s)) {
-      yahooSymbol = `^${s}`;
-    } else if (isUsExplicit || isUsQuery || (DOW_30.some(d => d.s === s) && !isExplicitIndian)) {
-      yahooSymbol = s;
+    if (indexAsset) {
+      yahooSymbol = indexAsset.s; // Use canonical (e.g., ^NSEI)
+      isUsStock = indexAsset.region === 'US';
+    } else if (usAsset) {
+      yahooSymbol = usAsset.s;
       isUsStock = true;
-    } else if (isExplicitIndian) {
-      yahooSymbol = `${s}.NS`;
-    } else if (!symbol.includes('.') && !symbol.startsWith('^')) {
-      const isLikelyUs = s.length <= 5;
-      if (isLikelyUs) {
-        yahooSymbol = s;
+    } else if (indianAsset) {
+      yahooSymbol = indianAsset.s; // Use canonical (e.g., RELIANCE.NS)
+    } else {
+      // Fallback for custom assets not in universe
+      if (isUsExplicit || isUsQuery) {
+        yahooSymbol = rawStorage;
         isUsStock = true;
       } else {
-        yahooSymbol = `${s}.NS`;
+        const isLikelyUs = s.length <= 5 && !s.includes('.NS') && !s.includes('.BO');
+        yahooSymbol = isLikelyUs ? rawStorage : `${s}.NS`;
+        isUsStock = isLikelyUs;
       }
     }
 
@@ -244,21 +282,23 @@ app.post('/api/sync', async (req, res) => {
   console.log("=".repeat(50));
 
   try {
-    await performSync();
-    console.log("[SUCCESS] Manual sync completed successfully.");
+    syncOrchestrator.dispatch(new PortfolioSyncJob());
+    syncOrchestrator.dispatch(new IndianLiveSyncJob());
+    syncOrchestrator.dispatch(new UsLiveSyncJob());
+    console.log("[SUCCESS] Manual sync queued successfully.");
     console.log("=".repeat(50) + "\n");
-    res.json({ success: true });
+    res.json({ success: true, status: "queued" });
   } catch (err: any) {
-    console.error(`[FATAL] Manual sync failed: ${err.message}`);
+    console.error(`[FATAL] Manual sync queue failed: ${err.message}`);
     res.status(500).json({ success: false, error: err.message });
   }
 });
 
 app.post('/api/market-seed', async (req, res) => {
   console.log("[INFO] Manual market deep-seed requested.");
-  await syncMarketAssets(true);
-  await syncUsMarketAssets(true);
-  res.json({ success: true });
+  syncOrchestrator.dispatch(new IndianDeepSyncJob());
+  syncOrchestrator.dispatch(new UsDeepSyncJob());
+  res.json({ success: true, status: "queued" });
 });
 
 async function performSync() {
@@ -416,28 +456,28 @@ async function performSync() {
         updated_at: new Date().toISOString()
       });
 
-      console.log(`[DEBUG] ${symbol}: Q=${item.quantity}, P=${price}, DCV=${dayChangeVal}, MV=${marketValue}`);
+      // console.log(`[DEBUG] ${symbol}: Q=${item.quantity}, P=${price}, DCV=${dayChangeVal}, MV=${marketValue}`);
     } catch (e: any) {
       console.error(`[ERROR] Enrichment failed for ${item.trading_symbol}:`, e.message);
     }
   }
 
   // 5. Atomic Update: Clear and Sync
-  console.log("\n==================================================");
-  console.log(`[PORTFOLIO] Purging stale holdings for ${portfolioId}`);
+  // console.log("\n==================================================");
+  // console.log(`[PORTFOLIO] Purging stale holdings for ${portfolioId}`);
   await supabase.from('holdings').delete().eq('portfolio_id', portfolioId);
   
-  console.log(`[PORTFOLIO] Executing fresh Sync for ${portfolioId}`);
-  console.log("==================================================");
+  // console.log(`[PORTFOLIO] Executing fresh Sync for ${portfolioId}`);
+  // console.log("==================================================");
 
   const { error: insError } = await supabase.from('holdings').upsert(enriched, { onConflict: 'id' });
   if (insError) throw insError;
 
-  console.log(`[SUCCESS] Synchronized ${enriched.length} holdings:`);
-  enriched.forEach(h => {
-    console.log(`  → ${h.trading_symbol.padEnd(12)} | Qty: ${h.quantity.toString().padEnd(5)} | Price: ₹${h.last_price.toLocaleString('en-IN').padEnd(10)} | Day P/L: ${h.day_change >= 0 ? '+' : ''}₹${h.day_change.toLocaleString('en-IN')}`);
-  });
-  console.log("--------------------------------------------------");
+  // console.log(`[SUCCESS] Synchronized ${enriched.length} holdings:`);
+  // enriched.forEach(h => {
+  //   console.log(`  → ${h.trading_symbol.padEnd(12)} | Qty: ${h.quantity.toString().padEnd(5)} | Price: ₹${h.last_price.toLocaleString('en-IN').padEnd(10)} | Day P/L: ${h.day_change >= 0 ? '+' : ''}₹${h.day_change.toLocaleString('en-IN')}`);
+  // });
+  // console.log("--------------------------------------------------");
 
   // 6. Portfolio History (One record per Financial Day)
   // 9 AM IST to 9 AM IST Logic (9 AM IST = 03:30 UTC)
@@ -493,7 +533,7 @@ const yahooFinance = new YahooFinance();
  * @param fullSync - If true, fetches Deep Stats (Analyst targets, Financials). If false, only fetches Live Stats (Price/Vol).
  */
 async function syncMarketAssets(fullSync = false) {
-  const assetList = INDIAN_ASSETS;
+  const assetList = SymbolUniverseManager.getUniqueIndianEquities();
 
   console.log(`[MARKET] ${fullSync ? 'DEEP' : 'LIVE'} sync via yahoo-finance2...`);
 
@@ -547,7 +587,7 @@ async function syncMarketAssets(fullSync = false) {
       console.log("==================================================");
       for (const item of assetList) {
         try {
-          const isIndex = item.t === 'INDEX';
+          const isIndex = item.assetType === 'INDEX';
           const symbol = item.s.replace('.NS', '').replace('^', '');
 
           // Indices use fewer modules
@@ -614,7 +654,7 @@ async function syncMarketAssets(fullSync = false) {
           const payload = {
             symbol,
             name: item.n,
-            asset_type: item.t,
+            asset_type: item.assetType,
             sector: isIndex ? 'Benchmark Index' : sp.sector,
             industry: isIndex ? 'Financial Markets' : sp.industry,
             description: description || sp.longBusinessSummary,
@@ -694,11 +734,12 @@ async function syncUsMarketAssets(deepSearch = false) {
   console.log(`[US-ENGINE] Starting ${deepSearch ? 'DEEP' : 'LIVE'} pulse for Dow 30...`);
 
   try {
-    const symbols = DOW_30.map(d => d.s);
+    const usAssets = SymbolUniverseManager.getUniqueUsEquities();
+    const symbols = usAssets.map(d => d.s);
     const quotes = await yahooFinance.quote(symbols);
 
     for (const q of quotes) {
-      const assetInfo = DOW_30.find(d => d.s === q.symbol);
+      const assetInfo = usAssets.find(d => normalizeStorageSymbol(d.s) === normalizeStorageSymbol(q.symbol));
 
       // Session-Aware Price Detection
       let price = q.regularMarketPrice;
@@ -831,9 +872,9 @@ async function syncUsMarketAssets(deepSearch = false) {
       }
     }
 
-    console.log("--------------------------------------------------");
-    console.log(`[US-ENGINE] Pulse complete at ${new Date().toLocaleTimeString()}`);
-    console.log("==================================================\n");
+    // console.log("--------------------------------------------------");
+    // console.log(`[US-ENGINE] Pulse complete at ${new Date().toLocaleTimeString()}`);
+    // console.log("==================================================\n");
   } catch (e: any) {
     console.error(`[US-ENGINE] Fatal Error:`, e.message);
   }
@@ -853,68 +894,63 @@ function isUsMarketOpen() {
   return isAfternoonIST || isEarlyMorningIST;
 }
 
+// --- HEALTH & OBSERVABILITY ENDPOINTS ---
+
+app.get('/api/health/scheduler', (req, res) => {
+  const metrics = syncOrchestrator.getMetrics();
+  const memory = process.memoryUsage();
+  
+  res.json({
+    status: 'healthy',
+    timestamp: new Date().toISOString(),
+    system: {
+      uptime: process.uptime(),
+      memory: {
+        rss: `${Math.round(memory.rss / 1024 / 1024)}MB`,
+        heapTotal: `${Math.round(memory.heapTotal / 1024 / 1024)}MB`,
+        heapUsed: `${Math.round(memory.heapUsed / 1024 / 1024)}MB`,
+        external: `${Math.round(memory.external / 1024 / 1024)}MB`,
+      },
+      nodeVersion: process.version,
+      platform: process.platform
+    },
+    metrics
+  });
+});
+
+app.get('/api/health/markets', (req, res) => {
+  res.json({
+    india: {
+      status: MarketStatusEngine.getCurrentSession(MarketRegion.IN),
+      isOpen: MarketStatusEngine.isMarketOpen(MarketRegion.IN)
+    },
+    us: {
+      status: MarketStatusEngine.getCurrentSession(MarketRegion.US),
+      isOpen: MarketStatusEngine.isMarketOpen(MarketRegion.US)
+    }
+  });
+});
+
+app.get('/api/health/universe', (req, res) => {
+  res.json({
+    usCount: SymbolUniverseManager.getUniqueUsEquities().length,
+    indiaCount: SymbolUniverseManager.getUniqueIndianEquities().length,
+    indicesCount: SymbolUniverseManager.getGlobalIndices().length
+  });
+});
+
 const PORT = Number(process.env.PORT) || 10000;
 app.listen(PORT, '0.0.0.0', async () => {
   console.log(`[SERVER] StockOS Engine running on 0.0.0.0:${PORT}`);
-
-  // 0. WARM START: Sync immediately on startup
-  console.log("[WARM START] Initializing engine state...");
-  await syncMarketAssets(false); // Update prices first
-  await performSync();      // Then calculate portfolio value using new prices
-
-  // 1. LIVE PULSE: Every 5 Minutes (Market Hours Only)
-  cron.schedule('*/5 9-15 * * 1-5', async () => {
-    if (isMarketOpen()) {
-      console.log(`[PULSE] Live Market Pulse triggered.`);
-      await syncMarketAssets(false);
-    }
-  }, { timezone: "Asia/Kolkata" });
-
-  // 2. DEEP PULSE: Once per day at 3:45 PM IST (After Market Close)
-  cron.schedule('45 15 * * 1-5', async () => {
-    console.log("[ENGINE] Market closed. Executing deep fundamental enrichment...");
-    await syncMarketAssets(true);
-  }, { timezone: "Asia/Kolkata" });
-
-  // 3. Portfolio Sync: Every 5 minutes (Market Hours Only)
-  cron.schedule('*/5 9-15 * * 1-5', async () => {
-    if (isMarketOpen()) {
-      console.log(`[PULSE] Periodic portfolio sync triggered.`);
-      await performSync();
-    }
-  }, { timezone: "Asia/Kolkata" });
-
-  // 4. US MARKET PULSE: Every 5 Minutes (16-Hour Window)
-  cron.schedule('*/5 13-23,0-5 * * 1-6', async () => {
-    if (isUsMarketOpen()) {
-      console.log(`[PULSE] US Market Pulse triggered.`);
-      await syncUsMarketAssets(false);
-    }
-  }, { timezone: "Asia/Kolkata" });
-
-  // 5. US DEEP PULSE: Once per day at 3:00 AM IST (After US Close)
-  cron.schedule('0 3 * * 2-6', async () => {
-    console.log("[ENGINE] US Market closed. Executing deep fundamental enrichment...");
-    await syncUsMarketAssets(true);
-  }, { timezone: "Asia/Kolkata" });
-
-  // 6. INDIAN DEEP PULSE: Once per day at 4:00 PM IST (After Indian Close)
-  cron.schedule('0 16 * * 1-5', async () => {
-    console.log("[ENGINE] Indian Market closed. Executing deep fundamental enrichment...");
-    await syncMarketAssets(true);
-  }, { timezone: "Asia/Kolkata" });
-
-  // 0. WARM START: Sync immediately on startup
-  console.log("[WARM START] Initializing engine state...");
-  await syncMarketAssets(false);
-  await syncUsMarketAssets(false);
-  await performSync();
+  
+  // Initialize the new modular queue-ready scheduler
+  initializeScheduler();
 });
 
 app.post('/api/us-market-seed', async (req, res) => {
   console.log("[MANUAL] US Market Deep Seed requested.");
-  syncUsMarketAssets(true);
-  res.json({ status: "US Deep Seed Initiated" });
+  syncOrchestrator.dispatch(new UsDeepSyncJob());
+  res.json({ status: "US Deep Seed queued" });
 });
 
 

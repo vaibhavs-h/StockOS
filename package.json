@@ -4,8 +4,8 @@
   "private": true,
   "scripts": {
     "dev": "concurrently \"npm run engine\" \"npm run frontend\"",
-    "frontend": "next dev",
-    "engine": "tsx --watch src/services/SyncEngine.ts",
+    "frontend": "next dev -p 3000",
+    "engine": "tsx --watch src/server.ts",
     "build": "next build",
     "start": "next start",
     "lint": "next lint"
