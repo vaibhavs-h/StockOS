@@ -133,11 +133,21 @@ export class PortfolioSyncJob extends BaseJob {
     }
 
     // 6. DB Upsert
-    // console.log(`[PortfolioSyncJob] Persisting ${enriched.length} enriched holdings to Supabase...`);
-    await supabase.from('holdings').delete().eq('portfolio_id', portfolioId);
-    const { error: insError } = await supabase.from('holdings').upsert(enriched, { onConflict: 'id' });
-    if (insError) throw insError;
-    console.log(`  Detail:    Successfully updated holdings table.`);
+    console.log(`[PortfolioSyncJob] Deleting stale holdings for: ${portfolioId}`);
+    const { error: delError } = await supabase.from('holdings').delete().eq('portfolio_id', portfolioId);
+    if (delError) {
+      console.error(`[PortfolioSyncJob] DELETE FAILED:`, delError.message);
+      throw delError;
+    }
+
+    console.log(`[PortfolioSyncJob] Persisting ${enriched.length} enriched holdings to Supabase...`);
+    const { error: insError } = await supabase.from('holdings').upsert(enriched);
+    if (insError) {
+      console.error(`[PortfolioSyncJob] UPSERT FAILED:`, insError.message);
+      throw insError;
+    }
+    
+    console.log(`[PortfolioSyncJob] SUCCESS: Updated holdings table with ${enriched.length} records.`);
 
     // 7. Snapshot History
     // console.log(`[PortfolioSyncJob] Recording portfolio history snapshot...`);

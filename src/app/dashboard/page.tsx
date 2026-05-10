@@ -69,7 +69,7 @@ export default function DashboardPage() {
   }, []);
 
 
-  const portfolioId = "primary";
+  const portfolioId = process.env.NEXT_PUBLIC_PORTFOLIO_ID || "primary";
 
   const [marketIntelligence, setMarketIntelligence] = useState<any>(() => {
     if (typeof window !== 'undefined') {
