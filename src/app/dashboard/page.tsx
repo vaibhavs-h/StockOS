@@ -149,7 +149,7 @@ export default function DashboardPage() {
 
     try {
       const response = await axios.post(assistantUrl, {
-        user_id: "vaibhav_s",
+        user_id: portfolioId,
         user_query: query
       }, {
         timeout: 180000
@@ -322,6 +322,7 @@ export default function DashboardPage() {
       const { data, error } = await supabase
         .from('portfolio_history')
         .select('*')
+        .eq('portfolio_id', portfolioId)
         .order('timestamp', { ascending: true });
 
       if (error) throw error;
