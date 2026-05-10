@@ -25,8 +25,8 @@ app.use(express.json());
 // HEARTBEAT & HEALTH (Keep-Alive for Render Free Tier)
 // ---------------------------------------------------------
 app.get('/api/health', (req, res) => {
-  res.json({ 
-    status: 'online', 
+  res.json({
+    status: 'online',
     timestamp: new Date().toISOString(),
     region: process.env.RENDER_REGION || 'local',
     version: '1.0.0'
@@ -50,7 +50,7 @@ cron.schedule('*/10 * * * *', async () => {
 // 1. Supabase Initialization
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY! || process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY! || process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!
 );
 
 const axiosConfig = {
@@ -128,7 +128,7 @@ app.get(['/api/stocks/:symbol/history', '/api/us-stocks/:symbol/history'], async
     const isUsQuery = req.query.isUsStock === 'true';
     const s = normalizeDisplaySymbol(symbol);
     const rawStorage = normalizeStorageSymbol(symbol);
-    
+
     // Resolve Canonical Asset
     const usAsset = SymbolUniverseManager.getUniqueUsEquities().find(d => normalizeDisplaySymbol(d.s) === s || normalizeStorageSymbol(d.s) === rawStorage);
     const indianAsset = SymbolUniverseManager.getUniqueIndianEquities().find(d => normalizeDisplaySymbol(d.s) === s || normalizeStorageSymbol(d.s) === rawStorage);
@@ -294,6 +294,10 @@ app.post('/api/sync', async (req, res) => {
   }
 });
 
+app.get('/api/sync/logs', (req, res) => {
+  res.json(syncOrchestrator.getLogs());
+});
+
 app.post('/api/market-seed', async (req, res) => {
   console.log("[INFO] Manual market deep-seed requested.");
   syncOrchestrator.dispatch(new IndianDeepSyncJob());
@@ -304,7 +308,7 @@ app.post('/api/market-seed', async (req, res) => {
 async function performSync() {
   const apiKey = process.env.GROWW_API_KEY;
   const totpSecret = process.env.GROWW_TOTP_SECRET;
-  const portfolioId = process.env.PORTFOLIO_ID || 'primary';
+  const portfolioId = process.env.NEXT_PUBLIC_PORTFOLIO_ID;
 
   if (!apiKey || !totpSecret) {
     console.warn(`[WARN] Sync aborted: Missing GROWW_API_KEY or GROWW_TOTP_SECRET`);
@@ -466,7 +470,7 @@ async function performSync() {
   // console.log("\n==================================================");
   // console.log(`[PORTFOLIO] Purging stale holdings for ${portfolioId}`);
   await supabase.from('holdings').delete().eq('portfolio_id', portfolioId);
-  
+
   // console.log(`[PORTFOLIO] Executing fresh Sync for ${portfolioId}`);
   // console.log("==================================================");
 
@@ -899,7 +903,7 @@ function isUsMarketOpen() {
 app.get('/api/health/scheduler', (req, res) => {
   const metrics = syncOrchestrator.getMetrics();
   const memory = process.memoryUsage();
-  
+
   res.json({
     status: 'healthy',
     timestamp: new Date().toISOString(),
@@ -942,7 +946,7 @@ app.get('/api/health/universe', (req, res) => {
 const PORT = Number(process.env.PORT) || 10000;
 app.listen(PORT, '0.0.0.0', async () => {
   console.log(`[SERVER] StockOS Engine running on 0.0.0.0:${PORT}`);
-  
+
   // Initialize the new modular queue-ready scheduler
   initializeScheduler();
 });

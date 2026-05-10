@@ -7,6 +7,7 @@ import { UsLiveSyncJob } from './jobs/UsLiveSyncJob';
 import { UsAnalyticsSyncJob } from './jobs/UsAnalyticsSyncJob';
 import { UsDeepSyncJob } from './jobs/UsDeepSyncJob';
 import { PortfolioSyncJob } from './jobs/PortfolioSyncJob';
+import { PortfolioRevaluationJob } from './jobs/PortfolioRevaluationJob';
 import { SYNC_CONFIG } from './config/sync.config';
 import { MarketStatusEngine } from './core/MarketStatusEngine';
 import { MarketRegion, MarketSession } from './core/types';
@@ -60,10 +61,23 @@ export function initializeScheduler() {
     syncOrchestrator.dispatch(new UsDeepSyncJob());
   }, { timezone: 'Asia/Kolkata' });
 
-  // 7. Portfolio Sync (5 Min - Market Hours Only)
+  // 7. Portfolio Sync (5 Min - Full Broker Sync)
   cron.schedule(`*/5 * * * *`, () => {
     if (MarketStatusEngine.isMarketOpen(MarketRegion.IN)) {
       syncOrchestrator.dispatch(new PortfolioSyncJob());
+    }
+  }, { timezone: 'Asia/Kolkata' });
+
+  // 8. Virtual Portfolio Revaluation (1 Min - High Frequency Virtual Update)
+  cron.schedule(`* * * * *`, () => {
+    // Only run during actual market hours (9:15 AM - 3:30 PM)
+    // Between 3:30 PM and 4:00 PM, only the 5-min Broker Sync will run.
+    const istTime = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Kolkata" }));
+    const totalMinutes = istTime.getHours() * 60 + istTime.getMinutes();
+    
+    // 9:15 AM (555) to 3:30 PM (930)
+    if (totalMinutes >= 555 && totalMinutes < 930) {
+      syncOrchestrator.dispatch(new PortfolioRevaluationJob());
     }
   }, { timezone: 'Asia/Kolkata' });
 

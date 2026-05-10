@@ -1,22 +1,13 @@
 # Dependencies
 node_modules/
-.pnp
-.pnp.js
 
 # Next.js Build
 .next/
 out/
 
-# Production
-build/
-dist/
-
-# Environment Variables (CRITICAL)
+# Environment Variables
 .env
-.env.local
-.env.development.local
-.env.test.local
-.env.production.local
+.env*.local
 
 # Debug logs
 npm-debug.log*
@@ -32,12 +23,11 @@ Thumbs.db
 *.tsbuildinfo
 next-env.d.ts
 
-# Debug & Local Artifacts
+# Local Scratch & Artifacts
+scratch/
 *.txt
 .tempmediaStorage/
 .gemini/
 
-# StockOS Ingestion State
+# Ingestion Engine Data
 data/
-*.csv
-src/scheduler/test-sync.ts

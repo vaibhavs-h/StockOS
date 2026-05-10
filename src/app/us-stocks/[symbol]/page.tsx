@@ -6,7 +6,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { 
   Clock, TrendingUp, TrendingDown, ChevronLeft, Search, Terminal, 
   Send, Activity, Globe, Shield, Target, ShieldCheck, Zap, Info, 
-  Briefcase, Landmark, AlertTriangle, Database
+  Briefcase, Landmark, AlertTriangle, Database, Moon
 } from "lucide-react";
 import { getMarketStatus } from "@/constants/market-constants";
 import { WealthPerformanceChart as WealthChart } from "@/components/dashboard/WealthPerformanceChart";
@@ -162,11 +162,13 @@ export default function USStockPage() {
                 <div className="text-5xl font-mono font-bold tracking-tighter mb-2">
                   ${data.current_price?.toLocaleString('en-US', { minimumFractionDigits: 2 })}
                 </div>
-                <div className={`flex items-center justify-end gap-2 font-black text-lg ${isPositive ? 'text-emerald-400' : 'text-rose-400'}`}>
+                <div className={`flex items-center justify-end gap-2 font-black text-lg ${
+                  (timeRange === '1D' && status === 'CLOSED') ? 'text-zinc-500' : (isPositive ? 'text-emerald-400' : 'text-rose-400')
+                }`}>
                   {isPositive ? <TrendingUp className="w-5 h-5" /> : <TrendingDown className="w-5 h-5" />}
-                  {data.day_change_percentage?.toFixed(2)}%
+                  {(timeRange === '1D' && status === 'CLOSED') ? '0.00%' : `${data.day_change_percentage?.toFixed(2)}%`}
                   <span className="text-zinc-600 font-medium ml-2">
-                    ({data.day_change >= 0 ? '+' : '-'}${Math.abs(data.day_change || 0).toFixed(2)})
+                    ({(timeRange === '1D' && status === 'CLOSED') ? '$0.00' : `${data.day_change >= 0 ? '+' : '-'}$${Math.abs(data.day_change || 0).toFixed(2)}`})
                   </span>
                 </div>
               </div>
@@ -191,8 +193,12 @@ export default function USStockPage() {
                         <span className="font-mono font-bold text-3xl tracking-tighter text-white">
                           ${data.current_price?.toLocaleString('en-US', { minimumFractionDigits: 2 })}
                         </span>
-                        <span className={`text-[10px] border px-2 py-0.5 rounded-[4px] uppercase tracking-widest font-black ${rangeIsPositive ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-red-500/10 text-red-400 border-red-500/20'}`}>
-                          {rangeIsPositive ? '+' : ''}{rangeChange.toFixed(2)}%
+                        <span className={`text-[10px] border px-2 py-0.5 rounded-[4px] uppercase tracking-widest font-black ${
+                          (timeRange === '1D' && status === 'CLOSED')
+                            ? 'bg-zinc-500/10 text-zinc-500 border-zinc-500/20'
+                            : (rangeIsPositive ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-red-500/10 text-red-400 border-red-500/20')
+                        }`}>
+                          {(timeRange === '1D' && status === 'CLOSED') ? '0.00%' : `${rangeIsPositive ? '+' : ''}${rangeChange.toFixed(2)}%`}
                         </span>
                       </div>
                     </div>
@@ -201,7 +207,12 @@ export default function USStockPage() {
                         <button 
                           key={p} 
                           onClick={() => setTimeRange(p)}
-                          className={`px-4 py-1.5 rounded-lg text-[10px] font-black transition-all duration-300 ${timeRange === p ? (rangeIsPositive ? 'bg-emerald-500 text-black' : 'bg-red-500 text-white') : 'border border-transparent hover:border-white/10 text-zinc-500 hover:text-zinc-300 hover:bg-white/5'}`}
+                          className={`px-4 py-1.5 rounded-lg text-[10px] font-black transition-all duration-300 ${timeRange === p 
+                            ? (p === '1D' && status === 'CLOSED'
+                              ? 'bg-zinc-500 text-white opacity-60'
+                              : (rangeIsPositive ? 'bg-emerald-500 text-black' : 'bg-red-500 text-white')
+                            )
+                            : 'border border-transparent hover:border-white/10 text-zinc-500 hover:text-zinc-300 hover:bg-white/5'}`}
                         >
                           {p}
                         </button>
@@ -209,12 +220,29 @@ export default function USStockPage() {
                     </div>
                   </div>
                   <div className="w-full h-[400px]">
-                    <WealthChart 
-                      data={history} 
-                      currency="USD"
-                      locale="en-US"
-                      timezoneLabel="EST"
-                    />
+                    {timeRange === '1D' && status === 'CLOSED' ? (
+                      <div className="h-full flex flex-col items-center justify-center opacity-40 gap-4">
+                        <div className="p-4 rounded-full bg-white/5 border border-white/10">
+                          <Moon className="w-8 h-8 text-zinc-400" />
+                        </div>
+                        <div className="flex flex-col items-center gap-1">
+                          <span className="font-terminal-label text-[10px] uppercase tracking-[0.4em] text-white">Market is Closed Today</span>
+                          <span className="text-[9px] text-zinc-600 uppercase tracking-widest font-bold">1D INTRA-DAY GRAPHS ARE NOT ACTIVE</span>
+                        </div>
+                      </div>
+                    ) : history.length > 0 ? (
+                      <WealthChart 
+                        data={history} 
+                        currency="USD"
+                        locale="en-US"
+                        timezoneLabel="EST"
+                      />
+                    ) : (
+                      <div className="h-full flex flex-col items-center justify-center opacity-20 gap-4">
+                        <Activity className="w-12 h-12 animate-pulse" />
+                        <span className="font-terminal-label text-[10px] uppercase tracking-[0.4em]">Syncing Institutional Feed...</span>
+                      </div>
+                    )}
                   </div>
                 </div>
 

@@ -33,9 +33,9 @@ export class MarketStatusEngine {
       const totalMinutes = hours * 60 + minutes;
       
       // Premarket: 9:00 AM (540) to 9:15 AM (555)
-      // Regular: 9:15 AM (555) to 3:30 PM (930)
+      // Regular: 9:15 AM (555) to 4:00 PM (960) [Extended]
       if (totalMinutes >= 540 && totalMinutes < 555) return MarketSession.PREMARKET;
-      if (totalMinutes >= 555 && totalMinutes < 930) return MarketSession.REGULAR;
+      if (totalMinutes >= 555 && totalMinutes < 960) return MarketSession.REGULAR; // Extended to 4:00 PM for settlement buffer
       
       return MarketSession.CLOSED;
     } 
@@ -60,10 +60,10 @@ export class MarketStatusEngine {
       const totalMinutes = hours * 60 + minutes;
       
       // Premarket: 4:00 AM (240) - 9:30 AM (570)
-      // Regular: 9:30 AM (570) - 4:00 PM (960) [Or 1:00 PM (780) on early close]
-      // After-Hours: 4:00 PM (960) - 8:00 PM (1200)
+      // Regular: 9:30 AM (570) - 4:30 PM (990) [Extended]
+      // After-Hours: 4:30 PM (990) - 8:00 PM (1200)
       
-      const regularClose = isEarlyClose ? 780 : 960;
+      const regularClose = isEarlyClose ? 810 : 990; // Extended by 30 mins for settlement (4:30 PM)
       
       if (totalMinutes >= 240 && totalMinutes < 570) return MarketSession.PREMARKET;
       if (totalMinutes >= 570 && totalMinutes < regularClose) return MarketSession.REGULAR;

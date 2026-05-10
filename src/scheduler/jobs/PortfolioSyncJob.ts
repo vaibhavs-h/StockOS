@@ -27,7 +27,8 @@ export class PortfolioSyncJob extends BaseJob {
 
     const apiKey = process.env.GROWW_API_KEY;
     const totpSecret = process.env.GROWW_TOTP_SECRET;
-    const portfolioId = process.env.NEXT_PUBLIC_PORTFOLIO_ID || 'primary';
+    const portfolioId = process.env.NEXT_PUBLIC_PORTFOLIO_ID;
+    console.log(`\n[SYNC STARTED] 🔄 PortfolioSyncJob | ID: ${portfolioId}`);
 
     if (!apiKey || !totpSecret) {
       console.warn("[PortfolioSyncJob] GROWW_API_KEY or GROWW_TOTP_SECRET missing, skipping sync.");
@@ -65,7 +66,7 @@ export class PortfolioSyncJob extends BaseJob {
     });
 
     const rawHoldings = Array.isArray(portRes.data) ? portRes.data : (portRes.data?.payload?.holdings || []);
-    console.log(`[PortfolioSyncJob] Fetched ${rawHoldings.length} raw holdings from Groww.`);
+    // console.log(`[PortfolioSyncJob] Fetched ${rawHoldings.length} raw holdings from Groww.`);
 
     if (rawHoldings.length === 0) {
       console.log("[PortfolioSyncJob] No holdings found in Groww account.");
@@ -73,7 +74,7 @@ export class PortfolioSyncJob extends BaseJob {
     }
 
     // 4. Pre-fetch Market Maps
-    console.log(`[PortfolioSyncJob] Fetching market asset maps for enrichment...`);
+    // console.log(`[PortfolioSyncJob] Fetching market asset maps for enrichment...`);
     const { data: dbAssets } = await supabase.from('market_assets').select('symbol, current_price, prev_close, day_change');
     const marketMap = new Map((dbAssets || []).map(a => [a.symbol, a]));
 
@@ -95,10 +96,11 @@ export class PortfolioSyncJob extends BaseJob {
         const ticker = symbol.includes(':') ? symbol.split(':')[1] : symbol;
         const yahooSymbol = ticker.endsWith('.NS') ? ticker : `${ticker}.NS`;
 
-        const internal = marketMap.get(yahooSymbol) || marketMap.get(ticker);
+        const internal = marketMap.get(ticker) || marketMap.get(yahooSymbol);
         const external = yahooMap.get(yahooSymbol);
 
-        const price = internal?.current_price || external?.regularMarketPrice || parseFloat(item.market_price || item.last_traded_price || 0);
+        const brokerPrice = parseFloat(item.market_price || item.last_traded_price || 0);
+        const price = brokerPrice > 0 ? brokerPrice : (internal?.current_price || external?.regularMarketPrice || 0);
         const prevClose = internal?.prev_close || external?.regularMarketPreviousClose || price;
         const dayChangeVal = internal?.day_change || (external ? (external.regularMarketPrice - external.regularMarketPreviousClose) : 0);
 
@@ -131,14 +133,14 @@ export class PortfolioSyncJob extends BaseJob {
     }
 
     // 6. DB Upsert
-    console.log(`[PortfolioSyncJob] Persisting ${enriched.length} enriched holdings to Supabase...`);
+    // console.log(`[PortfolioSyncJob] Persisting ${enriched.length} enriched holdings to Supabase...`);
     await supabase.from('holdings').delete().eq('portfolio_id', portfolioId);
     const { error: insError } = await supabase.from('holdings').upsert(enriched, { onConflict: 'id' });
     if (insError) throw insError;
-    console.log(`[PortfolioSyncJob] Successfully updated holdings table.`);
+    console.log(`  Detail:    Successfully updated holdings table.`);
 
     // 7. Snapshot History
-    console.log(`[PortfolioSyncJob] Recording portfolio history snapshot...`);
+    // console.log(`[PortfolioSyncJob] Recording portfolio history snapshot...`);
 
     const now = new Date();
     const financialDate = new Date(now.getTime() - (3 * 60 + 30) * 60 * 1000);

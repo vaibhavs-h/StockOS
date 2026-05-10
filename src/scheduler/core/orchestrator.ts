@@ -40,6 +40,18 @@ export interface QueueMetrics {
 class SyncOrchestrator {
   private queue: QueueItem[] = [];
   private activeWorkers: number = 0;
+  private logs: { timestamp: string, message: string, type: 'info' | 'success' | 'error' | 'warn' }[] = [];
+  
+  private addLog(message: string, type: 'info' | 'success' | 'error' | 'warn' = 'info') {
+    const log = { timestamp: new Date().toISOString(), message, type };
+    this.logs.push(log);
+    if (this.logs.length > 50) this.logs.shift();
+    return log;
+  }
+
+  public getLogs() {
+    return this.logs;
+  }
   
   // Lifetime metrics
   private metrics: QueueMetrics = {
@@ -89,7 +101,9 @@ class SyncOrchestrator {
 
     this.metrics.pendingCount++;
 
-    console.log(`[ORCHESTRATOR] 📥 DISPATCH | ${job.id.padEnd(20)} | Priority: ${job.metadata.priority} | Queue: ${job.metadata.bullMqQueueName}`);
+    const logMsg = `[ORCHESTRATOR] 📥 DISPATCH | ${job.id.padEnd(20)} | Priority: ${job.metadata.priority}`;
+    this.addLog(logMsg, 'info');
+    console.log(logMsg + ` | Queue: ${job.metadata.bullMqQueueName}`);
     
     // Sort queue strictly by priority (Lower number = Higher Priority)
     // BullMQ standard: 1 is highest priority.
@@ -130,18 +144,24 @@ class SyncOrchestrator {
     this.totalLagTimeMs += lag;
     this.metrics.avgQueueLagMs = this.totalLagTimeMs / (this.metrics.totalProcessed + 1) || 0;
 
-    console.log(`[ORCHESTRATOR] ⚙️  RUNNING  | ${item.jobId.padEnd(20)} | Lag: ${lag}ms`);
+    const logMsg = `[ORCHESTRATOR] ⚙️  RUNNING  | ${item.jobId.padEnd(20)} | Lag: ${lag}ms`;
+    this.addLog(logMsg, 'info');
+    console.log(logMsg);
 
     try {
       await item.job.execute(item.data);
       item.status = 'completed';
       this.metrics.completedCount++;
-      console.log(`[ORCHESTRATOR] ✅ SUCCESS  | ${item.jobId.padEnd(20)} | Time: ${Date.now() - item.startedAt}ms`);
+      const logMsg = `[ORCHESTRATOR] ✅ SUCCESS  | ${item.jobId.padEnd(20)} | Time: ${Date.now() - item.startedAt}ms`;
+      this.addLog(logMsg, 'success');
+      console.log(logMsg);
     } catch (error) {
       item.status = 'failed';
       this.metrics.failedCount++;
       this.metrics.totalErrors++;
-      console.error(`[ORCHESTRATOR] ❌ FAILED   | ${item.jobId.padEnd(20)} | Error:`, (error as any).message);
+      const logMsg = `[ORCHESTRATOR] ❌ FAILED   | ${item.jobId.padEnd(20)} | Error: ${(error as any).message}`;
+      this.addLog(logMsg, 'error');
+      console.error(logMsg);
     } finally {
       item.completedAt = Date.now();
       this.metrics.runningCount--;

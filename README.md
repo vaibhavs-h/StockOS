@@ -36,29 +36,8 @@
 
 ## 🚀 Getting Started
 
-StockOS runs as a dual-service architecture for maximum performance and reliability.
-
-### 1. Environment Setup
-Create a `.env` file in the root directory with the following tactical keys:
-```env
-NEXT_PUBLIC_SUPABASE_URL=your_supabase_url
-NEXT_PUBLIC_SUPABASE_ANON_KEY=your_anon_key
-SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
-GROWW_API_KEY=your_groww_api_key
-GROWW_TOTP_SECRET=your_totp_secret
-NEXT_PUBLIC_N8N_WEBHOOK_URL=your_n8n_intelligence_endpoint
-```
-
-### 2. Live Access
 Access the production terminal directly at:
 👉 **[stock-os-kappa.vercel.app](https://stock-os-kappa.vercel.app)**
-
-### 3. Local Development
-Launch the **Frontend** and the **Sync Engine** concurrently:
-```bash
-npm run dev
-```
-*The Sync Engine will warm-start on port 3003, while the Next.js dashboard launches on port 3000.*
 
 ---
 

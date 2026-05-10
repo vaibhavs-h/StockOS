@@ -24,12 +24,12 @@ class YahooRequestQueue {
   private totalRequestsInWindow: number = 0;
   private isPaused: boolean = false;
   private pauseStartedAt: number = 0;
-  private readonly FAILURE_THRESHOLD = 0.1; // 10%
+  private readonly FAILURE_THRESHOLD = 0.3; // 30%
   private readonly WINDOW_SIZE = 50;
   private readonly PAUSE_DURATION = 10 * 60 * 1000; // 10 minutes
 
   constructor() {
-    console.log('[YAHOO-QUEUE] Ingestion Layer Initialized.');
+//     console.log('[YAHOO-QUEUE] Ingestion Layer Initialized.');
   }
 
   /**
@@ -47,7 +47,7 @@ class YahooRequestQueue {
 
       // Sort by priority (Lower number = Higher Priority)
       this.queue.sort((a, b) => a.priority - b.priority);
-      
+
       this.process();
     });
   }
@@ -60,6 +60,9 @@ class YahooRequestQueue {
         this.failureCount = 0;
         this.totalRequestsInWindow = 0;
       } else {
+        // Ensure the process stays alive and resumes after cooldown
+        const remaining = this.PAUSE_DURATION - (Date.now() - this.pauseStartedAt);
+        setTimeout(() => this.process(), Math.min(remaining + 1000, 30000));
         return;
       }
     }
@@ -83,9 +86,8 @@ class YahooRequestQueue {
     this.lastRequestTime = Date.now();
 
     try {
-      const priorityLabel = task.priority <= 5 ? '🔴 HIGH' : task.priority <= 10 ? '🟠 MED' : '🟡 LOW';
-      console.log(`[YAHOO-QUEUE] ⚡ EXEC | ${priorityLabel} | ID: ${task.id.padEnd(25)} | Pending: ${String(this.queue.length).padStart(3)}`);
-      
+// 
+// 
       const result = await task.execute();
       this.recordSuccess();
       task.resolve(result);
@@ -121,7 +123,7 @@ class YahooRequestQueue {
         this.isPaused = true;
         this.pauseStartedAt = Date.now();
       }
-      
+
       // Slide the window
       this.totalRequestsInWindow = 0;
       this.failureCount = 0;

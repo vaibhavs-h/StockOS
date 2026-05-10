@@ -5,6 +5,8 @@ import { TacticalHeader as Header } from "@/components/shared/TacticalHeader"
 import { MarketTicker as Ticker } from "@/components/shared/MarketTicker"
 import HeroWave from "@/components/shared/HeroWave"
 import { Providers } from "./providers"
+import { Analytics } from "@vercel/analytics/react"
+import { SpeedInsights } from "@vercel/speed-insights/next"
 
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter" })
@@ -33,6 +35,8 @@ export default function RootLayout({
             {children}
           </main>
           <Ticker />
+          <Analytics />
+          <SpeedInsights />
         </Providers>
       </body>
     </html>

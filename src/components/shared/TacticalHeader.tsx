@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useRef, useState } from "react";
+import React, { useRef, useState, useEffect } from "react";
 import { MenuIcon, SearchIcon, User, LogOut } from 'lucide-react';
 import { Sheet, SheetContent, SheetFooter } from '@/components/shared/Sheet';
 import { Button } from '@/components/shared/Button';
@@ -16,6 +16,24 @@ export function TacticalHeader() {
   const [profileOpen, setProfileOpen] = useState(false);
   const pathname = usePathname();
   const { data: session } = useSession();
+  const profileRef = useRef<HTMLDivElement>(null);
+
+  // Close profile menu when clicking outside
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (profileRef.current && !profileRef.current.contains(event.target as Node)) {
+        setProfileOpen(false);
+      }
+    }
+    if (profileOpen) {
+      document.addEventListener("mousedown", handleClickOutside);
+    } else {
+      document.removeEventListener("mousedown", handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, [profileOpen]);
 
   // Hide header on landing page
   if (pathname === '/') return null;
@@ -23,8 +41,7 @@ export function TacticalHeader() {
   const links = [
     { label: 'Dashboard', href: '/dashboard' },
     { label: 'Journal', href: '/journal' },
-    { label: 'Subscription', href: '/subscription' },
-    { label: 'Reviews', href: '/reviews' },
+    { label: 'Stocks', href: '/stocks' },
   ];
 
   return (
@@ -50,7 +67,7 @@ export function TacticalHeader() {
             </div>
 
             {/* Flexible Search Area */}
-            <div className="flex-1 max-w-2xl mx-auto hidden md:block">
+            <div className="flex-1 max-w-4xl hidden md:block">
               <MarketSearch>
                 <Button
                   className="w-full h-11 justify-start px-6 bg-white border-2 border-black rounded-[100px] hover:bg-zinc-100 transition-colors shadow-[0_4px_20px_rgba(0,0,0,0.1)]"
@@ -90,16 +107,9 @@ export function TacticalHeader() {
 
                 <AnimatePresence>
                   {profileOpen && (
-                    <>
-                      <motion.div
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        exit={{ opacity: 0 }}
-                        onClick={() => setProfileOpen(false)}
-                        className="fixed inset-0 z-10"
-                      />
-                      <motion.div
-                        initial={{ opacity: 0, scale: 0.95, y: 10 }}
+                    <motion.div
+                      ref={profileRef}
+                      initial={{ opacity: 0, scale: 0.95, y: 10 }}
                         animate={{ opacity: 1, scale: 1, y: 0 }}
                         exit={{ opacity: 0, scale: 0.95, y: 10 }}
                         className="absolute right-0 mt-3 w-64 bg-white border-2 border-black rounded-3xl shadow-[0_20px_50px_rgba(0,0,0,0.3)] z-20 overflow-hidden"
@@ -137,7 +147,19 @@ export function TacticalHeader() {
                                   <div className="size-4 rounded-full bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center">
                                     <div className="size-1.5 rounded-full bg-emerald-500" />
                                   </div>
-                                  <span className="font-bold text-xs uppercase tracking-widest">Manage Plan</span>
+                                  <span className="font-bold text-xs uppercase tracking-widest">Subscription</span>
+                                </Button>
+                              </Link>
+                              <Link href="/reviews">
+                                <Button
+                                  variant="ghost"
+                                  className="w-full justify-start gap-3 rounded-2xl text-black hover:bg-zinc-100 transition-colors mb-1"
+                                  onClick={() => setProfileOpen(false)}
+                                >
+                                  <div className="size-4 rounded-full bg-blue-500/10 border border-blue-500/20 flex items-center justify-center">
+                                    <div className="size-1.5 rounded-full bg-blue-500" />
+                                  </div>
+                                  <span className="font-bold text-xs uppercase tracking-widest">Reviews</span>
                                 </Button>
                               </Link>
                               <Button
@@ -163,7 +185,6 @@ export function TacticalHeader() {
                           )}
                         </div>
                       </motion.div>
-                    </>
                   )}
                 </AnimatePresence>
               </div>

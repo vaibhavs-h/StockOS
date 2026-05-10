@@ -17,26 +17,53 @@ interface IndexData {
 }
 
 export function MarketTicker() {
+  const [mounted, setMounted] = useState(false);
   const [indices, setIndices] = useState<IndexData[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const pathname = usePathname();
 
   useEffect(() => {
-    if (pathname === '/' || pathname === '/auth/login') return;
+    setMounted(true);
+    if (typeof window !== 'undefined') {
+      const cached = localStorage.getItem('stockos_indices_cache');
+      if (cached) {
+        try { 
+          setIndices(JSON.parse(cached));
+          setIsLoading(false);
+        } catch (e) {
+          console.error("Failed to parse indices cache", e);
+        }
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!mounted || pathname === '/' || pathname === '/auth/login') return;
     const fetchIndices = async () => {
       try {
         const engineUrl = process.env.NEXT_PUBLIC_ENGINE_URL || 'http://localhost:3003';
         const res = await axios.get(`${engineUrl}/api/indices`);
         setIndices(res.data);
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('stockos_indices_cache', JSON.stringify(res.data));
+        }
       } catch (err) {
-        setIndices([
-          { label: "NIFTY 50", value: "₹24,032.80", change: "-0.36%", positive: false },
-          { label: "SENSEX", value: "₹77,017.79", change: "-0.33%", positive: false },
-          { label: "BANK NIFTY", value: "₹54,547.05", change: "-0.60%", positive: false },
-          { label: "USD / INR", value: "95.26", change: "0.20%", positive: true, type: 'currency' },
-          { label: "DOW JONES", value: "₹48,941.90", change: "-1.13%", positive: false },
-          { label: "S&P 500", value: "₹7,200.75", change: "-0.41%", positive: false },
-        ]);
+        if (typeof window !== 'undefined') {
+          const cached = localStorage.getItem('stockos_indices_cache');
+          if (cached) {
+            try { setIndices(JSON.parse(cached)); } catch (e) {}
+          } else {
+            // Last resort: hardcoded values
+            setIndices([
+              { label: "NIFTY 50", value: "₹24,032.80", change: "-0.36%", positive: false },
+              { label: "SENSEX", value: "₹77,017.79", change: "-0.33%", positive: false },
+              { label: "BANK NIFTY", value: "₹54,547.05", change: "-0.60%", positive: false },
+              { label: "USD / INR", value: "95.26", change: "0.20%", positive: true, type: 'currency' },
+              { label: "DOW JONES", value: "₹48,941.90", change: "-1.13%", positive: false },
+              { label: "S&P 500", value: "₹7,200.75", change: "-0.41%", positive: false },
+            ]);
+          }
+        }
       } finally {
         setIsLoading(false);
       }
@@ -47,7 +74,7 @@ export function MarketTicker() {
     return () => clearInterval(interval);
   }, [pathname]);
 
-  if (pathname === '/' || pathname === '/auth/login') return null;
+  if (!mounted || pathname === '/' || pathname === '/auth/login') return null;
 
   // Duplicate indices for seamless marquee
   const marqueeItems = [...indices, ...indices, ...indices];

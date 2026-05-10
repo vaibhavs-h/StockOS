@@ -15,7 +15,7 @@ export class YahooProvider {
         try {
           const results = await yahooFinance.quote(symbols);
           const latency = Date.now() - start;
-          console.log(`[YAHOO] 📦 BATCH  | ${region} | Symbols: ${String(symbols.length).padStart(3)} | Latency: ${latency}ms`);
+//           console.log(`[YAHOO] 📦 BATCH  | ${region} | Symbols: ${String(symbols.length).padStart(3)} | Latency: ${latency}ms`);
           return results;
         } catch (error: any) {
           throw error;
@@ -34,9 +34,9 @@ export class YahooProvider {
       async () => {
         const start = Date.now();
         try {
-          const result = await yahooFinance.quoteSummary(symbol, { modules: modules as any });
+          const result = await yahooFinance.quoteSummary(symbol, { modules: modules as any }, { validate: false } as any);
           const latency = Date.now() - start;
-          console.log(`[YAHOO] 📑 SUMMARY| ${region} | Symbol: ${symbol.padEnd(10)} | Latency: ${latency}ms`);
+//           console.log(`[YAHOO] 📑 SUMMARY| ${region} | Symbol: ${symbol.padEnd(10)} | Latency: ${latency}ms`);
           return result;
         } catch (error: any) {
           throw error;
