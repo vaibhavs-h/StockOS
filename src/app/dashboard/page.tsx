@@ -63,13 +63,14 @@ export default function DashboardPage() {
   const [isPortfolioDropdownOpen, setIsPortfolioDropdownOpen] = useState(false)
   const [syncLogs, setSyncLogs] = useState<any[]>([])
   const [showSyncConsole, setShowSyncConsole] = useState(false)
+  const [lastSyncTime, setLastSyncTime] = useState<string>('SYNCHRONIZING...')
 
   useEffect(() => {
     setMounted(true);
   }, []);
 
 
-  const portfolioId = process.env.NEXT_PUBLIC_PORTFOLIO_ID || "primary";
+  const portfolioId = process.env.NEXT_PUBLIC_PORTFOLIO_ID || "vaibhav";
 
   const [marketIntelligence, setMarketIntelligence] = useState<any>(() => {
     if (typeof window !== 'undefined') {
@@ -269,6 +270,7 @@ export default function DashboardPage() {
 
       if (error) throw error;
       setHoldings(data || []);
+      setLastSyncTime(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
     } catch (err) {
       console.error("[DASHBOARD] Fetch holdings failed:", err);
     } finally {
@@ -462,7 +464,12 @@ export default function DashboardPage() {
     // Subscribe to Realtime Updates for Holdings & History
     const holdingsSubscription = supabase
       .channel('holdings-changes')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'holdings' }, (payload) => {
+      .on('postgres_changes', { 
+        event: '*', 
+        schema: 'public', 
+        table: 'holdings',
+        filter: `portfolio_id=eq.${portfolioId}`
+      }, (payload) => {
         // Delay fetch by 1s to allow DB to settle after engine delete/insert cycle
         setTimeout(fetchHoldings, 1000);
       })
@@ -470,7 +477,12 @@ export default function DashboardPage() {
 
     const historySubscription = supabase
       .channel('history-changes')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'portfolio_history' }, (payload) => {
+      .on('postgres_changes', { 
+        event: '*', 
+        schema: 'public', 
+        table: 'portfolio_history',
+        filter: `portfolio_id=eq.${portfolioId}`
+      }, (payload) => {
         // Delay fetch by 1s to allow DB to settle after engine delete/insert cycle
         setTimeout(fetchHistory, 1000);
       })
@@ -479,12 +491,12 @@ export default function DashboardPage() {
     // Initial fetch
     fetchMarketIntelligence();
 
-    const interval = setInterval(fetchIndices, 60000); // Live update indices every 1 minute (was 30s)
-    const intelligenceInterval = setInterval(fetchMarketIntelligence, 3600000); // Auto-refresh intelligence every 1 hour
+    const interval = setInterval(fetchIndices, 30000); // High-frequency indices
+    const intelligenceInterval = setInterval(fetchMarketIntelligence, 3600000); 
     const syncInterval = setInterval(() => {
       fetchHoldings();
       fetchHistory();
-    }, 120000); // Heartbeat fallback every 2 minutes (was 30s)
+    }, 30000); // 30s Heartbeat Sync (Priority)
 
     return () => {
       clearInterval(interval);
@@ -499,25 +511,8 @@ export default function DashboardPage() {
   const totalNetWorth = holdings.reduce((sum, h) => sum + (Number(h.market_value) || 0), 0);
   const totalInvested = holdings.reduce((sum, h) => sum + (Number(h.invested_value) || 0), 0);
 
-  // Calculate Daily P/L by comparing current Net Worth with yesterday's historical snapshot
-  const totalDayChange = useMemo(() => {
-    if (!history || history.length === 0) return 0;
-
-    const today = new Date().toISOString().split('T')[0];
-    // Find the latest snapshot that is NOT from today
-    const baselineSnapshot = [...history].reverse().find(h => {
-      const snapshotDay = new Date(h.timestamp).toISOString().split('T')[0];
-      return snapshotDay !== today;
-    });
-
-    // Fallback: If all history is from today, use the first ever snapshot or default to 0
-    const baselineValue = baselineSnapshot
-      ? Number(baselineSnapshot.total_market_value)
-      : (history.length > 0 ? Number(history[0].total_market_value) : totalNetWorth);
-
-    return totalNetWorth - baselineValue;
-  }, [holdings, history, totalNetWorth]);
-
+  // Calculate Daily P/L by summing up the day change of individual holdings (Broker-Standard)
+  const totalDayChange = holdings.reduce((sum, h) => sum + (Number(h.day_change) || 0), 0);
   const baselineForPerc = totalNetWorth - totalDayChange;
   const dayChangePerc = (totalNetWorth > 0 && baselineForPerc > 0)
     ? (totalDayChange / baselineForPerc) * 100
@@ -1369,7 +1364,7 @@ export default function DashboardPage() {
                 <div className="flex items-center gap-2 mt-0.5">
                   <Activity className="w-2.5 h-2.5 text-emerald-500/40" />
                   <p className="text-[9px] text-emerald-500/40 uppercase tracking-wider font-bold">
-                    LAST UPDATED: {(mounted && lastIntelligenceFetch) ? lastIntelligenceFetch : 'SYNCHRONIZING...'}
+                    PORTFOLIO SYNC: {lastSyncTime} | INTEL: {(mounted && lastIntelligenceFetch) ? lastIntelligenceFetch : 'SYNCHRONIZING...'}
                   </p>
                 </div>
               </div>

@@ -39,8 +39,8 @@ export class UsLiveSyncJob extends BaseJob {
       console.log(`[UsLiveSyncJob] Extended Hours: Throttling to ${targetSymbols.length} Tier A stocks.`);
     }
 
-    // 1. Chunk symbols into batches of 15
-    const batchSize = 15;
+    // 1. Chunk symbols into larger batches for Yahoo (max 250)
+    const batchSize = 250;
     const batches = [];
     for (let i = 0; i < targetSymbols.length; i += batchSize) {
       batches.push(targetSymbols.slice(i, i + batchSize));
@@ -49,6 +49,8 @@ export class UsLiveSyncJob extends BaseJob {
     let processedCount = 0;
     let skippedCount = 0;
     let errorCount = 0;
+
+    const allUpdates: any[] = [];
 
     // 2. Process batches sequentially via Queue
     for (const batch of batches) {
@@ -86,19 +88,24 @@ export class UsLiveSyncJob extends BaseJob {
             continue;
           }
 
-          const { error } = await supabase.from('us_market_assets').upsert(diffPayload, { onConflict: 'symbol' });
-
-          if (error) {
-            console.error(`[UsLiveSyncJob] DB update failed for ${symbol}:`, error.message);
-            errorCount++;
-          } else {
-            this.commitSnapshot(symbol, fullPayload);
-            processedCount++;
-          }
+          // Stage for batch upsert
+          allUpdates.push(diffPayload);
+          this.commitSnapshot(symbol, fullPayload);
         }
       } catch (e: any) {
         console.error(`[UsLiveSyncJob] Batch failed:`, e.message);
         errorCount += batch.length;
+      }
+    }
+
+    // 3. Perform a single batch upsert to Supabase
+    if (allUpdates.length > 0) {
+      const { error } = await supabase.from('us_market_assets').upsert(allUpdates, { onConflict: 'symbol' });
+      if (error) {
+        console.error(`[UsLiveSyncJob] Batch DB update failed:`, error.message);
+        errorCount += allUpdates.length;
+      } else {
+        processedCount = allUpdates.length;
       }
     }
 

@@ -15,9 +15,12 @@ export class YahooProvider {
         try {
           const results = await yahooFinance.quote(symbols);
           const latency = Date.now() - start;
-//           console.log(`[YAHOO] 📦 BATCH  | ${region} | Symbols: ${String(symbols.length).padStart(3)} | Latency: ${latency}ms`);
+          console.log(`[YAHOO] 📦 BATCH  | ${region} | Symbols: ${String(symbols.length).padStart(3)} | Latency: ${latency}ms`);
           return results;
         } catch (error: any) {
+          if (error.status === 429 || error.response?.status === 429) {
+             console.error(`\n[YAHOO] 🚨 RATE LIMIT REACHED (429) | Backing off...\n`);
+          }
           throw error;
         }
       },

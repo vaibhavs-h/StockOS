@@ -15,8 +15,8 @@ type Task = {
 class YahooRequestQueue {
   private queue: Task[] = [];
   private activeCount: number = 0;
-  private maxConcurrency: number = 2;
-  private delayBetweenRequests: number = 2000; // 2 seconds
+  private maxConcurrency: number = 5;
+  private delayBetweenRequests: number = 500; // 0.5 seconds
   private lastRequestTime: number = 0;
 
   // Circuit Breaker State
@@ -91,8 +91,12 @@ class YahooRequestQueue {
       const result = await task.execute();
       this.recordSuccess();
       task.resolve(result);
-    } catch (error) {
-      console.error(`[YAHOO-QUEUE] ❌ FAIL | ID: ${task.id} | Error:`, (error as any).message);
+    } catch (error: any) {
+      if (error.status === 429 || error.response?.status === 429) {
+        console.error(`\n[YAHOO-QUEUE] 🚨 429 TOO MANY REQUESTS | Yahoo is throttle-gating. Consider increasing delayBetweenRequests.\n`);
+      } else {
+        console.error(`[YAHOO-QUEUE] ❌ FAIL | ID: ${task.id} | Error:`, error.message);
+      }
       this.recordFailure();
       task.reject(error);
     } finally {

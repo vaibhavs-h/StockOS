@@ -28,8 +28,8 @@ export class IndianLiveSyncJob extends BaseJob {
 
     console.log(`[JOB START] ${this.id} | Symbols to process: ${symbols.length}`);
     
-    // 1. Chunk symbols into batches of 15
-    const batchSize = 15;
+    // 1. Chunk symbols into larger batches for Yahoo (max 250)
+    const batchSize = 250;
     const batches = [];
     for (let i = 0; i < symbols.length; i += batchSize) {
       batches.push(symbols.slice(i, i + batchSize));
@@ -39,14 +39,15 @@ export class IndianLiveSyncJob extends BaseJob {
     let skippedCount = 0;
     let errorCount = 0;
 
-    // 2. Process batches sequentially
+    const allUpdates: any[] = [];
+
+    // 2. Fetch all batches (we can parallelize slightly but sequential batches are safer for Yahoo rate limits)
     for (const batch of batches) {
       try {
         const quotes = await YahooProvider.fetchQuotes(batch, 'IN');
         
         for (const q of quotes) {
           const symbol = normalizeStorageSymbol(q.symbol);
-          
           if (!q.regularMarketPrice) continue;
 
           const fullPayload = {
@@ -70,19 +71,24 @@ export class IndianLiveSyncJob extends BaseJob {
             continue;
           }
 
-          const { error } = await supabase.from('market_assets').upsert(diffPayload, { onConflict: 'symbol' });
-
-          if (error) {
-            console.error(`[IndianLiveSyncJob] DB update failed for ${symbol}:`, error.message);
-            errorCount++;
-          } else {
-            this.commitSnapshot(symbol, fullPayload);
-            processedCount++;
-          }
+          // Stage for batch upsert
+          allUpdates.push(diffPayload);
+          this.commitSnapshot(symbol, fullPayload);
         }
       } catch (e: any) {
         console.error(`[IndianLiveSyncJob] Batch failed:`, e.message);
         errorCount += batch.length;
+      }
+    }
+
+    // 3. Perform a single batch upsert to Supabase
+    if (allUpdates.length > 0) {
+      const { error } = await supabase.from('market_assets').upsert(allUpdates, { onConflict: 'symbol' });
+      if (error) {
+        console.error(`[IndianLiveSyncJob] Batch DB update failed:`, error.message);
+        errorCount += allUpdates.length;
+      } else {
+        processedCount = allUpdates.length;
       }
     }
 

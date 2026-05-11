@@ -5,7 +5,7 @@ import { TacticalHeader as Header } from "@/components/shared/TacticalHeader"
 import { MarketTicker as Ticker } from "@/components/shared/MarketTicker"
 import HeroWave from "@/components/shared/HeroWave"
 import { Providers } from "./providers"
-import { Analytics } from "@vercel/analytics/react"
+import { Analytics } from "@vercel/analytics/next"
 import { SpeedInsights } from "@vercel/speed-insights/next"
 
 

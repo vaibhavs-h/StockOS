@@ -29,7 +29,8 @@ export class PortfolioRevaluationJob extends BaseJob {
     // 1. Fetch current holdings (to get quantities)
     const { data: currentHoldings, error: hError } = await supabase
       .from('holdings')
-      .select('*');
+      .select('*')
+      .not('portfolio_id', 'is', null);
 
     if (hError || !currentHoldings || currentHoldings.length === 0) {
       return 0;
@@ -40,63 +41,85 @@ export class PortfolioRevaluationJob extends BaseJob {
       .from('market_assets')
       .select('symbol, current_price, prev_close, day_change');
     
-    const marketMap = new Map((dbAssets || []).map(a => [a.symbol, a]));
+    const marketMap = new Map((dbAssets || []).map(a => [a.symbol.trim().toUpperCase(), a]));
 
-    // 3. Revalue each holding
-    const updatedHoldings = [];
-    let totalMkt = 0;
-    let totalInv = 0;
-    let totalDayChange = 0;
-    const portfolioId = currentHoldings[0].portfolio_id;
-
-    for (const holding of currentHoldings) {
-      const symbol = holding.trading_symbol;
-      const ticker = symbol.includes(':') ? symbol.split(':')[1] : symbol;
-      const yahooSymbol = ticker.endsWith('.NS') ? ticker : `${ticker}.NS`;
-
-      const asset = marketMap.get(ticker) || marketMap.get(yahooSymbol);
-      
-      const price = asset?.current_price || holding.last_price;
-      const prevClose = asset?.prev_close || (price / (1 + (holding.day_change_percentage / 100)));
-
-      const marketValue = holding.quantity * price;
-      const dayChange = (price - prevClose) * holding.quantity;
-
-      updatedHoldings.push({
-        ...holding,
-        last_price: price,
-        market_value: marketValue,
-        p_l: marketValue - holding.invested_value,
-        p_l_percentage: holding.invested_value > 0 ? ((marketValue - holding.invested_value) / holding.invested_value) * 100 : 0,
-        day_change: dayChange,
-        day_change_percentage: prevClose > 0 ? ((price - prevClose) / prevClose) * 100 : 0,
-        updated_at: new Date().toISOString()
-      });
-
-      totalMkt += marketValue;
-      totalInv += holding.invested_value;
-      totalDayChange += dayChange;
+    // 3. Group holdings by portfolio_id
+    const portfolioGroups = new Map<string, any[]>();
+    for (const h of currentHoldings) {
+      const pid = h.portfolio_id;
+      if (!portfolioGroups.has(pid)) portfolioGroups.set(pid, []);
+      portfolioGroups.get(pid)!.push(h);
     }
 
-    // 4. Batch update holdings
-    const { error: upError } = await supabase.from('holdings').upsert(updatedHoldings);
-    if (upError) throw upError;
+    let totalProcessed = 0;
 
-    // 5. Update latest history entry for today (Virtual Update)
-    const now = new Date();
-    const financialDate = new Date(now.getTime() - (3 * 60 + 30) * 60 * 1000);
-    const logicalDay = financialDate.toISOString().split('T')[0];
+    for (const [pid, holdings] of Array.from(portfolioGroups.entries())) {
+      const updatedHoldings = [];
+      let totalMkt = 0;
+      let totalInv = 0;
+      let totalDayChange = 0;
 
-    await supabase.from('portfolio_history').upsert({
-      portfolio_id: portfolioId,
-      date: logicalDay,
-      total_invested: totalInv,
-      total_market_value: totalMkt,
-      total_p_l: totalMkt - totalInv,
-      day_change: totalDayChange,
-      updated_at: new Date().toISOString()
-    }, { onConflict: 'portfolio_id, date' });
+      for (const holding of holdings) {
+        const symbol = (holding.trading_symbol || '').trim().toUpperCase();
+        const ticker = symbol.includes(':') ? symbol.split(':')[1] : symbol;
+        const yahooSymbol = ticker.endsWith('.NS') ? ticker : `${ticker}.NS`;
 
-    return updatedHoldings.length;
+        const asset = marketMap.get(ticker) || marketMap.get(yahooSymbol);
+        
+        if (!asset) {
+          console.warn(`[Reval] No market asset found for holding: ${symbol} (Ticker: ${ticker}, Yahoo: ${yahooSymbol})`);
+        }
+
+        // LIVE PRICE = Broker Baseline + Yahoo's Real-time Movement Today
+        const yahooDelta = asset?.day_change || 0;
+        const brokerPrevClose = holding.quantity > 0 
+          ? (holding.last_price - (holding.day_change / holding.quantity))
+          : (asset?.prev_close || holding.last_price);
+
+        const price = brokerPrevClose + yahooDelta;
+
+        const marketValue = holding.quantity * price;
+        const dayChange = (price - brokerPrevClose) * holding.quantity;
+
+        updatedHoldings.push({
+          ...holding,
+          last_price: price,
+          market_value: marketValue,
+          p_l: marketValue - holding.invested_value,
+          p_l_percentage: holding.invested_value > 0 ? ((marketValue - holding.invested_value) / holding.invested_value) * 100 : 0,
+          day_change: dayChange,
+          day_change_percentage: brokerPrevClose > 0 ? ((price - brokerPrevClose) / brokerPrevClose) * 100 : 0,
+          updated_at: new Date().toISOString()
+        });
+
+        totalMkt += marketValue;
+        totalInv += holding.invested_value;
+        totalDayChange += dayChange;
+      }
+
+      // 4. Batch update holdings for this portfolio
+      const { error: upError } = await supabase.from('holdings').upsert(updatedHoldings);
+      if (upError) console.error(`[Reval] Failed to update holdings for ${pid}:`, upError.message);
+
+      // 5. Update latest history entry for today (Virtual Update)
+      const now = new Date();
+      const logicalDay = now.toISOString().split('T')[0];
+
+      // Insert or update history for today
+      // First try to delete today's existing snapshot to avoid duplicate keys if RLS/Triggers are weird
+      // but actually a simple upsert with onConflict should work.
+      await supabase.from('portfolio_history').upsert({
+        portfolio_id: pid,
+        total_investment: totalInv,
+        total_market_value: totalMkt,
+        total_p_l: totalMkt - totalInv,
+        p_l_percentage: totalInv > 0 ? ((totalMkt - totalInv) / totalInv) * 100 : 0,
+        timestamp: now.toISOString()
+      });
+
+      totalProcessed += updatedHoldings.length;
+    }
+
+    return totalProcessed;
   }
 }

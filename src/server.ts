@@ -16,6 +16,7 @@ import { UsLiveSyncJob } from './scheduler/jobs/UsLiveSyncJob';
 import { IndianDeepSyncJob } from './scheduler/jobs/IndianDeepSyncJob';
 import { UsDeepSyncJob } from './scheduler/jobs/UsDeepSyncJob';
 import { PortfolioSyncJob } from './scheduler/jobs/PortfolioSyncJob';
+import { PortfolioRevaluationJob } from './scheduler/jobs/PortfolioRevaluationJob';
 
 const app = express();
 app.use(cors());
@@ -290,6 +291,16 @@ app.post('/api/sync', async (req, res) => {
     res.json({ success: true, status: "queued" });
   } catch (err: any) {
     console.error(`[FATAL] Manual sync queue failed: ${err.message}`);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.post('/api/revalue', async (req, res) => {
+  console.log("\n[TACTICAL] MANUAL REVALUATION TRIGGERED");
+  try {
+    syncOrchestrator.dispatch(new PortfolioRevaluationJob());
+    res.json({ success: true, status: "queued" });
+  } catch (err: any) {
     res.status(500).json({ success: false, error: err.message });
   }
 });

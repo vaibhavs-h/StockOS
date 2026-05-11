@@ -9,13 +9,13 @@ import { JobMetadata, RefreshTier, MarketRegion, QueuePriority } from '../core/t
 
 export class PortfolioSyncJob extends BaseJob {
   public readonly id = 'PortfolioSyncJob';
-  
+
   public readonly metadata: JobMetadata = {
     id: this.id,
     tier: RefreshTier.TIER_1_HOT,
     symbols: [],
     region: MarketRegion.IN, // Predominantly Indian market for Groww
-    priority: QueuePriority.PORTFOLIO,
+    priority: QueuePriority.CRITICAL,
     bullMqQueueName: 'q-portfolio-sync',
     retryCount: 0,
     maxRetries: 1
@@ -27,7 +27,7 @@ export class PortfolioSyncJob extends BaseJob {
 
     const apiKey = process.env.GROWW_API_KEY;
     const totpSecret = process.env.GROWW_TOTP_SECRET;
-    const portfolioId = process.env.NEXT_PUBLIC_PORTFOLIO_ID;
+    const portfolioId = process.env.NEXT_PUBLIC_PORTFOLIO_ID || 'vaibhav';
     console.log(`\n[SYNC STARTED] 🔄 PortfolioSyncJob | ID: ${portfolioId}`);
 
     if (!apiKey || !totpSecret) {
@@ -39,45 +39,52 @@ export class PortfolioSyncJob extends BaseJob {
     const cleanSecret = totpSecret.trim();
     const totpCode = await generate({ secret: cleanSecret });
 
-    // 2. Exchange for Access Token
-    const authRes = await axios.post('https://api.groww.in/v1/token/api/access',
-      { key_type: "totp", totp: totpCode },
-      {
+    let rawHoldings = [];
+    try {
+      // 2. Exchange for Access Token
+      const authRes = await axios.post('https://api.groww.in/v1/token/api/access',
+        { key_type: "totp", totp: totpCode },
+        {
+          headers: {
+            'Authorization': `Bearer ${apiKey}`,
+            'Content-Type': 'application/json',
+            'X-API-VERSION': '1.0'
+          },
+          timeout: 10000
+        }
+      );
+
+      const token = authRes.data?.token;
+      if (!token) throw new Error("Failed to obtain Groww access token");
+
+      // 3. Fetch Portfolio
+      const portRes = await axios.get('https://api.groww.in/v1/holdings/user', {
         headers: {
-          'Authorization': `Bearer ${apiKey}`,
-          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+          'Accept': 'application/json',
           'X-API-VERSION': '1.0'
         },
         timeout: 10000
+      });
+
+      rawHoldings = Array.isArray(portRes.data) ? portRes.data : (portRes.data?.payload?.holdings || []);
+
+      if (rawHoldings.length === 0) {
+        console.log("[PortfolioSyncJob] No holdings found in Groww account.");
+        return 0;
       }
-    );
-
-    const token = authRes.data?.token;
-    if (!token) throw new Error("Failed to obtain Groww access token");
-
-    // 3. Fetch Portfolio
-    const portRes = await axios.get('https://api.groww.in/v1/holdings/user', {
-      headers: { 
-        'Authorization': `Bearer ${token}`, 
-        'Accept': 'application/json', 
-        'X-API-VERSION': '1.0' 
-      },
-      timeout: 10000
-    });
-
-    const rawHoldings = Array.isArray(portRes.data) ? portRes.data : (portRes.data?.payload?.holdings || []);
-    // console.log(`[PortfolioSyncJob] Fetched ${rawHoldings.length} raw holdings from Groww.`);
-
-    if (rawHoldings.length === 0) {
-      console.log("[PortfolioSyncJob] No holdings found in Groww account.");
-      return 0;
+    } catch (error: any) {
+      if (error.response?.status === 429) {
+        console.error(`\n[GROWW] 🚨 RATE LIMIT REACHED (429) | Groww has throttle-gated this session. Wait a few minutes.\n`);
+      } else {
+        console.error(`[PortfolioSyncJob] Groww API Error: ${error.message}`);
+      }
+      throw error;
     }
 
     // 4. Pre-fetch Market Maps
-    // console.log(`[PortfolioSyncJob] Fetching market asset maps for enrichment...`);
     const { data: dbAssets } = await supabase.from('market_assets').select('symbol, current_price, prev_close, day_change');
     const marketMap = new Map((dbAssets || []).map(a => [a.symbol, a]));
-
 
     const yahooSymbols = rawHoldings.map((h: any) => {
       const sym = h.trading_symbol || h.symbol;
@@ -92,7 +99,7 @@ export class PortfolioSyncJob extends BaseJob {
     const enriched = [];
     for (const item of rawHoldings) {
       try {
-        const symbol = item.trading_symbol || item.symbol;
+        const symbol = (item.trading_symbol || item.symbol || '').trim().toUpperCase();
         const ticker = symbol.includes(':') ? symbol.split(':')[1] : symbol;
         const yahooSymbol = ticker.endsWith('.NS') ? ticker : `${ticker}.NS`;
 
@@ -100,13 +107,18 @@ export class PortfolioSyncJob extends BaseJob {
         const external = yahooMap.get(yahooSymbol);
 
         const brokerPrice = parseFloat(item.market_price || item.last_traded_price || 0);
+        const brokerDayChangeVal = parseFloat(item.day_change || 0);
+
         const price = brokerPrice > 0 ? brokerPrice : (internal?.current_price || external?.regularMarketPrice || 0);
-        const prevClose = internal?.prev_close || external?.regularMarketPreviousClose || price;
-        const dayChangeVal = internal?.day_change || (external ? (external.regularMarketPrice - external.regularMarketPreviousClose) : 0);
+
+        // Authoritative Baseline: If broker provides day change, use it to derive prev_close
+        const prevClose = (brokerPrice > 0 && item.day_change !== undefined)
+          ? (brokerPrice - brokerDayChangeVal)
+          : (internal?.prev_close || external?.regularMarketPreviousClose || price);
 
         const invested = item.quantity * item.average_price;
         const marketValue = item.quantity * price;
-        const dayChange = dayChangeVal * item.quantity;
+        const dayChange = (price - prevClose) * item.quantity;
 
         const hash = crypto.createHash('md5').update(`${portfolioId}-${symbol}`).digest('hex');
         const deterministicId = `${hash.slice(0, 8)}-${hash.slice(8, 12)}-${hash.slice(12, 16)}-${hash.slice(16, 20)}-${hash.slice(20)}`;
@@ -146,23 +158,14 @@ export class PortfolioSyncJob extends BaseJob {
       console.error(`[PortfolioSyncJob] UPSERT FAILED:`, insError.message);
       throw insError;
     }
-    
+
     console.log(`[PortfolioSyncJob] SUCCESS: Updated holdings table with ${enriched.length} records.`);
 
     // 7. Snapshot History
-    // console.log(`[PortfolioSyncJob] Recording portfolio history snapshot...`);
-
     const now = new Date();
-    const financialDate = new Date(now.getTime() - (3 * 60 + 30) * 60 * 1000);
-    const logicalDay = financialDate.toISOString().split('T')[0];
-
     const totalInv = enriched.reduce((sum, h) => sum + h.invested_value, 0);
     const totalMkt = enriched.reduce((sum, h) => sum + h.market_value, 0);
     const totalPL = enriched.reduce((sum, h) => sum + h.p_l, 0);
-
-    await supabase.from('portfolio_history').delete().eq('portfolio_id', portfolioId)
-      .gte('timestamp', `${logicalDay}T00:00:00.000Z`)
-      .lte('timestamp', `${logicalDay}T23:59:59.999Z`);
 
     const { error: histError } = await supabase.from('portfolio_history').insert([{
       portfolio_id: portfolioId,

@@ -15,9 +15,13 @@ import { MarketRegion, MarketSession } from './core/types';
 export function initializeScheduler() {
   console.log('[SCHEDULER] Initializing Zero-Failure Ingestion Engine...');
 
-  // 1. TIER 1: Live Indian Equities (1 Min Heartbeat)
+  // 1. TIER 1: Live Indian Equities (30 Sec Heartbeat)
   cron.schedule(`* * * * *`, () => {
-    syncOrchestrator.dispatch(new IndianLiveSyncJob());
+    if (MarketStatusEngine.isMarketOpen(MarketRegion.IN) || MarketStatusEngine.isPremarket(MarketRegion.IN)) {
+      syncOrchestrator.dispatch(new IndianLiveSyncJob());
+      // Schedule the 30s offset
+      setTimeout(() => syncOrchestrator.dispatch(new IndianLiveSyncJob()), 30000);
+    }
   }, { timezone: 'Asia/Kolkata' });
 
   // 2. TIER 1: Live US Equities (Session-Aware Heartbeat)
@@ -25,16 +29,14 @@ export function initializeScheduler() {
     const session = MarketStatusEngine.getCurrentSession(MarketRegion.US);
     
     if (session === MarketSession.REGULAR) {
-      // Full Speed during Market Hours
       syncOrchestrator.dispatch(new UsLiveSyncJob());
+      setTimeout(() => syncOrchestrator.dispatch(new UsLiveSyncJob()), 30000);
     } else if (session === MarketSession.PREMARKET || session === MarketSession.AFTER_HOURS) {
-      // Reduced Frequency (Every 2 minutes) for Extended Hours
       const min = new Date().getMinutes();
       if (min % 2 === 0) {
         syncOrchestrator.dispatch(new UsLiveSyncJob());
       }
     }
-    // CLOSED: No Tier 1 sync
   }, { timezone: 'America/New_York' });
 
   // 3. TIER 2: Indian Analytics & Valuation (15 Min Rolling Window)
@@ -45,7 +47,6 @@ export function initializeScheduler() {
   // 4. TIER 2: US Analytics & Valuation (15 Min Rolling Window)
   cron.schedule(`*/15 * * * *`, () => {
     const session = MarketStatusEngine.getCurrentSession(MarketRegion.US);
-    // Sync during all active sessions, including extended
     if (session !== MarketSession.CLOSED) {
       syncOrchestrator.dispatch(new UsAnalyticsSyncJob());
     }
@@ -62,22 +63,30 @@ export function initializeScheduler() {
   }, { timezone: 'Asia/Kolkata' });
 
   // 7. Portfolio Sync (5 Min - Full Broker Sync)
+  // Runs during REGULAR session (up to 4:00 PM IST)
   cron.schedule(`*/5 * * * *`, () => {
     if (MarketStatusEngine.isMarketOpen(MarketRegion.IN)) {
       syncOrchestrator.dispatch(new PortfolioSyncJob());
     }
   }, { timezone: 'Asia/Kolkata' });
 
-  // 8. Virtual Portfolio Revaluation (1 Min - High Frequency Virtual Update)
+  // 8. Virtual Portfolio Revaluation (30 Sec - High Frequency Virtual Update)
   cron.schedule(`* * * * *`, () => {
-    // Only run during actual market hours (9:15 AM - 3:30 PM)
-    // Between 3:30 PM and 4:00 PM, only the 5-min Broker Sync will run.
     const istTime = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Kolkata" }));
     const totalMinutes = istTime.getHours() * 60 + istTime.getMinutes();
     
     // 9:15 AM (555) to 3:30 PM (930)
+    // We strictly stop revaluation at 3:30 PM to ensure broker data is the final truth.
     if (totalMinutes >= 555 && totalMinutes < 930) {
       syncOrchestrator.dispatch(new PortfolioRevaluationJob());
+      setTimeout(() => {
+        // Re-check time for the 30s offset to avoid running past 3:30:00
+        const nowIst = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Kolkata" }));
+        const nowMins = nowIst.getHours() * 60 + nowIst.getMinutes();
+        if (nowMins >= 555 && nowMins < 930) {
+          syncOrchestrator.dispatch(new PortfolioRevaluationJob());
+        }
+      }, 30000);
     }
   }, { timezone: 'Asia/Kolkata' });
 
@@ -85,7 +94,6 @@ export function initializeScheduler() {
   // WARM START
   setTimeout(() => {
     console.log('[SCHEDULER] Injecting Warm Start Jobs...');
-    syncOrchestrator.dispatch(new PortfolioSyncJob());
     syncOrchestrator.dispatch(new IndianLiveSyncJob());
     syncOrchestrator.dispatch(new UsLiveSyncJob());
     syncOrchestrator.dispatch(new UsAnalyticsSyncJob());

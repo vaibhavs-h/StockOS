@@ -7,7 +7,8 @@ export enum RefreshTier {
 }
 
 export enum QueuePriority {
-  PORTFOLIO = 10,   // Highest: Directly owned assets
+  CRITICAL = 5,    // Absolute Priority: Broker Sync (Main)
+  PORTFOLIO = 10,   // Highest: Directly owned assets revaluation
   WATCHLIST = 20,   // High: User tracking
   TRENDING = 30,    // Medium: Market movers / Homepage
   DEFAULT = 40      // Lowest: Standard background sweep
