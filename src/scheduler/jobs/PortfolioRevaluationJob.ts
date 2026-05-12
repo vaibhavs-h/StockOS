@@ -1,6 +1,7 @@
 import { BaseJob } from '../core/BaseJob';
 import { SupabaseProvider } from '../providers/SupabaseProvider';
 import { JobMetadata, RefreshTier, MarketRegion, QueuePriority } from '../core/types';
+import { getISTTimestamp } from '../../server';
 
 /**
  * PortfolioRevaluationJob
@@ -30,7 +31,7 @@ export class PortfolioRevaluationJob extends BaseJob {
     const { data: currentHoldings, error: hError } = await supabase
       .from('holdings')
       .select('*')
-      .not('portfolio_id', 'is', null);
+      .not('user_id', 'is', null);
 
     if (hError || !currentHoldings || currentHoldings.length === 0) {
       return 0;
@@ -39,14 +40,14 @@ export class PortfolioRevaluationJob extends BaseJob {
     // 2. Fetch latest market prices
     const { data: dbAssets } = await supabase
       .from('market_assets')
-      .select('symbol, current_price, prev_close, day_change');
+      .select('symbol, current_price, prev_close, day_change, day_change_percentage');
     
     const marketMap = new Map((dbAssets || []).map(a => [a.symbol.trim().toUpperCase(), a]));
 
     // 3. Group holdings by portfolio_id
     const portfolioGroups = new Map<string, any[]>();
     for (const h of currentHoldings) {
-      const pid = h.portfolio_id;
+      const pid = h.user_id;
       if (!portfolioGroups.has(pid)) portfolioGroups.set(pid, []);
       portfolioGroups.get(pid)!.push(h);
     }
@@ -70,16 +71,19 @@ export class PortfolioRevaluationJob extends BaseJob {
           console.warn(`[Reval] No market asset found for holding: ${symbol} (Ticker: ${ticker}, Yahoo: ${yahooSymbol})`);
         }
 
-        // LIVE PRICE = Broker Baseline + Yahoo's Real-time Movement Today
-        const yahooDelta = asset?.day_change || 0;
-        const brokerPrevClose = holding.quantity > 0 
-          ? (holding.last_price - (holding.day_change / holding.quantity))
-          : (asset?.prev_close || holding.last_price);
-
-        const price = brokerPrevClose + yahooDelta;
+        // LIVE PRICE from internal market engine
+        let price = asset ? asset.current_price : holding.last_price;
+        
+        // Fallback if market asset is somehow missing
+        if (!price || isNaN(price)) {
+          price = holding.last_price || holding.average_price || 0;
+        }
 
         const marketValue = holding.quantity * price;
-        const dayChange = (price - brokerPrevClose) * holding.quantity;
+        
+        // Use the exact day change from the asset, multiplied by quantity
+        const dayChange = asset ? (asset.day_change * holding.quantity) : 0;
+        const dayChangePct = asset ? asset.day_change_percentage : 0;
 
         updatedHoldings.push({
           ...holding,
@@ -88,8 +92,8 @@ export class PortfolioRevaluationJob extends BaseJob {
           p_l: marketValue - holding.invested_value,
           p_l_percentage: holding.invested_value > 0 ? ((marketValue - holding.invested_value) / holding.invested_value) * 100 : 0,
           day_change: dayChange,
-          day_change_percentage: brokerPrevClose > 0 ? ((price - brokerPrevClose) / brokerPrevClose) * 100 : 0,
-          updated_at: new Date().toISOString()
+          day_change_percentage: dayChangePct,
+          updated_at: getISTTimestamp()
         });
 
         totalMkt += marketValue;
@@ -102,19 +106,25 @@ export class PortfolioRevaluationJob extends BaseJob {
       if (upError) console.error(`[Reval] Failed to update holdings for ${pid}:`, upError.message);
 
       // 5. Update latest history entry for today (Virtual Update)
-      const now = new Date();
-      const logicalDay = now.toISOString().split('T')[0];
+      const istTimestamp = getISTTimestamp();
+      const logicalDay = istTimestamp.split('T')[0];
 
-      // Insert or update history for today
-      // First try to delete today's existing snapshot to avoid duplicate keys if RLS/Triggers are weird
-      // but actually a simple upsert with onConflict should work.
-      await supabase.from('portfolio_history').upsert({
-        portfolio_id: pid,
+      // Delete any existing snapshots for today to ensure only 1 record per day
+      await supabase
+        .from('portfolio_history')
+        .delete()
+        .eq('user_id', pid)
+        .gte('timestamp', `${logicalDay}T00:00:00+05:30`);
+
+      // Insert the new updated snapshot for today
+      await supabase.from('portfolio_history').insert({
+        user_id: pid,
         total_investment: totalInv,
         total_market_value: totalMkt,
         total_p_l: totalMkt - totalInv,
         p_l_percentage: totalInv > 0 ? ((totalMkt - totalInv) / totalInv) * 100 : 0,
-        timestamp: now.toISOString()
+        timestamp: istTimestamp,
+        broker_name: 'GROWW'
       });
 
       totalProcessed += updatedHoldings.length;

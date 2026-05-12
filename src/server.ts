@@ -15,8 +15,21 @@ import { IndianLiveSyncJob } from './scheduler/jobs/IndianLiveSyncJob';
 import { UsLiveSyncJob } from './scheduler/jobs/UsLiveSyncJob';
 import { IndianDeepSyncJob } from './scheduler/jobs/IndianDeepSyncJob';
 import { UsDeepSyncJob } from './scheduler/jobs/UsDeepSyncJob';
-import { PortfolioSyncJob } from './scheduler/jobs/PortfolioSyncJob';
 import { PortfolioRevaluationJob } from './scheduler/jobs/PortfolioRevaluationJob';
+import multer from 'multer';
+import { ExcelImportService } from './services/ExcelImportService';
+
+const upload = multer({ storage: multer.memoryStorage() });
+
+// ---------------------------------------------------------
+// IST HELPER
+// ---------------------------------------------------------
+export const getISTTimestamp = () => {
+  const now = new Date();
+  const offset = 5.5 * 60 * 60 * 1000; // IST is UTC + 5:30
+  const istTime = new Date(now.getTime() + offset);
+  return istTime.toISOString().replace('Z', '+05:30');
+};
 
 const app = express();
 app.use(cors());
@@ -49,7 +62,7 @@ cron.schedule('*/10 * * * *', async () => {
 
 
 // 1. Supabase Initialization
-const supabase = createClient(
+export const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY! || process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!
 );
@@ -283,7 +296,6 @@ app.post('/api/sync', async (req, res) => {
   console.log("=".repeat(50));
 
   try {
-    syncOrchestrator.dispatch(new PortfolioSyncJob());
     syncOrchestrator.dispatch(new IndianLiveSyncJob());
     syncOrchestrator.dispatch(new UsLiveSyncJob());
     console.log("[SUCCESS] Manual sync queued successfully.");
@@ -316,225 +328,6 @@ app.post('/api/market-seed', async (req, res) => {
   res.json({ success: true, status: "queued" });
 });
 
-async function performSync() {
-  const apiKey = process.env.GROWW_API_KEY;
-  const totpSecret = process.env.GROWW_TOTP_SECRET;
-  const portfolioId = process.env.NEXT_PUBLIC_PORTFOLIO_ID;
-
-  if (!apiKey || !totpSecret) {
-    console.warn(`[WARN] Sync aborted: Missing GROWW_API_KEY or GROWW_TOTP_SECRET`);
-    return;
-  }
-
-  let rawHoldings = [];
-  try {
-    const cleanSecret = totpSecret.trim();
-    // 1. Generate TOTP
-    const totpCode = await generate({ secret: cleanSecret });
-    console.log(`[AUTH] Generated fresh TOTP for Groww login.`);
-
-    // 2. Exchange for Access Token
-    const authRes = await axios.post('https://api.groww.in/v1/token/api/access',
-      { key_type: "totp", totp: totpCode },
-      {
-        headers: {
-          'Authorization': `Bearer ${apiKey}`,
-          'Content-Type': 'application/json',
-          'X-API-VERSION': '1.0'
-        },
-        timeout: 10000
-      }
-    );
-
-    const token = authRes.data?.token;
-    if (!token) throw new Error("Failed to obtain Groww access token");
-
-    // 3. Fetch Raw Holdings
-    const holdingsRes = await axios.get('https://api.groww.in/v1/holdings/user', {
-      headers: { 'Authorization': `Bearer ${token}`, 'Accept': 'application/json', 'X-API-VERSION': '1.0' }
-    });
-    rawHoldings = Array.isArray(holdingsRes.data) ? holdingsRes.data : (holdingsRes.data?.payload?.holdings || []);
-    console.log(`[SUCCESS] Groww API: Fetched ${rawHoldings.length} live holdings.`);
-  } catch (err: any) {
-    const status = err.response?.status || 'Unknown';
-    console.warn(`\n[FAILOVER] Groww API unreachable (${status}). Switching to Backup mode...`);
-
-    // FALLBACK: Fetch last known holdings from our own DB
-    const { data: dbHoldings, error: dbError } = await supabase
-      .from('holdings')
-      .select('*')
-      .eq('portfolio_id', portfolioId);
-
-    if (dbError || !dbHoldings || dbHoldings.length === 0) {
-      console.error("[FATAL] Failover failed: No local backup data found in database.");
-      return;
-    }
-
-    // Map DB format back to Groww-like format for the enrichment engine
-    rawHoldings = dbHoldings.map(h => ({
-      trading_symbol: h.trading_symbol,
-      quantity: h.quantity,
-      average_price: h.average_price,
-      market_price: h.last_price
-    }));
-    console.log(`[BACKUP] Restored ${rawHoldings.length} assets from database backup.`);
-  }
-
-  if (rawHoldings.length === 0) {
-    console.log("[INFO] No holdings available for sync.");
-    return;
-  }
-
-  // 4. Enrich & Verify with Market Assets (Our Internal Source of Truth)
-  const enriched = [];
-  const holdingsSymbols = rawHoldings.map((h: any) => {
-    const s = h.trading_symbol || h.symbol;
-    const t = s.includes(':') ? s.split(':')[1] : s;
-    return t.endsWith('.NS') ? t : `${t}.NS`;
-  });
-
-  console.log(`[BACKUP] Syncing prices for ${holdingsSymbols.length} holdings via Internal Market Data...`);
-
-  // Fetch all market assets for fuzzy/normalized matching
-  // (This ensures "RELIANCE.NS" matches "RELIANCE" and "Reliance (RELIANCE)")
-  const { data: allMarketData } = await supabase
-    .from('market_assets')
-    .select('symbol, current_price, day_change, prev_close');
-
-  // Create a hyper-compatible map with every possible key variant
-  const marketMap = new Map();
-  (allMarketData || []).forEach(m => {
-    const raw = m.symbol;
-    const dotNS = raw.endsWith('.NS') ? raw : `${raw}.NS`;
-    const noNS = raw.endsWith('.NS') ? raw.replace('.NS', '') : raw;
-
-    // Extract ticker from parentheses if present (e.g. "Reliance (RELIANCE)")
-    const match = raw.match(/\(([^)]+)\)/);
-    const parenTicker = match ? match[1] : null;
-
-    const keys = [raw, dotNS, noNS];
-    if (parenTicker) {
-      keys.push(parenTicker);
-      keys.push(`${parenTicker}.NS`);
-    }
-
-    keys.forEach(k => {
-      if (k && !marketMap.has(k)) marketMap.set(k, m);
-    });
-  });
-
-  // Identify symbols missing from our internal table to fetch from Yahoo
-  const missingSymbols = holdingsSymbols.filter((s: string) => !marketMap.has(s));
-  let yahooMap = new Map();
-
-  if (missingSymbols.length > 0) {
-    console.log(`[INFO] Fetching ${missingSymbols.length} niche assets from Yahoo Finance...`);
-    const liveQuotes = await yahooFinance.quote(missingSymbols);
-    yahooMap = new Map(liveQuotes.map((q: any) => [q.symbol, q]));
-  }
-
-  for (const item of rawHoldings) {
-    try {
-      const symbol = item.trading_symbol || item.symbol;
-      const ticker = symbol.includes(':') ? symbol.split(':')[1] : symbol;
-      const yahooSymbol = ticker.endsWith('.NS') ? ticker : `${ticker}.NS`;
-
-      // Priority: 1. Internal Market Table | 2. Yahoo Finance | 3. Groww Fallback
-      const internal = marketMap.get(yahooSymbol) || marketMap.get(ticker);
-      const external = yahooMap.get(yahooSymbol);
-
-      const price = internal?.current_price || external?.regularMarketPrice || parseFloat(item.market_price || item.last_traded_price || 0);
-      const prevClose = internal?.prev_close || external?.regularMarketPreviousClose || price;
-      const dayChangeVal = internal?.day_change || (external ? (external.regularMarketPrice - external.regularMarketPreviousClose) : 0);
-
-      const invested = item.quantity * item.average_price;
-      const marketValue = item.quantity * price;
-      const dayChange = dayChangeVal * item.quantity;
-
-      // Generate a deterministic UUID from portfolioId-symbol to satisfy DB UUID constraint
-      const hash = crypto.createHash('md5').update(`${portfolioId}-${symbol}`).digest('hex');
-      const deterministicId = `${hash.slice(0, 8)}-${hash.slice(8, 12)}-${hash.slice(12, 16)}-${hash.slice(16, 20)}-${hash.slice(20)}`;
-
-      enriched.push({
-        id: deterministicId,
-        portfolio_id: portfolioId,
-        trading_symbol: symbol,
-        quantity: item.quantity,
-        average_price: item.average_price,
-        last_price: price,
-        invested_value: invested,
-        market_value: marketValue,
-        p_l: marketValue - invested,
-        p_l_percentage: invested > 0 ? ((marketValue - invested) / invested) * 100 : 0,
-        day_change: dayChange,
-        day_change_percentage: prevClose > 0 ? ((price - prevClose) / prevClose) * 100 : 0,
-        updated_at: new Date().toISOString()
-      });
-
-      // console.log(`[DEBUG] ${symbol}: Q=${item.quantity}, P=${price}, DCV=${dayChangeVal}, MV=${marketValue}`);
-    } catch (e: any) {
-      console.error(`[ERROR] Enrichment failed for ${item.trading_symbol}:`, e.message);
-    }
-  }
-
-  // 5. Atomic Update: Clear and Sync
-  // console.log("\n==================================================");
-  // console.log(`[PORTFOLIO] Purging stale holdings for ${portfolioId}`);
-  await supabase.from('holdings').delete().eq('portfolio_id', portfolioId);
-
-  // console.log(`[PORTFOLIO] Executing fresh Sync for ${portfolioId}`);
-  // console.log("==================================================");
-
-  const { error: insError } = await supabase.from('holdings').upsert(enriched, { onConflict: 'id' });
-  if (insError) throw insError;
-
-  // console.log(`[SUCCESS] Synchronized ${enriched.length} holdings:`);
-  // enriched.forEach(h => {
-  //   console.log(`  → ${h.trading_symbol.padEnd(12)} | Qty: ${h.quantity.toString().padEnd(5)} | Price: ₹${h.last_price.toLocaleString('en-IN').padEnd(10)} | Day P/L: ${h.day_change >= 0 ? '+' : ''}₹${h.day_change.toLocaleString('en-IN')}`);
-  // });
-  // console.log("--------------------------------------------------");
-
-  // 6. Portfolio History (One record per Financial Day)
-  // 9 AM IST to 9 AM IST Logic (9 AM IST = 03:30 UTC)
-  // We subtract 3.5 hours to determine the current "Financial Day"
-  const now = new Date();
-  const financialDate = new Date(now.getTime() - (3 * 60 + 30) * 60 * 1000);
-  const logicalDay = financialDate.toISOString().split('T')[0];
-
-  const totalInv = enriched.reduce((sum, h) => sum + h.invested_value, 0);
-  const totalMkt = enriched.reduce((sum, h) => sum + h.market_value, 0);
-  const totalPL = enriched.reduce((sum, h) => sum + h.p_l, 0);
-
-  // Robust Purge: Remove ANY existing record for this financial day
-  const { error: historyDelError } = await supabase
-    .from('portfolio_history')
-    .delete()
-    .eq('portfolio_id', portfolioId)
-    .gte('timestamp', `${logicalDay}T00:00:00.000Z`)
-    .lte('timestamp', `${logicalDay}T23:59:59.999Z`);
-
-  if (historyDelError) {
-    console.error("[ERROR] Failed to purge old history for financial day:", historyDelError.message);
-  }
-
-  const { error: histError } = await supabase.from('portfolio_history').insert([{
-    portfolio_id: portfolioId,
-    total_investment: totalInv,
-    total_market_value: totalMkt,
-    total_p_l: totalPL,
-    p_l_percentage: totalInv > 0 ? (totalPL / totalInv) * 100 : 0,
-    timestamp: now.toISOString() // Record the actual real-world sync time
-  }]);
-
-  if (histError) {
-    console.error("[ERROR] Failed to record history snapshot:", histError.message);
-  } else {
-    console.log(`[SUCCESS] Snapshot recorded for ${logicalDay}`);
-  }
-
-
-  console.log(`[INFO] Synchronized ${enriched.length} assets for user and recorded history snapshot.`);
-}
 
 import YahooFinance from 'yahoo-finance2';
 const yahooFinance = new YahooFinance();
@@ -968,4 +761,24 @@ app.post('/api/us-market-seed', async (req, res) => {
   res.json({ status: "US Deep Seed queued" });
 });
 
+// ---------------------------------------------------------
+// EXCEL IMPORT ENGINE
+// ---------------------------------------------------------
 
+app.post('/api/broker/groww/import-excel', upload.single('file'), async (req, res) => {
+  const { portfolioId } = req.body;
+  const file = req.file;
+
+  if (!file || !portfolioId) {
+    return res.status(400).json({ error: "Missing file or portfolioId" });
+  }
+
+  try {
+    console.log(`[EXCEL-IMPORT] 📊 Processing report for portfolio: ${portfolioId}`);
+    const result = await ExcelImportService.importGrowwOrders(file.buffer, portfolioId);
+    res.json({ success: true, ...result });
+  } catch (err: any) {
+    console.error("[EXCEL-IMPORT] Failed:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});

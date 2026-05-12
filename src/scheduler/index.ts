@@ -6,7 +6,6 @@ import { IndianDeepSyncJob } from './jobs/IndianDeepSyncJob';
 import { UsLiveSyncJob } from './jobs/UsLiveSyncJob';
 import { UsAnalyticsSyncJob } from './jobs/UsAnalyticsSyncJob';
 import { UsDeepSyncJob } from './jobs/UsDeepSyncJob';
-import { PortfolioSyncJob } from './jobs/PortfolioSyncJob';
 import { PortfolioRevaluationJob } from './jobs/PortfolioRevaluationJob';
 import { SYNC_CONFIG } from './config/sync.config';
 import { MarketStatusEngine } from './core/MarketStatusEngine';
@@ -62,13 +61,6 @@ export function initializeScheduler() {
     syncOrchestrator.dispatch(new UsDeepSyncJob());
   }, { timezone: 'Asia/Kolkata' });
 
-  // 7. Portfolio Sync (5 Min - Full Broker Sync)
-  // Runs during REGULAR session (up to 4:00 PM IST)
-  cron.schedule(`*/5 * * * *`, () => {
-    if (MarketStatusEngine.isMarketOpen(MarketRegion.IN)) {
-      syncOrchestrator.dispatch(new PortfolioSyncJob());
-    }
-  }, { timezone: 'Asia/Kolkata' });
 
   // 8. Virtual Portfolio Revaluation (30 Sec - High Frequency Virtual Update)
   cron.schedule(`* * * * *`, () => {

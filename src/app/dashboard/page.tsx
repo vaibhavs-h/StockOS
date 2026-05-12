@@ -8,6 +8,10 @@ import { motion, AnimatePresence } from "framer-motion"
 import {
   Terminal,
   Search,
+  FileUp,
+  User as UserIcon,
+  Key,
+  ShieldCheck,
   Newspaper,
   Cpu,
   TrendingUp,
@@ -28,9 +32,9 @@ import {
   ThumbsDown,
   Wallet,
   X,
-  Key,
-  ShieldCheck,
-  Moon
+  Moon,
+  Trash2,
+  Plus
 } from "lucide-react"
 import { supabase } from "@/services/DatabaseClient"
 import axios from "axios"
@@ -38,9 +42,11 @@ import { WealthPerformanceChart as WealthChart } from "@/components/dashboard/We
 import { getMarketStatus } from "@/constants/market-constants"
 import { useRouter } from "next/navigation"
 import { cn } from "@/lib/utils"
+import { useSession } from "next-auth/react"
 
 export default function DashboardPage() {
   const router = useRouter()
+  const engineUrl = process.env.NEXT_PUBLIC_ENGINE_URL || 'http://localhost:3003';
   const [mounted, setMounted] = useState(false)
   const [holdings, setHoldings] = useState<any[]>([])
   const [indices, setIndices] = useState<any[]>(() => {
@@ -70,7 +76,19 @@ export default function DashboardPage() {
   }, []);
 
 
-  const portfolioId = process.env.NEXT_PUBLIC_PORTFOLIO_ID || "vaibhav";
+  const { data: session } = useSession()
+  const portfolioId = (session?.user as any)?.id || process.env.NEXT_PUBLIC_PORTFOLIO_ID || "vaibhav";
+
+  const formattedName = useMemo(() => {
+    const rawName = session?.user?.name || "VAIBHAV SINGH";
+    const parts = rawName.trim().split(/\s+/);
+    if (parts.length === 0) return "GUEST";
+    if (parts.length === 1) return parts[0].toUpperCase();
+    
+    const firstName = parts[0];
+    const secondPart = parts[1];
+    return `${firstName} ${secondPart[0]}.`.toUpperCase();
+  }, [session?.user?.name]);
 
   const [marketIntelligence, setMarketIntelligence] = useState<any>(() => {
     if (typeof window !== 'undefined') {
@@ -101,8 +119,6 @@ export default function DashboardPage() {
   // Portfolio Linking State
   const [addPortfolioModalOpen, setAddPortfolioModalOpen] = useState(false)
   const [newPortfolioType, setNewPortfolioType] = useState<'GROWW' | 'ZERODHA' | ''>('')
-  const [growwApiKey, setGrowwApiKey] = useState("")
-  const [growwTotpSecret, setGrowwTotpSecret] = useState("")
 
   // Initialize welcome message on mount to avoid hydration mismatch
   useEffect(() => {
@@ -265,7 +281,7 @@ export default function DashboardPage() {
       const { data, error } = await supabase
         .from('holdings')
         .select('*')
-        .eq('portfolio_id', portfolioId)
+        .eq('user_id', portfolioId)
         .order('market_value', { ascending: false });
 
       if (error) throw error;
@@ -324,7 +340,7 @@ export default function DashboardPage() {
       const { data, error } = await supabase
         .from('portfolio_history')
         .select('*')
-        .eq('portfolio_id', portfolioId)
+        .eq('user_id', portfolioId)
         .order('timestamp', { ascending: true });
 
       if (error) throw error;
@@ -336,7 +352,6 @@ export default function DashboardPage() {
 
 
   const fetchIndices = async () => {
-    const engineUrl = process.env.NEXT_PUBLIC_ENGINE_URL || 'http://localhost:3003';
     try {
       const res = await axios.get(`${engineUrl}/api/indices`);
       setIndices(res.data);
@@ -358,8 +373,6 @@ export default function DashboardPage() {
     setIsRefreshing(true);
     setShowSyncConsole(true);
     setSyncLogs([{ timestamp: new Date().toISOString(), message: ">>> INITIALIZING TACTICAL SYNC SEQUENCE", type: 'info' }]);
-    
-    const engineUrl = process.env.NEXT_PUBLIC_ENGINE_URL || 'http://localhost:3003';
 
     try {
       await axios.post(`${engineUrl}/api/sync`);
@@ -433,14 +446,13 @@ export default function DashboardPage() {
     if (showSyncConsole) {
       interval = setInterval(async () => {
         try {
-          const engineUrl = process.env.NEXT_PUBLIC_ENGINE_URL || 'http://localhost:3003';
           const res = await axios.get(`${engineUrl}/api/sync/logs`);
           setSyncLogs(res.data);
         } catch (err) {
           console.error("Failed to fetch logs");
         }
       }, 1000);
-      
+
       // Auto-hide after 30 seconds or when idle
       const timer = setTimeout(() => {
         if (!isRefreshing) setShowSyncConsole(false);
@@ -464,11 +476,11 @@ export default function DashboardPage() {
     // Subscribe to Realtime Updates for Holdings & History
     const holdingsSubscription = supabase
       .channel('holdings-changes')
-      .on('postgres_changes', { 
-        event: '*', 
-        schema: 'public', 
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
         table: 'holdings',
-        filter: `portfolio_id=eq.${portfolioId}`
+        filter: `user_id=eq.${portfolioId}`
       }, (payload) => {
         // Delay fetch by 1s to allow DB to settle after engine delete/insert cycle
         setTimeout(fetchHoldings, 1000);
@@ -477,11 +489,11 @@ export default function DashboardPage() {
 
     const historySubscription = supabase
       .channel('history-changes')
-      .on('postgres_changes', { 
-        event: '*', 
-        schema: 'public', 
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
         table: 'portfolio_history',
-        filter: `portfolio_id=eq.${portfolioId}`
+        filter: `user_id=eq.${portfolioId}`
       }, (payload) => {
         // Delay fetch by 1s to allow DB to settle after engine delete/insert cycle
         setTimeout(fetchHistory, 1000);
@@ -492,7 +504,7 @@ export default function DashboardPage() {
     fetchMarketIntelligence();
 
     const interval = setInterval(fetchIndices, 30000); // High-frequency indices
-    const intelligenceInterval = setInterval(fetchMarketIntelligence, 3600000); 
+    const intelligenceInterval = setInterval(fetchMarketIntelligence, 3600000);
     const syncInterval = setInterval(() => {
       fetchHoldings();
       fetchHistory();
@@ -505,7 +517,7 @@ export default function DashboardPage() {
       supabase.removeChannel(holdingsSubscription);
       supabase.removeChannel(historySubscription);
     };
-  }, [mounted]);
+  }, [mounted, portfolioId]);
 
 
   const totalNetWorth = holdings.reduce((sum, h) => sum + (Number(h.market_value) || 0), 0);
@@ -531,23 +543,18 @@ export default function DashboardPage() {
     let cutoff = new Date(0); // Default to ALL
     let filtered: any[] = [];
 
-    if (timeRange === "1D") {
-      const today = new Date().toISOString().split('T')[0];
-      filtered = history.filter(h => h.timestamp.startsWith(today));
-    } else {
-      if (timeRange === "1W") {
-        cutoff = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-      } else if (timeRange === "1M") {
-        cutoff = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-      } else if (timeRange === "3M") {
-        cutoff = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
-      } else if (timeRange === "6M") {
-        cutoff = new Date(now.getTime() - 180 * 24 * 60 * 60 * 1000);
-      } else if (timeRange === "1Y") {
-        cutoff = new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000);
-      }
-      filtered = history.filter(h => new Date(h.timestamp) >= cutoff);
+    if (timeRange === "1W") {
+      cutoff = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+    } else if (timeRange === "1M") {
+      cutoff = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+    } else if (timeRange === "3M") {
+      cutoff = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
+    } else if (timeRange === "6M") {
+      cutoff = new Date(now.getTime() - 180 * 24 * 60 * 60 * 1000);
+    } else if (timeRange === "1Y") {
+      cutoff = new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000);
     }
+    filtered = history.filter(h => new Date(h.timestamp) >= cutoff);
 
     // Only perform date-dependent logic on client
     if (!mounted || filtered.length === 0) return filtered;
@@ -562,7 +569,7 @@ export default function DashboardPage() {
         timestamp: nowStr,
         total_market_value: totalNetWorth,
         total_invested: lastPoint.total_invested, // Best guess
-        portfolio_id: lastPoint.portfolio_id
+        user_id: lastPoint.user_id
       }];
     }
 
@@ -625,8 +632,15 @@ export default function DashboardPage() {
             )}
           >
             <div className="flex items-end gap-4">
-              <h2 className="font-headline font-black text-7xl tracking-tighter text-white uppercase leading-none">VAIBHAV S.</h2>
-              
+              <h2 className={cn(
+                "font-headline font-black tracking-tighter text-white uppercase leading-none transition-all duration-300",
+                formattedName.length > 15 ? "text-4xl" : 
+                formattedName.length > 12 ? "text-5xl" : 
+                formattedName.length > 10 ? "text-6xl" : "text-7xl"
+              )}>
+                {formattedName}
+              </h2>
+
               <div className="relative">
                 <motion.div
                   whileHover={{ y: -1, scale: 1.02 }}
@@ -634,8 +648,12 @@ export default function DashboardPage() {
                   className="flex items-center gap-2 group/portfolio cursor-pointer px-2.5 py-1 rounded-xl bg-white/[0.03] hover:bg-emerald-500/10 transition-all duration-300 border border-white/5 hover:border-emerald-500/20"
                 >
                   <div className="flex flex-col">
-                    <span className="text-[8px] font-terminal-label uppercase tracking-widest text-emerald-500/70 font-bold">Active Entity</span>
-                    <span className="font-headline font-medium text-lg text-white tracking-tight">Groww Portfolio</span>
+                    <span className="text-[8px] font-terminal-label uppercase tracking-widest text-emerald-500/70 font-bold">
+                      {holdings.length > 0 ? "Active Entity" : "Quick Start"}
+                    </span>
+                    <span className="font-headline font-medium text-lg text-white tracking-tight">
+                      {holdings.length > 0 ? "Groww Portfolio" : "Link Portfolio"}
+                    </span>
                   </div>
                   <ChevronDown className={cn(
                     "w-4 h-4 text-emerald-500 transition-all duration-500 ml-1",
@@ -661,36 +679,87 @@ export default function DashboardPage() {
                         className="absolute top-full left-0 mt-3 w-72 bg-zinc-950 border border-white/10 rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.5)] overflow-hidden z-[100] backdrop-blur-xl"
                       >
                         <div className="p-2 space-y-1">
-                        <div className="px-3 pt-1 pb-2">
-                          <span className="text-[8px] font-terminal-label uppercase tracking-[0.2em] text-zinc-600 font-black">Connected Entities</span>
+                        <div className="px-3 pt-2 pb-3">
+                          <span className="text-[10px] font-terminal-label uppercase tracking-[0.2em] text-zinc-500 font-bold">Account Selection</span>
                         </div>
-                        
-                        <button className="w-full flex items-center justify-between gap-3 px-3 py-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 group/item transition-all">
-                          <div className="flex items-center gap-3">
-                            <div className="size-8 rounded-lg bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center p-1.5">
-                              <img src="/logos/groww.svg" alt="Groww" className="w-full h-full object-contain" />
+
+                        {holdings.length > 0 ? (
+                          <div className="w-full flex items-center justify-between gap-3 px-3 py-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 group/item transition-all">
+                            <div className="flex items-center gap-3">
+                              <div className="size-8 rounded-lg bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center p-1.5">
+                                <img src="/logos/groww.svg" alt="Groww" className="w-full h-full object-contain" />
+                              </div>
+                              <div className="flex flex-col items-start">
+                                <span className="text-[15px] font-headline font-bold text-white">Groww Portfolio</span>
+                                <span className="text-[11px] text-emerald-500/80 font-medium">Main Account</span>
+                              </div>
                             </div>
-                            <div className="flex flex-col items-start">
-                              <span className="text-[13px] font-headline font-bold text-white">Groww Portfolio</span>
-                              <span className="text-[10px] text-emerald-500/60 font-medium">Primary Entity</span>
+                            <button 
+                              onClick={async (e) => {
+                                e.stopPropagation();
+                                if (!portfolioId) return;
+                                if (confirm("Are you sure you want to delete this portfolio? This will permanently remove all holdings and your entire historical performance data.")) {
+                                  try {
+                                    // Delete holdings
+                                    const { error: hErr } = await supabase
+                                      .from('holdings')
+                                      .delete()
+                                      .eq('user_id', portfolioId)
+                                      .eq('broker_name', 'GROWW');
+                                    
+                                    if (hErr) throw hErr;
+
+                                    // Delete history
+                                    const { error: histErr } = await supabase
+                                      .from('portfolio_history')
+                                      .delete()
+                                      .eq('user_id', portfolioId)
+                                      .eq('broker_name', 'GROWW');
+                                    
+                                    if (histErr) throw histErr;
+                                    
+                                    setHoldings([]);
+                                    setHistory([]);
+                                    alert("Portfolio and history deleted successfully.");
+                                  } catch (err) {
+                                    console.error("Delete error:", err);
+                                    alert("Failed to delete portfolio data.");
+                                  }
+                                }
+                              }}
+                              className="size-8 rounded-lg bg-red-500/10 border border-red-500/20 flex items-center justify-center hover:bg-red-500/20 transition-all group-hover/item:border-red-500/40"
+                              title="Delete Holdings"
+                            >
+                              <Trash2 className="w-4 h-4 text-red-500/80 group-hover/item:text-red-500 transition-colors" />
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="w-full flex items-center justify-between gap-3 px-3 py-3 rounded-xl bg-white/[0.02] border border-white/5 opacity-60">
+                            <div className="flex items-center gap-3">
+                              <div className="size-8 rounded-lg bg-white/5 border border-white/10 flex items-center justify-center p-1.5">
+                                <Wallet className="w-4 h-4 text-zinc-600" />
+                              </div>
+                              <div className="flex flex-col items-start">
+                                <span className="text-[15px] font-headline font-bold text-zinc-500">No Portfolio</span>
+                                <span className="text-[11px] text-zinc-600 font-medium">Import Required</span>
+                              </div>
                             </div>
                           </div>
-                          <div className="size-2 rounded-full bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.5)]" />
-                        </button>
+                        )}
 
                         <div className="h-[1px] bg-white/5 mx-2 my-1" />
 
-                        <button 
+                        <button
                           onClick={() => {
                             setIsPortfolioDropdownOpen(false);
                             setAddPortfolioModalOpen(true);
                           }}
                           className="w-full flex items-center gap-3 px-3 py-3 rounded-xl hover:bg-white/5 group/add transition-all text-zinc-400 hover:text-white"
                         >
-                          <div className="size-8 rounded-lg bg-white/5 border border-white/10 flex items-center justify-center group-hover/add:border-emerald-500/40 group-hover/add:bg-emerald-500/10 transition-all">
-                            <Wallet className="w-4 h-4 transition-transform group-hover/add:scale-110" />
+                          <div className="size-9 rounded-lg bg-white/5 border border-white/10 flex items-center justify-center group-hover/add:border-emerald-500/40 group-hover/add:bg-emerald-500/10 transition-all">
+                            <Plus className="w-5 h-5 transition-transform group-hover/add:rotate-90" />
                           </div>
-                          <span className="text-[13px] font-headline font-bold uppercase tracking-wider">Link New Entity</span>
+                          <span className="text-[14px] font-headline font-bold uppercase tracking-wider">Link Another</span>
                         </button>
                       </div>
                     </motion.div>
@@ -713,28 +782,28 @@ export default function DashboardPage() {
                 />
               )}
             </AnimatePresence>
-            <div className="grid grid-cols-1 md:grid-cols-[1.5fr_1fr_1fr] gap-8 mb-0 items-end">
+            <div className="grid grid-cols-1 md:grid-cols-[2fr_1.2fr_1.2fr] gap-6 lg:gap-10 mb-0 items-end">
             {/* Metric 1: Total Net Worth */}
-            <div className="relative group">
+            <div className="relative group min-w-[240px]">
               <div className="absolute -inset-4 bg-emerald-500/5 blur-3xl rounded-full opacity-0 group-hover:opacity-100 transition-opacity duration-1000" />
               <span className="font-terminal-label uppercase tracking-wider text-[12px] text-emerald-400 block mb-1 font-bold relative z-10">Total Net Worth</span>
-              <h1 className="font-headline font-bold text-4xl md:text-5xl tracking-tighter text-white tabular-nums leading-none relative z-10">
+              <h1 className="font-headline font-bold text-4xl md:text-5xl tracking-tighter text-white tabular-nums leading-none relative z-10 whitespace-nowrap">
                 {formatCurrency(totalNetWorth)}
               </h1>
             </div>
 
             {/* Metric 2: Daily P/L */}
-            <div className="flex flex-col gap-1 border-l border-white/5 pl-6">
+            <div className="flex flex-col gap-1 border-l border-white/5 pl-6 min-w-[210px]">
               <span className="font-terminal-label uppercase tracking-wider text-[12px] text-zinc-300 block mb-1 font-bold">Daily P/L</span>
-              <div className="flex items-center gap-4">
-                <span className={`font-headline font-bold text-2xl md:text-3xl tabular-nums ${
+              <div className="flex items-center gap-4 flex-nowrap">
+                <span className={`font-headline font-bold text-2xl md:text-3xl tabular-nums whitespace-nowrap flex items-center ${
                   ((timeRange === '1D' && getMarketStatus('IN') === 'CLOSED') || totalDayChange === 0) ? 'text-zinc-500' : (totalDayChange > 0 ? 'text-emerald-500' : 'text-red-500')
                 }`}>
                   {((timeRange === '1D' && getMarketStatus('IN') === 'CLOSED') || totalDayChange === 0) ? '₹0' : `${totalDayChange > 0 ? '+' : ''}${formatCurrency(totalDayChange)}`}
                 </span>
                 <span className={`font-terminal-label border px-2 py-0.5 rounded-[4px] text-[10px] font-bold ${
-                  ((timeRange === '1D' && getMarketStatus('IN') === 'CLOSED') || totalDayChange === 0) 
-                    ? 'bg-zinc-500/10 text-zinc-500 border-zinc-500/20' 
+                  ((timeRange === '1D' && getMarketStatus('IN') === 'CLOSED') || totalDayChange === 0)
+                    ? 'bg-zinc-500/10 text-zinc-500 border-zinc-500/20'
                     : (totalDayChange > 0 ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-red-500/10 text-red-400 border-red-500/20')
                 }`}>
                   {((timeRange === '1D' && getMarketStatus('IN') === 'CLOSED') || totalDayChange === 0) ? '0.00%' : `${totalDayChange > 0 ? '+' : ''}${dayChangePerc.toFixed(2)}%`}
@@ -743,10 +812,10 @@ export default function DashboardPage() {
             </div>
 
             {/* Metric 3: Aggregate P/L */}
-            <div className="flex flex-col gap-1 border-l border-white/5 pl-6">
+            <div className="flex flex-col gap-1 border-l border-white/5 pl-6 min-w-[210px]">
               <span className="font-terminal-label uppercase tracking-wider text-[11px] text-zinc-400 block font-bold">Aggregate P/L</span>
-              <div className="flex items-center gap-4">
-                <span className={`font-headline font-bold text-xl md:text-2xl tabular-nums ${
+              <div className="flex items-center gap-4 flex-nowrap">
+                <span className={`font-headline font-bold text-xl md:text-2xl tabular-nums whitespace-nowrap flex items-center ${
                   totalPL === 0 ? 'text-zinc-500' : (totalPL > 0 ? 'text-emerald-500' : 'text-red-500')
                 }`}>
                   {totalPL === 0 ? '₹0' : `${totalPL > 0 ? '+' : ''}${formatCurrency(totalPL)}`}
@@ -754,7 +823,7 @@ export default function DashboardPage() {
                 <span className={`font-terminal-label px-2 py-0.5 rounded-[4px] text-[10px] font-bold border transition-all duration-500 ${
                   totalPL === 0 ? 'bg-zinc-500/10 text-zinc-500 border-zinc-500/20' : (totalPL > 0 ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-red-500/10 text-red-400 border-red-500/20')
                 }`}>
-                  {totalPLPerc.toFixed(1)}%
+                  {totalPLPerc >= 0 ? '+' : ''}{totalPLPerc.toFixed(2)}%
                 </span>
               </div>
             </div>
@@ -782,16 +851,14 @@ export default function DashboardPage() {
                 <div className="flex items-baseline gap-4">
                   <span className="font-headline font-bold text-4xl tracking-tighter text-white tabular-nums">{formatCurrency(totalNetWorth)}</span>
                   <span className={`font-terminal-label text-[10px] border px-2 py-0.5 rounded-[4px] uppercase tracking-widest font-bold ${
-                    (timeRange === '1D' && getMarketStatus('IN') === 'CLOSED')
-                      ? 'bg-zinc-500/10 text-zinc-500 border-zinc-500/20'
-                      : (rangeIsPositive ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-red-500/10 text-red-500 border-red-500/20')
+                    totalPLPerc >= 0 ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-red-500/10 text-red-500 border-red-500/20'
                   }`}>
-                    {(timeRange === '1D' && getMarketStatus('IN') === 'CLOSED') ? '0.00%' : `${rangeIsPositive ? '+' : ''}${rangeChange.toFixed(2)}%`}
+                    {totalPLPerc >= 0 ? '+' : ''}{totalPLPerc.toFixed(2)}%
                   </span>
                 </div>
               </div>
               <div className="flex gap-2 relative z-20">
-                {['1D', '1W', '1M', '1Y', 'ALL'].map((range) => (
+                {['1W', '1M', '1Y', 'ALL'].map((range) => (
                   <button
                     key={range}
                     onClick={() => setTimeRange(range)}
@@ -810,17 +877,7 @@ export default function DashboardPage() {
             </div>
 
             <div className="h-[340px] w-full pt-0 transition-all duration-500">
-                {timeRange === '1D' && getMarketStatus('IN') === 'CLOSED' ? (
-                <div className="h-full flex flex-col items-center justify-center opacity-40 gap-4">
-                  <div className="p-4 rounded-full bg-white/5 border border-white/10">
-                    <Moon className="w-8 h-8 text-zinc-400" />
-                  </div>
-                  <div className="flex flex-col items-center gap-1">
-                    <span className="font-terminal-label text-[10px] uppercase tracking-[0.4em] text-white">Market is Closed Today</span>
-                    <span className="text-[9px] text-zinc-600 uppercase tracking-widest font-bold">1D INTRA-DAY GRAPHS ARE NOT ACTIVE</span>
-                  </div>
-                </div>
-              ) : filteredHistory.length > 0 ? (
+              {filteredHistory.length > 0 ? (
                 <WealthChart data={Object.values(
                   filteredHistory.reduce((acc: any, h) => {
                     if (!h.timestamp) return acc;
@@ -835,9 +892,26 @@ export default function DashboardPage() {
                   }, {})
                 ) as { time: string; value: number }[]} />
               ) : (
-                <div className="h-full flex flex-col items-center justify-center opacity-20 gap-4">
-                  <Cpu className="w-12 h-12 animate-pulse" />
-                  <span className="font-terminal-label text-[10px] uppercase tracking-[0.4em]">Synchronizing Market Data...</span>
+                <div className="h-full flex flex-col items-center justify-center gap-6">
+                  {holdings.length > 0 ? (
+                    <div className="flex flex-col items-center gap-3 opacity-30">
+                      <Cpu className="w-12 h-12 animate-pulse" />
+                      <span className="font-terminal-label text-[10px] uppercase tracking-[0.4em]">Initializing Performance Map...</span>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="flex flex-col items-center gap-3 opacity-30">
+                        <Cpu className="w-12 h-12 animate-pulse" />
+                        <span className="font-terminal-label text-[10px] uppercase tracking-[0.4em]">No Data Found</span>
+                      </div>
+                      <button 
+                        onClick={() => setAddPortfolioModalOpen(true)}
+                        className="px-6 py-2 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 font-terminal-label text-[10px] uppercase tracking-widest hover:bg-emerald-500/20 transition-all hover:scale-105"
+                      >
+                        Add Portfolio
+                      </button>
+                    </>
+                  )}
                 </div>
               )}
             </div>
@@ -846,7 +920,7 @@ export default function DashboardPage() {
 
         {/* TOP ROW RIGHT: Sidebar */}
         <motion.aside
-          animate={{ 
+          animate={{
             opacity: isPortfolioDropdownOpen ? 0.8 : 1,
             scale: isPortfolioDropdownOpen ? 0.995 : 1
           }}
@@ -1162,8 +1236,18 @@ export default function DashboardPage() {
               visible: { opacity: 1, y: 0, filter: 'blur(0px)' }
             }}
             transition={{ duration: 0.8, ease: [0.16, 1, 0.3, 1] }}
-            className="glass-panel rounded-3xl overflow-hidden flex flex-col border border-white/10 shadow-2xl bg-gradient-to-b from-white/[0.02] to-transparent"
+            className="glass-panel rounded-3xl overflow-hidden flex flex-col border border-white/10 shadow-2xl bg-gradient-to-b from-white/[0.02] to-transparent relative"
           >
+            <AnimatePresence>
+              {isPortfolioDropdownOpen && (
+                <motion.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  className="absolute inset-0 backdrop-blur-[4px] bg-black/10 z-50 pointer-events-none rounded-3xl"
+                />
+              )}
+            </AnimatePresence>
             <div className="px-6 py-4 border-b border-white/5 flex justify-between items-center bg-white/[0.01]">
               <h3 className="font-terminal-label text-[11px] uppercase tracking-wider text-zinc-300 font-bold">Current Holdings</h3>
               <div className="relative group">
@@ -1200,11 +1284,19 @@ export default function DashboardPage() {
                           </div>
                           <div className="flex flex-col gap-1">
                             <span className="font-terminal-label text-[10px] uppercase tracking-[0.4em] text-emerald-500">
-                              {searchQuery ? "No Matching Assets" : "Portfolio Not Found"}
+                              {searchQuery ? "No Matching Stocks" : "Portfolio Not Found"}
                             </span>
                             <span className="font-data-sm text-[11px] text-zinc-500 uppercase tracking-widest">
-                              {searchQuery ? "Adjust your search query" : "Awaiting market data stream"}
+                              {searchQuery ? "Try a different search term" : "Upload your Excel statement to start"}
                             </span>
+                            {!searchQuery && (
+                              <button 
+                                onClick={() => setAddPortfolioModalOpen(true)}
+                                className="mt-4 px-6 py-2 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 font-terminal-label text-[10px] uppercase tracking-widest hover:bg-emerald-500/20 transition-all"
+                              >
+                                Import Excel
+                              </button>
+                            )}
                           </div>
                         </div>
                       </td>
@@ -1269,8 +1361,18 @@ export default function DashboardPage() {
             visible: { opacity: 1, x: 0 }
           }}
           transition={{ duration: 0.8, ease: [0.16, 1, 0.3, 1], delay: 0.2 }}
-          className="glass-panel rounded-3xl border border-white/10 bg-[#0a0d14]/80 backdrop-blur-3xl shadow-2xl overflow-hidden flex flex-col"
+          className="glass-panel rounded-3xl border border-white/10 bg-[#0a0d14]/80 backdrop-blur-3xl shadow-2xl overflow-hidden flex flex-col relative"
         >
+          <AnimatePresence>
+            {isPortfolioDropdownOpen && (
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                className="absolute inset-0 backdrop-blur-[4px] bg-black/10 z-50 pointer-events-none rounded-3xl"
+              />
+            )}
+          </AnimatePresence>
           <div className="px-8 py-6 border-b border-white/5 flex items-center justify-between shrink-0">
             <div className="flex items-center gap-4">
               <div className="w-2.5 h-2.5 rounded-full bg-blue-500 shadow-[0_0_15px_rgba(59,130,246,0.5)]" />
@@ -1602,14 +1704,14 @@ export default function DashboardPage() {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              onClick={() => { setAddPortfolioModalOpen(false); setNewPortfolioType(""); setGrowwApiKey(""); setGrowwTotpSecret(""); }}
+              onClick={() => { setAddPortfolioModalOpen(false); setNewPortfolioType(""); }}
               className="absolute inset-0 bg-black/60 backdrop-blur-xl"
             />
             <motion.div
               initial={{ opacity: 0, scale: 0.95, y: 10 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: 10 }}
-              className="relative w-full max-w-[420px] glass-panel border border-white/10 rounded-[24px] overflow-hidden shadow-[0_50px_100px_rgba(0,0,0,0.8)]"
+              className="relative w-full max-w-[380px] glass-panel border border-white/10 rounded-[20px] overflow-hidden shadow-[0_50px_100px_rgba(0,0,0,0.8)]"
             >
               <div className="px-6 py-4 border-b border-white/5 flex items-center justify-between bg-white/[0.02]">
                 <div className="flex items-center gap-3">
@@ -1617,42 +1719,42 @@ export default function DashboardPage() {
                     <Wallet className="w-4 h-4 text-emerald-500" />
                   </div>
                   <div>
-                    <h2 className="font-headline font-bold text-lg text-white tracking-tight">Add Portfolio</h2>
-                    <p className="text-[9px] font-terminal-label uppercase tracking-widest text-zinc-500 font-bold mt-0.5">Link Institutional Entity</p>
+                    <h2 className="font-headline font-bold text-lg text-white tracking-tight">Link Account</h2>
+                    <p className="text-[10px] font-terminal-label uppercase tracking-widest text-zinc-500 font-bold mt-0.5">Import your current holdings</p>
                   </div>
                 </div>
                 <button
-                  onClick={() => { setAddPortfolioModalOpen(false); setNewPortfolioType(""); setGrowwApiKey(""); setGrowwTotpSecret(""); }}
+                  onClick={() => { setAddPortfolioModalOpen(false); setNewPortfolioType(""); }}
                   className="p-1.5 rounded-lg hover:bg-white/5 text-zinc-500 hover:text-white transition-all"
                 >
                   <X className="w-4 h-4" />
                 </button>
               </div>
 
-              <div className="p-6 space-y-6">
+              <div className="p-5 space-y-5">
                 <div className="space-y-3">
-                  <label className="text-[9px] font-terminal-label uppercase tracking-widest text-zinc-600 font-bold px-1">Select Brokerage Provider</label>
+                  <label className="text-[10px] font-terminal-label uppercase tracking-widest text-zinc-600 font-bold px-1">Choose your broker</label>
                   <div className="grid grid-cols-2 gap-3">
                     {[
-                      { 
-                        id: 'GROWW', 
-                        name: 'Groww', 
+                      {
+                        id: 'GROWW',
+                        name: 'Groww',
                         node: (
-                          <img 
-                            src="/logos/groww.svg" 
-                            alt="Groww" 
-                            className="w-full h-full object-contain transition-all duration-500" 
+                          <img
+                            src="/logos/groww.svg"
+                            alt="Groww"
+                            className="w-full h-full object-contain transition-all duration-500"
                           />
                         )
                       },
-                      { 
-                        id: 'ZERODHA', 
-                        name: 'Zerodha', 
+                      {
+                        id: 'ZERODHA',
+                        name: 'Zerodha',
                         node: (
-                          <img 
-                            src="/logos/zerodha.svg" 
-                            alt="Zerodha" 
-                            className="w-full h-full object-contain transition-all duration-500" 
+                          <img
+                            src="/logos/zerodha.svg"
+                            alt="Zerodha"
+                            className="w-full h-full object-contain transition-all duration-500"
                           />
                         )
                       }
@@ -1693,31 +1795,69 @@ export default function DashboardPage() {
                       exit={{ opacity: 0, y: 10 }}
                       className="space-y-4"
                     >
-                      <div className="space-y-2">
-                        <label className="text-[9px] font-terminal-label uppercase tracking-widest text-zinc-600 font-bold px-1">Groww API Key</label>
-                        <div className="relative group">
-                          <Key className="absolute left-3.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-zinc-600 group-focus-within:text-emerald-500 transition-colors" />
-                          <input
-                            type="password"
-                            value={growwApiKey}
-                            onChange={(e) => setGrowwApiKey(e.target.value)}
-                            placeholder="Enter Groww API Key..."
-                            className="w-full bg-black/40 border border-white/5 rounded-xl pl-10 pr-4 py-3 text-[13px] text-white placeholder:text-zinc-700 focus:outline-none focus:border-emerald-500/40 transition-all"
-                          />
-                        </div>
-                      </div>
+                      <div className="space-y-6 py-4 animate-in fade-in slide-in-from-bottom-4 duration-500">
+                        <div className="p-5 bg-white/[0.02] rounded-xl border border-white/5 text-center space-y-3">
+                          <div className="w-12 h-12 bg-emerald-500/10 rounded-full flex items-center justify-center mx-auto transition-transform duration-700 hover:scale-110">
+                            <FileUp className="w-6 h-6 text-emerald-500" />
+                          </div>
+                          <div>
+                            <h3 className="text-white font-bold text-base">Upload Statement</h3>
+                            <p className="text-zinc-500 text-[11px] mt-0.5">Pick the .xlsx file you downloaded from Groww</p>
+                          </div>
+                          
+                          <input 
+                            type="file" 
+                            id="excel-upload" 
+                            className="hidden" 
+                            accept=".xlsx"
+                            onChange={async (e) => {
+                              const file = e.target.files?.[0];
+                              if (!file) return;
 
-                      <div className="space-y-2">
-                        <label className="text-[9px] font-terminal-label uppercase tracking-widest text-zinc-600 font-bold px-1">Groww TOTP Secret</label>
-                        <div className="relative group">
-                          <ShieldCheck className="absolute left-3.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-zinc-600 group-focus-within:text-emerald-500 transition-colors" />
-                          <input
-                            type="password"
-                            value={growwTotpSecret}
-                            onChange={(e) => setGrowwTotpSecret(e.target.value)}
-                            placeholder="Enter TOTP Secret..."
-                            className="w-full bg-black/40 border border-white/5 rounded-xl pl-10 pr-4 py-3 text-[13px] text-white placeholder:text-zinc-700 focus:outline-none focus:border-emerald-500/40 transition-all"
+                              const formData = new FormData();
+                              formData.append('file', file);
+                              formData.append('portfolioId', portfolioId || "");
+
+                              setIsRefreshing(true);
+                              try {
+                                const res = await axios.post(`${engineUrl}/api/broker/groww/import-excel`, formData, {
+                                  headers: { 'Content-Type': 'multipart/form-data' }
+                                });
+                                if (res.data.success) {
+                                  alert(`Success! Imported ${res.data.count} holdings.`);
+                                  setAddPortfolioModalOpen(false);
+                                  fetchHoldings();
+                                }
+                              } catch (err: any) {
+                                alert(`Import failed: ${err.response?.data?.error || err.message}`);
+                              } finally {
+                                setIsRefreshing(false);
+                              }
+                            }}
                           />
+                          
+                          <button 
+                            onClick={() => document.getElementById('excel-upload')?.click()}
+                            disabled={isRefreshing}
+                            className="w-full py-2.5 bg-white/[0.03] hover:bg-white/[0.08] text-white/80 border border-white/10 font-bold text-[11px] uppercase tracking-[0.2em] rounded-lg transition-all disabled:opacity-50"
+                          >
+                            {isRefreshing ? "Processing..." : "Choose File"}
+                          </button>
+                        </div>
+
+                        <div className="space-y-3">
+                          <div className="flex items-start gap-3 p-3 bg-white/5 rounded-xl border border-white/5">
+                            <div className="w-5 h-5 bg-emerald-500/20 rounded flex items-center justify-center text-[10px] font-bold text-emerald-500">1</div>
+                            <p className="text-[11px] text-zinc-400 leading-relaxed">
+                              Go to <span className="text-white">Groww App &gt; Profile &gt; Reports</span>
+                            </p>
+                          </div>
+                          <div className="flex items-start gap-3 p-3 bg-white/5 rounded-xl border border-white/5">
+                            <div className="w-5 h-5 bg-emerald-500/20 rounded flex items-center justify-center text-[10px] font-bold text-emerald-500">2</div>
+                            <p className="text-[11px] text-zinc-400 leading-relaxed">
+                              Select <span className="text-white">Stocks &gt; Holdings Statement</span>.
+                            </p>
+                          </div>
                         </div>
                       </div>
                     </motion.div>
@@ -1740,10 +1880,15 @@ export default function DashboardPage() {
 
                 <div className="pt-2">
                   <button
-                    disabled={!newPortfolioType || (newPortfolioType === 'GROWW' && (!growwApiKey || !growwTotpSecret))}
-                    className="w-full py-3.5 rounded-xl bg-emerald-500 text-black font-headline font-black text-[12px] uppercase tracking-wider shadow-[0_10px_30px_rgba(16,185,129,0.2)] hover:shadow-[0_15px_40px_rgba(16,185,129,0.4)] hover:scale-[1.01] active:scale-[0.99] transition-all disabled:opacity-20 disabled:grayscale disabled:scale-100 disabled:shadow-none"
+                    onClick={() => {
+                      if (newPortfolioType === 'GROWW') {
+                        document.getElementById('excel-upload')?.click();
+                      }
+                    }}
+                    disabled={!newPortfolioType || (newPortfolioType === 'GROWW' && isRefreshing)}
+                    className="w-full py-4 rounded-xl bg-emerald-500 text-black font-headline font-black text-[13px] uppercase tracking-wider shadow-[0_10px_30px_rgba(16,185,129,0.2)] hover:shadow-[0_15px_40px_rgba(16,185,129,0.4)] hover:scale-[1.01] active:scale-[0.99] transition-all duration-500 disabled:opacity-20 disabled:grayscale disabled:scale-100 disabled:shadow-none"
                   >
-                    Link Portfolio Entity
+                    {isRefreshing ? "Importing..." : (newPortfolioType === 'GROWW' ? "Select Statement & Sync" : "Coming Soon")}
                   </button>
                   <div className="flex items-center justify-center gap-2 mt-5">
                     <ShieldCheck className="w-3 h-3 text-zinc-700" />

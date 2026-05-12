@@ -31,3 +31,8 @@ scratch/
 
 # Ingestion Engine Data
 data/
+*.xlsx
+
+# Debug & Verification Scripts
+check_*.js
+count_assets.js
