@@ -1,11 +1,11 @@
 "use client"
 
 import React, { useEffect, useRef } from 'react';
-import { createChart, ColorType, IChartApi, ISeriesApi, AreaSeries } from 'lightweight-charts';
+import { createChart, ColorType, IChartApi, ISeriesApi, AreaSeries, Time } from 'lightweight-charts';
 import { motion } from 'framer-motion';
 
 interface WealthChartProps {
-  data: { time: string; value: number }[];
+  data: { time: Time; value: number }[];
   currency?: string;
   locale?: string;
   timezoneLabel?: string;
@@ -24,22 +24,30 @@ export const WealthPerformanceChart: React.FC<WealthChartProps> = ({
   const [displayData, setDisplayData] = React.useState(data);
   const [isTransitioning, setIsTransitioning] = React.useState(false);
 
-  // Smooth "Dip & Rise" sync
   useEffect(() => {
-    setIsTransitioning(true);
+    if (!data || data.length === 0) return;
 
-    // Swap data at the midpoint of the fade
+    // Detect if this is a "Pulse" update (only the last point changed or length grew slightly)
+    const isPulse = displayData.length > 0 && 
+                  data.length >= displayData.length && 
+                  data[0]?.time === displayData[0]?.time;
+
+    if (!isPulse) {
+      setIsTransitioning(true);
+    }
+
     const timer = setTimeout(() => {
       setDisplayData(data);
       if (areaSeriesRef.current) {
         const validData = Array.isArray(data) ? data.filter(d => d && d.time) : [];
         if (validData.length > 0) {
           areaSeriesRef.current.setData(validData);
-          chartRef.current?.timeScale().fitContent();
         }
       }
-      setIsTransitioning(false);
-    }, 300);
+      if (!isPulse) {
+        setIsTransitioning(false);
+      }
+    }, isPulse ? 0 : 150);
 
     return () => clearTimeout(timer);
   }, [data]);
@@ -252,7 +260,7 @@ export const WealthPerformanceChart: React.FC<WealthChartProps> = ({
         opacity: isTransitioning ? 0 : 1,
         y: isTransitioning ? 5 : 0
       }}
-      transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1] }}
+      transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
       className="w-full h-full relative overflow-hidden group"
     >
       <style dangerouslySetInnerHTML={{

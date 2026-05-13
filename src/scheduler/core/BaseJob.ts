@@ -94,6 +94,20 @@ export abstract class BaseJob<T = any> {
   }
 
   /**
+   * Retrieves the previously committed snapshot for a given symbol.
+   */
+  protected getSnapshot(symbol: string): any | null {
+    const symbolCache = (syncOrchestrator as any).snapshotCache.get(symbol);
+    const lastPayloadJson = symbolCache?.get(this.metadata.tier);
+    if (!lastPayloadJson) return null;
+    try {
+      return JSON.parse(lastPayloadJson);
+    } catch {
+      return null;
+    }
+  }
+
+  /**
    * Compares the current payload with the cached snapshot and returns only the changed fields.
    * If no snapshot exists, returns the full payload.
    */

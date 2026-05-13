@@ -44,7 +44,7 @@ export class IndianDeepSyncJob extends BaseJob {
       try {
         const modules = isIndex
           ? ['summaryDetail']
-          : ['summaryProfile', 'summaryDetail', 'defaultKeyStatistics', 'financialData', 'earnings'];
+          : ['summaryProfile', 'summaryDetail', 'defaultKeyStatistics', 'financialData', 'earnings', 'calendarEvents'];
 
         const summary = await YahooProvider.fetchQuoteSummary(item.s, modules, 'IN');
 
@@ -53,6 +53,11 @@ export class IndianDeepSyncJob extends BaseJob {
         const ks = (summary.defaultKeyStatistics || {}) as any;
         const fd = (summary.financialData || {}) as any;
         const earnings = (summary.earnings || {}) as any;
+        const ce = (summary.calendarEvents || {}) as any;
+
+        // Extract Earnings Chart data safely
+        const quarterlyEarnings = earnings.earningsChart?.quarterly || [];
+        const lastQuarter = quarterlyEarnings[quarterlyEarnings.length - 1];
 
         const fullPayload = {
           symbol,
@@ -82,6 +87,14 @@ export class IndianDeepSyncJob extends BaseJob {
           target_low: fd.targetLowPrice || null,
           target_mean: fd.targetMeanPrice || null,
           
+          // Earnings & Dividends (New)
+          next_earnings_date: ce.earnings?.earningsDate?.[0] || null,
+          last_earnings_surprise_pct: earnings.earningsChart?.earningsSurprise?.[earnings.earningsChart?.earningsSurprise?.length - 1]?.pct || null,
+          actual_eps_last_quarter: lastQuarter?.actual || null,
+          est_eps_next_quarter: ce.earnings?.earningsAverage || null,
+          last_dividend_amount: sd.dividendRate || sd.lastDividendValue || null,
+          last_dividend_date: sd.exDividendDate || null,
+
           // Profile (Static-ish)
           website: sp.website || null,
           full_time_employees: sp.fullTimeEmployees || null,

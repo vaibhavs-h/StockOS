@@ -24,10 +24,10 @@ export class UsDeepSyncJob extends BaseJob {
   protected async process(): Promise<number> {
     const supabase = SupabaseProvider.getClient();
     const assets = [...SymbolUniverseManager.getUniqueUsEquities()];
-    
+
     // 1. Bucket Rotation (5 Buckets: Day 0 is Priority/Weighted)
     const bucketIndex = RotationManager.getNextSectorIndex('US', 5);
-    
+
     let bucket = [];
     if (bucketIndex === 0) {
       // Day A: Weighted Priority (S&P 100 / Nasdaq 100)
@@ -48,12 +48,14 @@ export class UsDeepSyncJob extends BaseJob {
       const symbol = normalizeStorageSymbol(item.s);
 
       try {
-        const modules = ['financialData', 'defaultKeyStatistics', 'summaryProfile'];
+        const modules = ['financialData', 'defaultKeyStatistics', 'summaryProfile', 'calendarEvents', 'summaryDetail'];
         const summary = await YahooProvider.fetchQuoteSummary(item.s, modules, 'US');
 
         const fd = (summary.financialData || {}) as any;
         const ks = (summary.defaultKeyStatistics || {}) as any;
         const sp = (summary.summaryProfile || {}) as any;
+        const ce = (summary.calendarEvents || {}) as any;
+        const sd = (summary.summaryDetail || {}) as any;
 
         const fullPayload = {
           symbol,
@@ -69,7 +71,7 @@ export class UsDeepSyncJob extends BaseJob {
           total_debt: fd.totalDebt || null,
           total_cash: fd.totalCash || null,
           book_value: ks.bookValue || null,
-          
+
           // Margins & Ratios
           operating_margins: fd.operatingMargins || null,
           gross_margins: fd.grossMargins || null,
@@ -79,15 +81,29 @@ export class UsDeepSyncJob extends BaseJob {
           quick_ratio: fd.quickRatio || null,
           debt_to_equity: fd.debtToEquity || null,
 
-          // Growth
+          // Growth & Analytical
           revenue_growth: fd.revenueGrowth || null,
           earnings_growth: fd.earningsGrowth || null,
+          fifty_two_week_change_pct: ks['52WeekChange'] || null,
+          beta_5y: ks.beta || sd.beta || null,
+          peg_ratio: ks.pegRatio || null,
 
           // Analyst/Dividends
           target_price: fd.targetMeanPrice || null,
           recommendation_key: fd.recommendationKey || null,
           payout_ratio: ks.payoutRatio || null,
-          
+          dividend_rate: ks.dividendRate || null,
+          ex_dividend_date: ks.exDividendDate || null,
+          trailing_annual_dividend_rate: ks.trailingAnnualDividendRate || sd.trailingAnnualDividendRate || null,
+          trailing_annual_dividend_yield: ks.trailingAnnualDividendYield || sd.trailingAnnualDividendYield || null,
+
+          // Earnings & EPS
+          earnings_timestamp: ce.earnings?.earningsDate?.[0] || null,
+          earnings_timestamp_start: ce.earnings?.earningsDate?.[0] || null,
+          earnings_timestamp_end: ce.earnings?.earningsDate?.[1] || null,
+          eps_forward: ks.forwardEps || null,
+          eps_current_year: ks.epsCurrentYear || null,
+
           // Profile (Static - only update on priority day or if missing)
           ...(bucketIndex === 0 ? {
             website: sp.website || null,
@@ -98,7 +114,7 @@ export class UsDeepSyncJob extends BaseJob {
         };
 
         const diffPayload = this.getDiff(symbol, fullPayload);
-        
+
         if (!diffPayload) {
           syncOrchestrator.recordWriteSkip();
         } else {
@@ -107,7 +123,7 @@ export class UsDeepSyncJob extends BaseJob {
           this.commitSnapshot(symbol, fullPayload);
           processedCount++;
         }
-        
+
       } catch (error: any) {
         console.warn(`[UsDeepSyncJob] Failed for ${symbol}: ${error.message}`);
       }

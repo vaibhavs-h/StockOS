@@ -3,8 +3,13 @@
 import { BackgroundShader } from "@/components/shared/BackgroundShader"
 import { CTAButton } from "@/components/shared/CTAButton"
 import { motion } from "framer-motion"
+import { useSession } from "next-auth/react"
+import { useRouter } from "next/navigation"
+import { useEffect } from "react"
 
 export default function Home() {
+  const { status } = useSession()
+  const router = useRouter()
   return (
     <main 
       className="relative min-h-screen w-full flex flex-col items-center justify-center overflow-hidden"

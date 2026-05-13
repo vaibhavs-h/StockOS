@@ -30,8 +30,8 @@ export default function RootLayout({
       <body className={`${inter.variable} ${outfit.variable} font-sans bg-black text-white antialiased`}>
         <Providers>
           <Header />
+          <HeroWave />
           <main id="terminal-main">
-            <HeroWave />
             {children}
           </main>
           <Ticker />

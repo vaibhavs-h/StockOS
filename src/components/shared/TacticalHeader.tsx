@@ -68,16 +68,29 @@ export function TacticalHeader() {
 
             {/* Flexible Search Area */}
             <div className="flex-1 max-w-4xl hidden md:block">
-              <MarketSearch>
-                <Button
-                  className="w-full h-11 justify-start px-6 bg-white border-2 border-black rounded-[100px] hover:bg-zinc-100 transition-colors shadow-[0_4px_20px_rgba(0,0,0,0.1)]"
-                >
-                  <div className="flex items-center gap-3">
-                    <SearchIcon className="size-4 text-black" />
-                    <span className="text-xs font-bold tracking-tight text-black">Search Stocks...</span>
-                  </div>
-                </Button>
-              </MarketSearch>
+              {session ? (
+                <MarketSearch>
+                  <Button
+                    className="w-full h-11 justify-start px-6 bg-white border-2 border-black rounded-[100px] hover:bg-zinc-100 transition-colors shadow-[0_4px_20px_rgba(0,0,0,0.1)]"
+                  >
+                    <div className="flex items-center gap-3">
+                      <SearchIcon className="size-4 text-black" />
+                      <span className="text-xs font-bold tracking-tight text-black">Search Stocks...</span>
+                    </div>
+                  </Button>
+                </MarketSearch>
+              ) : (
+                <Link href="/auth/login">
+                  <Button
+                    className="w-full h-11 justify-start px-6 bg-white border-2 border-black rounded-[100px] hover:bg-zinc-100 transition-colors shadow-[0_4px_20px_rgba(0,0,0,0.1)]"
+                  >
+                    <div className="flex items-center gap-3">
+                      <SearchIcon className="size-4 text-black" />
+                      <span className="text-xs font-bold tracking-tight text-black">Login to Search...</span>
+                    </div>
+                  </Button>
+                </Link>
+              )}
             </div>
 
             <div className="flex items-center gap-4">
@@ -91,7 +104,7 @@ export function TacticalHeader() {
                   size="icon"
                   variant="ghost"
                   onClick={() => setProfileOpen(!profileOpen)}
-                  className="h-11 w-11 rounded-full border-2 border-black bg-black text-white hover:bg-zinc-900 shadow-[0_4px_15px_rgba(0,0,0,0.1)] group relative p-0"
+                  className="h-11 w-11 rounded-2xl border-2 border-black bg-black text-white hover:bg-zinc-900 shadow-[0_4px_15px_rgba(0,0,0,0.1)] group relative p-0"
                 >
                   <ProfileImage src={session?.user?.image} name={session?.user?.name} />
                   {/* Tier Indicator on icon */}
@@ -112,7 +125,7 @@ export function TacticalHeader() {
                       initial={{ opacity: 0, scale: 0.95, y: 10 }}
                         animate={{ opacity: 1, scale: 1, y: 0 }}
                         exit={{ opacity: 0, scale: 0.95, y: 10 }}
-                        className="absolute right-0 mt-3 w-64 bg-white border-2 border-black rounded-3xl shadow-[0_20px_50px_rgba(0,0,0,0.3)] z-20 overflow-hidden"
+                        className="absolute right-0 mt-3 w-64 bg-white border-2 border-black rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.3)] z-20 overflow-hidden"
                       >
                         <div className="p-5 border-b-2 border-black/5 bg-zinc-50 relative">
                           {/* Tier Badge in Menu */}
@@ -141,7 +154,7 @@ export function TacticalHeader() {
                               <Link href="/subscription">
                                 <Button
                                   variant="ghost"
-                                  className="w-full justify-start gap-3 rounded-2xl text-black hover:bg-zinc-100 transition-colors mb-1"
+                                  className="w-full justify-start gap-3 rounded-xl text-black hover:bg-zinc-100 transition-colors mb-1 py-4"
                                   onClick={() => setProfileOpen(false)}
                                 >
                                   <div className="size-4 rounded-full bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center">
@@ -153,7 +166,7 @@ export function TacticalHeader() {
                               <Link href="/reviews">
                                 <Button
                                   variant="ghost"
-                                  className="w-full justify-start gap-3 rounded-2xl text-black hover:bg-zinc-100 transition-colors mb-1"
+                                  className="w-full justify-start gap-3 rounded-xl text-black hover:bg-zinc-100 transition-colors mb-1 py-4"
                                   onClick={() => setProfileOpen(false)}
                                 >
                                   <div className="size-4 rounded-full bg-blue-500/10 border border-blue-500/20 flex items-center justify-center">
@@ -164,8 +177,8 @@ export function TacticalHeader() {
                               </Link>
                               <Button
                                 variant="ghost"
-                                className="w-full justify-start gap-3 rounded-2xl text-red-500 hover:text-red-600 hover:bg-red-50 transition-colors"
-                                onClick={() => signOut({ callbackUrl: '/' })}
+                                className="w-full justify-start gap-3 rounded-xl text-red-500 hover:text-red-600 hover:bg-red-50 transition-colors py-4"
+                                onClick={() => signOut({ callbackUrl: '/auth/login' })}
                               >
                                 <LogOut className="size-4" />
                                 <span className="font-bold text-xs uppercase tracking-widest">Logout System</span>
@@ -175,7 +188,7 @@ export function TacticalHeader() {
                             <Link href="/auth/login">
                               <Button
                                 variant="ghost"
-                                className="w-full justify-start gap-3 rounded-2xl text-emerald-600 hover:bg-emerald-50 transition-colors"
+                                className="w-full justify-start gap-3 rounded-xl text-emerald-600 hover:bg-emerald-50 transition-colors py-4"
                                 onClick={() => setProfileOpen(false)}
                               >
                                 <User className="size-4" />
@@ -218,7 +231,7 @@ export function TacticalHeader() {
                     <Button variant="outline" className="w-full" onClick={() => setOpen(false)}>Settings</Button>
                     <Button 
                       className="w-full bg-red-500 hover:bg-red-600 border-none"
-                      onClick={() => signOut({ callbackUrl: '/' })}
+                      onClick={() => signOut({ callbackUrl: '/auth/login' })}
                     >
                       Logout
                     </Button>
@@ -238,7 +251,7 @@ function ProfileImage({ src, name }: { src?: string | null; name?: string | null
 
   if (!src || error) {
     return (
-      <div className="w-full h-full flex items-center justify-center bg-zinc-50 rounded-full">
+      <div className="w-full h-full flex items-center justify-center bg-white rounded-xl">
         <User className="size-5 text-black transition-transform group-hover:scale-110" />
       </div>
     );
@@ -248,7 +261,8 @@ function ProfileImage({ src, name }: { src?: string | null; name?: string | null
     <img
       src={src}
       alt={name || "User"}
-      className="w-full h-full object-cover rounded-full"
+      referrerPolicy="no-referrer"
+      className="w-full h-full object-cover rounded-xl"
       onError={() => setError(true)}
     />
   );

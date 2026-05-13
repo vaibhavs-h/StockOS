@@ -23,7 +23,8 @@ export enum MarketSession {
 
 export enum MarketRegion {
   US = 'US',
-  IN = 'IN'
+  IN = 'IN',
+  GLOBAL = 'GLOBAL'
 }
 
 export enum AssetType {

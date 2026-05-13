@@ -12,7 +12,12 @@ export class IndianLiveSyncJob extends BaseJob {
   public readonly metadata: JobMetadata = {
     id: this.id,
     tier: RefreshTier.TIER_1_HOT,
-    symbols: SymbolUniverseManager.getUniqueIndianEquities().map(a => a.s),
+    symbols: [
+      ...SymbolUniverseManager.getUniqueIndianEquities().map(a => a.s),
+      ...SymbolUniverseManager.getGlobalIndices()
+        .filter(a => a.region === 'IN')
+        .map(a => a.s)
+    ],
     region: MarketRegion.IN,
     priority: QueuePriority.DEFAULT,
     bullMqQueueName: 'q-live-quotes',
@@ -47,11 +52,16 @@ export class IndianLiveSyncJob extends BaseJob {
         const quotes = await YahooProvider.fetchQuotes(batch, 'IN');
         
         for (const q of quotes) {
-          const symbol = normalizeStorageSymbol(q.symbol);
-          if (!q.regularMarketPrice) continue;
+          // Strip '^' for indices to match storage conventions if needed, 
+          // but normalizeStorageSymbol preserves it. We'll strip it for DB matching.
+          const symbol = normalizeStorageSymbol(q.symbol).replace('^', '');
+          const assetInfo = assets.find(a => normalizeStorageSymbol(a.s).replace('^', '') === symbol);
+          
+          if (!q.regularMarketPrice && !q.preMarketPrice && !q.postMarketPrice) continue;
 
           const fullPayload = {
             symbol,
+            name: assetInfo?.n || q.shortName || q.longName || symbol,
             current_price: q.regularMarketPrice,
             day_change: q.regularMarketChange,
             day_change_percentage: q.regularMarketChangePercent,
@@ -94,7 +104,15 @@ export class IndianLiveSyncJob extends BaseJob {
 
     const duration = Date.now() - startTime;
     console.log(`[JOB END] ${this.id} | Writes: ${processedCount} | Skips: ${skippedCount} | Errors: ${errorCount} | Time: ${duration}ms`);
+    
+    // ATOMIC HANDSHAKE: Trigger revaluation immediately after price sync
+    if (processedCount > 0) {
+      syncOrchestrator.dispatch(new PortfolioRevaluationJob());
+    }
+
     return processedCount;
   }
 }
+
+import { PortfolioRevaluationJob } from './PortfolioRevaluationJob';
 

@@ -6,6 +6,7 @@ import { IndianDeepSyncJob } from './jobs/IndianDeepSyncJob';
 import { UsLiveSyncJob } from './jobs/UsLiveSyncJob';
 import { UsAnalyticsSyncJob } from './jobs/UsAnalyticsSyncJob';
 import { UsDeepSyncJob } from './jobs/UsDeepSyncJob';
+import { UsMarketResetJob } from './jobs/UsMarketResetJob';
 import { PortfolioRevaluationJob } from './jobs/PortfolioRevaluationJob';
 import { SYNC_CONFIG } from './config/sync.config';
 import { MarketStatusEngine } from './core/MarketStatusEngine';
@@ -14,25 +15,36 @@ import { MarketRegion, MarketSession } from './core/types';
 export function initializeScheduler() {
   console.log('[SCHEDULER] Initializing Zero-Failure Ingestion Engine...');
 
-  // 1. TIER 1: Live Indian Equities (30 Sec Heartbeat)
+  // 1. TIER 1: Live Indian Equities (10 Sec Heartbeat when Open, 15 Min when Closed)
   cron.schedule(`* * * * *`, () => {
-    if (MarketStatusEngine.isMarketOpen(MarketRegion.IN) || MarketStatusEngine.isPremarket(MarketRegion.IN)) {
-      syncOrchestrator.dispatch(new IndianLiveSyncJob());
-      // Schedule the 30s offset
-      setTimeout(() => syncOrchestrator.dispatch(new IndianLiveSyncJob()), 30000);
+    const status = MarketStatusEngine.isMarketOpen(MarketRegion.IN) || MarketStatusEngine.isPremarket(MarketRegion.IN);
+    
+    if (status) {
+      // Fire at 0, 10, 20, 30, 40, 50 seconds
+      [0, 10, 20, 30, 40, 50].forEach(offset => {
+        setTimeout(() => syncOrchestrator.dispatch(new IndianLiveSyncJob()), offset * 1000);
+      });
+    } else {
+      // Heartbeat for Closed Market (Every 15 mins to lock in final data)
+      const min = new Date().getMinutes();
+      if (min % 15 === 0) {
+        syncOrchestrator.dispatch(new IndianLiveSyncJob());
+      }
     }
   }, { timezone: 'Asia/Kolkata' });
 
-  // 2. TIER 1: Live US Equities (Session-Aware Heartbeat)
+  // 2. TIER 1: Live US Equities (Session-Aware 15 Sec Heartbeat)
   cron.schedule(`* * * * *`, () => {
     const session = MarketStatusEngine.getCurrentSession(MarketRegion.US);
     
     if (session === MarketSession.REGULAR) {
-      syncOrchestrator.dispatch(new UsLiveSyncJob());
-      setTimeout(() => syncOrchestrator.dispatch(new UsLiveSyncJob()), 30000);
+      // Fire at 0, 15, 30, 45 seconds (Balanced for safety)
+      [0, 15, 30, 45].forEach(offset => {
+        setTimeout(() => syncOrchestrator.dispatch(new UsLiveSyncJob()), offset * 1000);
+      });
     } else if (session === MarketSession.PREMARKET || session === MarketSession.AFTER_HOURS) {
       const min = new Date().getMinutes();
-      if (min % 2 === 0) {
+      if (min % 15 === 0) {
         syncOrchestrator.dispatch(new UsLiveSyncJob());
       }
     }
@@ -51,8 +63,8 @@ export function initializeScheduler() {
     }
   }, { timezone: 'America/New_York' });
 
-  // 5. TIER 3: Deep Indian Equities (Daily 18:00 IST)
-  cron.schedule('0 18 * * *', () => {
+  // 5. TIER 3: Deep Indian Equities (Daily 00:00 IST - Midnight Settlement)
+  cron.schedule('0 0 * * *', () => {
     syncOrchestrator.dispatch(new IndianDeepSyncJob());
   }, { timezone: 'Asia/Kolkata' });
 
@@ -61,26 +73,14 @@ export function initializeScheduler() {
     syncOrchestrator.dispatch(new UsDeepSyncJob());
   }, { timezone: 'Asia/Kolkata' });
 
+  // 7. TIER 4: US Market Daily Reset (8:30 AM EST - 1 Hr before Open)
+  cron.schedule('30 8 * * *', () => {
+    syncOrchestrator.dispatch(new UsMarketResetJob());
+  }, { timezone: 'America/New_York' });
 
-  // 8. Virtual Portfolio Revaluation (30 Sec - High Frequency Virtual Update)
-  cron.schedule(`* * * * *`, () => {
-    const istTime = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Kolkata" }));
-    const totalMinutes = istTime.getHours() * 60 + istTime.getMinutes();
-    
-    // 9:15 AM (555) to 3:30 PM (930)
-    // We strictly stop revaluation at 3:30 PM to ensure broker data is the final truth.
-    if (totalMinutes >= 555 && totalMinutes < 930) {
-      syncOrchestrator.dispatch(new PortfolioRevaluationJob());
-      setTimeout(() => {
-        // Re-check time for the 30s offset to avoid running past 3:30:00
-        const nowIst = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Kolkata" }));
-        const nowMins = nowIst.getHours() * 60 + nowIst.getMinutes();
-        if (nowMins >= 555 && nowMins < 930) {
-          syncOrchestrator.dispatch(new PortfolioRevaluationJob());
-        }
-      }, 30000);
-    }
-  }, { timezone: 'Asia/Kolkata' });
+
+  // 8. Virtual Portfolio Revaluation (Atomic Trigger via LiveSyncJobs)
+  // No longer needed as a separate cron job. It is triggered directly by IndianLiveSyncJob and UsLiveSyncJob.
 
 
   // WARM START

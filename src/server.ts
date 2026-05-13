@@ -2,7 +2,7 @@ import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import axios from 'axios';
-import { createClient } from '@supabase/supabase-js';
+import { supabase } from './lib/supabase';
 import { SymbolUniverseManager, normalizeStorageSymbol, normalizeDisplaySymbol } from './constants/market-constants';
 import { TOTP, generate } from 'otplib';
 import cron from 'node-cron';
@@ -62,10 +62,7 @@ cron.schedule('*/10 * * * *', async () => {
 
 
 // 1. Supabase Initialization
-export const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY! || process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!
-);
+// Supabase is now imported from ./lib/supabase
 
 const axiosConfig = {
   headers: {
@@ -82,7 +79,7 @@ const axiosConfig = {
 // ---------------------------------------------------------
 app.get('/api/indices', async (req, res) => {
   try {
-    const symbols = [
+    const indicesConfig = [
       { s: '^NSEI', n: 'NIFTY 50' },
       { s: '^BSESN', n: 'SENSEX' },
       { s: '^NSEBANK', n: 'BANK NIFTY' },
@@ -93,37 +90,31 @@ app.get('/api/indices', async (req, res) => {
       { s: '^VIX', n: 'VIX' }
     ];
 
-    const results = await Promise.all(symbols.map(async (item) => {
-      try {
-        const response = await axios.get(`https://query2.finance.yahoo.com/v8/finance/chart/${item.s}?interval=1m&range=1d`, {
-          headers: {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Accept': 'application/json'
-          },
-          timeout: 5000
-        });
-        const meta = response.data.chart.result[0].meta;
-        const price = meta.regularMarketPrice;
-        const prevClose = meta.previousClose || meta.chartPreviousClose;
+    const symbols = indicesConfig.map(item => item.s);
+    const quotes = await yahooFinance.quote(symbols);
 
-        return {
-          label: item.n,
-          type: item.type || 'index',
-          value: price.toLocaleString('en-IN', {
-            maximumFractionDigits: 2,
-            minimumFractionDigits: 2
-          }),
-          change: (((price - prevClose) / prevClose) * 100).toFixed(2) + '%',
-          positive: price >= prevClose
-        };
-      } catch (e: any) {
-        console.warn(`[MARKET] Failed to fetch ${item.n}:`, e.message);
-        return null;
-      }
-    }));
+    const results = indicesConfig.map(config => {
+      const q = quotes.find(quote => quote.symbol === config.s);
+      if (!q || q.regularMarketPrice === undefined) return null;
 
-    res.json(results.filter(r => r !== null));
+      const price = q.regularMarketPrice;
+      const prevClose = q.regularMarketPreviousClose;
+
+      return {
+        label: config.n,
+        type: config.type || 'index',
+        value: price.toLocaleString('en-IN', {
+          maximumFractionDigits: 2,
+          minimumFractionDigits: 2
+        }),
+        change: (((price - prevClose) / prevClose) * 100).toFixed(2) + '%',
+        positive: price >= prevClose
+      };
+    }).filter(r => r !== null);
+
+    res.json(results);
   } catch (e) {
+    console.error("[MARKET] Indices Batch Fetch Failed:", e);
     res.status(500).json({ error: 'Market Intelligence Offline' });
   }
 });
@@ -168,32 +159,27 @@ app.get(['/api/stocks/:symbol/history', '/api/us-stocks/:symbol/history'], async
       }
     }
 
-    // 2. Parse range and set time periods/intervals
-    const range = (req.query.range as string) || '1Y';
+    // 2. Map frontend range to Yahoo periods and interval
+    const requestedRange = (req.query.range as string) || '1Y';
     const period2 = new Date();
     const period1 = new Date();
     let interval: '1m' | '2m' | '5m' | '15m' | '30m' | '60m' | '90m' | '1h' | '1d' | '5d' | '1wk' | '1mo' | '3mo' = '1d';
 
-    if (range === '1D') {
-      period1.setDate(period1.getDate() - 4); // Extra buffer for holidays
+    if (requestedRange === '1D') {
+      period1.setHours(0, 0, 0, 0);
       interval = '15m';
-    } else if (range === '1W') {
-      period1.setDate(period1.getDate() - 14); // 1 week + 1 week lookback
-      interval = '1h';
-    } else if (range === '1M') {
-      period1.setMonth(period1.getMonth() - 1);
-      period1.setDate(period1.getDate() - 7); // 1 month + 1 week lookback
-      interval = '1d';
-    } else if (range === '1Y') {
-      period1.setFullYear(period1.getFullYear() - 1);
+    } else if (requestedRange === '1W') {
       period1.setDate(period1.getDate() - 7);
+      interval = '1h';
+    } else if (requestedRange === '1M') {
+      period1.setMonth(period1.getMonth() - 1);
       interval = '1d';
-    } else if (range === 'ALL') {
-      period1.setFullYear(period1.getFullYear() - 10);
-      interval = '1wk';
-    } else {
+    } else if (requestedRange === '1Y') {
       period1.setFullYear(period1.getFullYear() - 1);
       interval = '1d';
+    } else if (requestedRange === 'ALL') {
+      period1.setFullYear(1970); // Fetch maximum possible history
+      interval = '1mo';
     }
 
     // 3. Fetch historical data via yahoo-finance2
@@ -205,27 +191,7 @@ app.get(['/api/stocks/:symbol/history', '/api/us-stocks/:symbol/history'], async
 
     // 4. Format for WealthChart { time, value }
     const isIntraday = interval.includes('m') || interval.includes('h');
-
-    // Separate range target for slicing
-    const rangeTarget = new Date();
-    if (range === '1D') rangeTarget.setDate(rangeTarget.getDate() - 1);
-    else if (range === '1W') rangeTarget.setDate(rangeTarget.getDate() - 7);
-    else if (range === '1M') rangeTarget.setMonth(rangeTarget.getMonth() - 1);
-    else if (range === '1Y') rangeTarget.setFullYear(rangeTarget.getFullYear() - 1);
-    else if (range === 'ALL') rangeTarget.setFullYear(rangeTarget.getFullYear() - 10);
-
-    const allQuotes = result.quotes.filter((c: any) => c.close !== null);
-
-    // Find the "Anchor Point" (last quote BEFORE the range starts)
-    const anchorQuote = allQuotes.filter((q: any) => new Date(q.date) < rangeTarget).pop();
-
-    // Get actual quotes WITHIN the range
-    let filteredQuotes = allQuotes.filter((q: any) => new Date(q.date) >= rangeTarget);
-
-    // PREPEND anchor to ensure history[0] is the base for percentage
-    if (anchorQuote && filteredQuotes.length > 0) {
-      filteredQuotes = [anchorQuote, ...filteredQuotes];
-    }
+    const filteredQuotes = result.quotes.filter((c: any) => c.close !== null);
 
     const formatted = filteredQuotes.map((c: any) => {
       const time = isIntraday
@@ -238,13 +204,35 @@ app.get(['/api/stocks/:symbol/history', '/api/us-stocks/:symbol/history'], async
       };
     });
 
-    // 5. UNIVERSAL LIVE-STITCHING: Ensure the final point ALWAYS matches the live database price
+    // 5. ANCHORING: Prepend the "Chart Previous Close" as the true baseline for the period
+    // This ensures the % calculation includes the gap from the previous session.
+    if (formatted.length > 0 && result.meta.chartPreviousClose) {
+      const firstTime = formatted[0].time;
+      let anchorTime: string | number = firstTime;
+
+      if (typeof firstTime === 'number') {
+        anchorTime = firstTime - 1; // 1s before
+      } else {
+        // For YYYY-MM-DD strings, we need to subtract one calendar day
+        const d = new Date(firstTime);
+        d.setDate(d.getDate() - 1);
+        anchorTime = d.toISOString().split('T')[0];
+      }
+      
+      // Only prepend if it's not already the same as the first point
+      if (anchorTime !== firstTime) {
+        formatted.unshift({
+          time: anchorTime,
+          value: result.meta.chartPreviousClose
+        });
+      }
+    }
+
+    // 6. UNIVERSAL LIVE-STITCHING: Ensure the final point ALWAYS matches the live database price
     if (formatted.length > 0) {
       try {
         const tableName = isUsStock ? 'us_market_assets' : 'market_assets';
         const searchSymbol = isUsStock ? symbol.toUpperCase() : symbol;
-
-        console.log(`[STITCH] Fetching live price for ${searchSymbol} from ${tableName}`);
 
         const { data: liveData } = await supabase
           .from(tableName)
@@ -253,9 +241,9 @@ app.get(['/api/stocks/:symbol/history', '/api/us-stocks/:symbol/history'], async
           .single();
 
         if (liveData && liveData.current_price) {
+          const now = new Date();
           if (!isIntraday) {
-            // Macroscopic: Daily Dates
-            const today = new Date().toISOString().split('T')[0];
+            const today = now.toISOString().split('T')[0];
             const lastCandleTime = formatted[formatted.length - 1].time;
 
             if (lastCandleTime !== today) {
@@ -264,14 +252,19 @@ app.get(['/api/stocks/:symbol/history', '/api/us-stocks/:symbol/history'], async
               formatted[formatted.length - 1].value = liveData.current_price;
             }
           } else {
-            // Intraday: Unix Timestamps
-            // Append a synthetic "Live Tick" exactly 1 minute after the last Yahoo candle
-            // This forces the graph to end at the correct live price without distorting history
-            const lastCandleTime = formatted[formatted.length - 1].time;
-            formatted.push({
-              time: lastCandleTime + 60,
-              value: liveData.current_price
-            });
+            // Intraday: Append a synthetic point at the ACTUAL current time
+            const currentUnix = Math.floor(now.getTime() / 1000);
+            const lastCandleTime = formatted[formatted.length - 1].time as number;
+
+            // Only add if 'now' is at least 1 minute ahead of last candle
+            if (currentUnix > lastCandleTime + 60) {
+              formatted.push({
+                time: currentUnix,
+                value: liveData.current_price
+              });
+            } else {
+              formatted[formatted.length - 1].value = liveData.current_price;
+            }
           }
         }
       } catch (stitchError) {
@@ -326,6 +319,13 @@ app.post('/api/market-seed', async (req, res) => {
   syncOrchestrator.dispatch(new IndianDeepSyncJob());
   syncOrchestrator.dispatch(new UsDeepSyncJob());
   res.json({ success: true, status: "queued" });
+});
+
+app.post('/api/admin/reset-cache', async (req, res) => {
+  console.log("[ADMIN] Manual cache purge requested.");
+  const region = (req.query.region as string) || 'GLOBAL';
+  syncOrchestrator.clearSnapshots(region);
+  res.json({ success: true, message: `Cache purged for region: ${region}` });
 });
 
 
@@ -766,16 +766,16 @@ app.post('/api/us-market-seed', async (req, res) => {
 // ---------------------------------------------------------
 
 app.post('/api/broker/groww/import-excel', upload.single('file'), async (req, res) => {
-  const { portfolioId } = req.body;
+  const { portfolioId, userId } = req.body;
   const file = req.file;
 
-  if (!file || !portfolioId) {
-    return res.status(400).json({ error: "Missing file or portfolioId" });
+  if (!file || !portfolioId || !userId) {
+    return res.status(400).json({ error: "Missing file, portfolioId or userId" });
   }
 
   try {
-    console.log(`[EXCEL-IMPORT] 📊 Processing report for portfolio: ${portfolioId}`);
-    const result = await ExcelImportService.importGrowwOrders(file.buffer, portfolioId);
+    console.log(`[EXCEL-IMPORT] 📊 Processing report for portfolio: ${portfolioId} (User: ${userId})`);
+    const result = await ExcelImportService.importGrowwOrders(file.buffer, portfolioId, userId);
     res.json({ success: true, ...result });
   } catch (err: any) {
     console.error("[EXCEL-IMPORT] Failed:", err.message);

@@ -1,10 +1,31 @@
 "use client"
 
-import { signIn } from "next-auth/react"
+import { signIn, useSession } from "next-auth/react"
 import { motion } from "framer-motion"
-import { Chrome } from "lucide-react"
+import { Chrome, ShieldCheck } from "lucide-react"
+import { useRouter } from "next/navigation"
+import { useEffect } from "react"
 
 export default function LoginPage() {
+  const { status } = useSession()
+  const router = useRouter()
+
+  useEffect(() => {
+    if (status === 'authenticated') {
+      router.push('/dashboard')
+    }
+  }, [status, router])
+
+  if (status === 'authenticated') {
+    return (
+      <div className="min-h-screen bg-black flex items-center justify-center">
+        <div className="flex flex-col items-center gap-4">
+          <div className="w-16 h-16 border-4 border-emerald-500/20 border-t-emerald-500 rounded-full animate-spin" />
+          <div className="text-emerald-500 font-black tracking-[0.6em] uppercase text-xs animate-pulse">Session Active. Entering Terminal...</div>
+        </div>
+      </div>
+    )
+  }
   return (
     <div className="relative min-h-screen w-full flex flex-col bg-transparent">
 
@@ -56,14 +77,21 @@ export default function LoginPage() {
             </div>
           </div>
           
-          <motion.p 
+          <motion.div 
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ delay: 0.5 }}
-            className="mt-4 text-center text-zinc-500 text-xs italic max-w-[280px] mx-auto leading-relaxed"
+            className="mt-8 pt-6 border-t border-white/5 flex flex-col items-center gap-4 text-center max-w-md mx-auto"
           >
-            Disclaimer: Our platform currently supports automatic data fetch for <span className="text-emerald-500 font-bold">Groww</span> holdings only.
-          </motion.p>
+            <div className="flex items-center gap-2 text-emerald-500 font-black uppercase tracking-[0.3em] text-[10.5px]">
+              <ShieldCheck className="size-4" />
+              Security Protocol
+            </div>
+            <p className="text-zinc-500 text-sm leading-relaxed font-medium">
+              Your broker credentials <span className="text-white font-bold tracking-tight">never touch StockOS</span>. 
+              Portfolio imports are <span className="text-emerald-400/90 font-bold">fully manual, secure, and user-controlled</span>.
+            </p>
+          </motion.div>
         </motion.div>
       </main>
 

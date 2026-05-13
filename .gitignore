@@ -5,6 +5,12 @@ node_modules/
 .next/
 out/
 
+# StockOS Audit & Temp Files
+*.csv
+*.xlsx
+scratch/
+.tempmediaStorage/
+
 # Environment Variables
 .env
 .env*.local

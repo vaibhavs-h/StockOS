@@ -40,9 +40,11 @@ import { supabase } from "@/services/DatabaseClient"
 import axios from "axios"
 import { WealthPerformanceChart as WealthChart } from "@/components/dashboard/WealthPerformanceChart"
 import { getMarketStatus } from "@/constants/market-constants"
+import { UTCTimestamp } from 'lightweight-charts'
 import { useRouter } from "next/navigation"
 import { cn } from "@/lib/utils"
 import { useSession } from "next-auth/react"
+import { GrowwImportGuide } from "@/components/dashboard/GrowwImportGuide"
 
 export default function DashboardPage() {
   const router = useRouter()
@@ -59,9 +61,12 @@ export default function DashboardPage() {
     return [];
   })
   const [history, setHistory] = useState<any[]>([])
+  const [portfolios, setPortfolios] = useState<any[]>([])
+  const [activePortfolio, setActivePortfolio] = useState<any | null>(null)
   const [loading, setLoading] = useState(true)
 
   const [isRefreshing, setIsRefreshing] = useState(false)
+  const [importStatus, setImportStatus] = useState<string>("")
   const [searchQuery, setSearchQuery] = useState("")
   const [timeRange, setTimeRange] = useState("ALL")
   const [searchResults, setSearchResults] = useState<any[]>([])
@@ -84,7 +89,7 @@ export default function DashboardPage() {
     const parts = rawName.trim().split(/\s+/);
     if (parts.length === 0) return "GUEST";
     if (parts.length === 1) return parts[0].toUpperCase();
-    
+
     const firstName = parts[0];
     const secondPart = parts[1];
     return `${firstName} ${secondPart[0]}.`.toUpperCase();
@@ -119,6 +124,8 @@ export default function DashboardPage() {
   // Portfolio Linking State
   const [addPortfolioModalOpen, setAddPortfolioModalOpen] = useState(false)
   const [newPortfolioType, setNewPortfolioType] = useState<'GROWW' | 'ZERODHA' | ''>('')
+  const [newPortfolioName, setNewPortfolioName] = useState('')
+  const [showGrowwGuide, setShowGrowwGuide] = useState(false)
 
   // Initialize welcome message on mount to avoid hydration mismatch
   useEffect(() => {
@@ -277,11 +284,12 @@ export default function DashboardPage() {
 
 
   const fetchHoldings = async () => {
+    if (!activePortfolio) return;
     try {
       const { data, error } = await supabase
         .from('holdings')
         .select('*')
-        .eq('user_id', portfolioId)
+        .eq('portfolio_id', activePortfolio.id)
         .order('market_value', { ascending: false });
 
       if (error) throw error;
@@ -336,11 +344,12 @@ export default function DashboardPage() {
 
 
   const fetchHistory = async () => {
+    if (!activePortfolio) return;
     try {
       const { data, error } = await supabase
         .from('portfolio_history')
         .select('*')
-        .eq('user_id', portfolioId)
+        .eq('portfolio_id', activePortfolio.id)
         .order('timestamp', { ascending: true });
 
       if (error) throw error;
@@ -350,6 +359,25 @@ export default function DashboardPage() {
     }
   }
 
+
+  const fetchPortfolios = async () => {
+    if (!portfolioId) return;
+    try {
+      const { data, error } = await supabase
+        .from('user_portfolios')
+        .select('*')
+        .eq('user_id', portfolioId)
+        .order('is_primary', { ascending: false });
+
+      if (error) throw error;
+      setPortfolios(data || []);
+      if (data && data.length > 0 && !activePortfolio) {
+        setActivePortfolio(data.find(p => p.is_primary) || data[0]);
+      }
+    } catch (err) {
+      console.error("[DASHBOARD] Fetch portfolios failed:", err);
+    }
+  }
 
   const fetchIndices = async () => {
     try {
@@ -363,7 +391,7 @@ export default function DashboardPage() {
       if (typeof window !== 'undefined') {
         const cached = localStorage.getItem('stockos_indices_cache');
         if (cached) {
-          try { setIndices(JSON.parse(cached)); } catch (e) {}
+          try { setIndices(JSON.parse(cached)); } catch (e) { }
         }
       }
     }
@@ -432,6 +460,13 @@ export default function DashboardPage() {
     }
   }
 
+  // LIVE HEARTBEAT: Force a re-render every second to keep the chart "ticking"
+  const [heartbeat, setHeartbeat] = useState(0);
+  useEffect(() => {
+    const interval = setInterval(() => setHeartbeat(h => h + 1), 1000);
+    return () => clearInterval(interval);
+  }, []);
+
   useEffect(() => {
     if (isPortfolioDropdownOpen) {
       document.body.style.overflow = 'hidden';
@@ -468,63 +503,69 @@ export default function DashboardPage() {
     if (!mounted) return;
 
     window.scrollTo(0, 0);
-    fetchHoldings();
-    fetchHistory();
+    fetchPortfolios();
     fetchIndices();
     fetchMarketIntelligence();
 
     // Subscribe to Realtime Updates for Holdings & History
-    const holdingsSubscription = supabase
-      .channel('holdings-changes')
-      .on('postgres_changes', {
-        event: '*',
-        schema: 'public',
-        table: 'holdings',
-        filter: `user_id=eq.${portfolioId}`
-      }, (payload) => {
-        // Delay fetch by 1s to allow DB to settle after engine delete/insert cycle
-        setTimeout(fetchHoldings, 1000);
-      })
-      .subscribe();
+    if (activePortfolio) {
+      const holdingsSubscription = supabase
+        .channel('holdings-changes')
+        .on('postgres_changes', {
+          event: '*',
+          schema: 'public',
+          table: 'holdings',
+          filter: `portfolio_id=eq.${activePortfolio.id}`
+        }, () => setTimeout(fetchHoldings, 1000))
+        .subscribe();
 
-    const historySubscription = supabase
-      .channel('history-changes')
-      .on('postgres_changes', {
-        event: '*',
-        schema: 'public',
-        table: 'portfolio_history',
-        filter: `user_id=eq.${portfolioId}`
-      }, (payload) => {
-        // Delay fetch by 1s to allow DB to settle after engine delete/insert cycle
-        setTimeout(fetchHistory, 1000);
-      })
-      .subscribe();
+      const historySubscription = supabase
+        .channel('history-changes')
+        .on('postgres_changes', {
+          event: '*',
+          schema: 'public',
+          table: 'portfolio_history',
+          filter: `portfolio_id=eq.${activePortfolio.id}`
+        }, () => setTimeout(fetchHistory, 1000))
+        .subscribe();
 
-    // Initial fetch
-    fetchMarketIntelligence();
+      return () => {
+        supabase.removeChannel(holdingsSubscription);
+        supabase.removeChannel(historySubscription);
+      };
+    }
+  }, [mounted, portfolioId, activePortfolio]);
 
-    const interval = setInterval(fetchIndices, 30000); // High-frequency indices
+  useEffect(() => {
+    if (!mounted || !activePortfolio) return;
+
+    // INSTANT FETCH: Don't wait for heartbeat
+    fetchHoldings();
+    fetchHistory();
+
+    const interval = setInterval(fetchIndices, 10000); // 10s Indices refresh
     const intelligenceInterval = setInterval(fetchMarketIntelligence, 3600000);
     const syncInterval = setInterval(() => {
       fetchHoldings();
       fetchHistory();
-    }, 30000); // 30s Heartbeat Sync (Priority)
+    }, 10000); // 10s Dashboard Heartbeat
 
     return () => {
       clearInterval(interval);
       clearInterval(intelligenceInterval);
       clearInterval(syncInterval);
-      supabase.removeChannel(holdingsSubscription);
-      supabase.removeChannel(historySubscription);
     };
-  }, [mounted, portfolioId]);
+  }, [mounted, activePortfolio]);
 
 
   const totalNetWorth = holdings.reduce((sum, h) => sum + (Number(h.market_value) || 0), 0);
   const totalInvested = holdings.reduce((sum, h) => sum + (Number(h.invested_value) || 0), 0);
 
-  // Calculate Daily P/L by summing up the day change of individual holdings (Broker-Standard)
-  const totalDayChange = holdings.reduce((sum, h) => sum + (Number(h.day_change) || 0), 0);
+  // Calculate Daily P/L based on real-time holdings data
+  const totalDayChange = useMemo(() => {
+    return holdings.reduce((sum, h) => sum + (Number(h.day_change) || 0), 0);
+  }, [holdings]);
+
   const baselineForPerc = totalNetWorth - totalDayChange;
   const dayChangePerc = (totalNetWorth > 0 && baselineForPerc > 0)
     ? (totalDayChange / baselineForPerc) * 100
@@ -540,10 +581,25 @@ export default function DashboardPage() {
   const filteredHistory = useMemo(() => {
     if (!history.length) return [];
     const now = new Date();
-    let cutoff = new Date(0); // Default to ALL
+    const istOffset = 5.5 * 60 * 60 * 1000;
+    const istNow = new Date(now.getTime() + istOffset);
+
+    let cutoff = new Date(0);
     let filtered: any[] = [];
 
-    if (timeRange === "1W") {
+    if (timeRange === "1D") {
+      // Day starts at 6:00 AM IST
+      const dayReset = new Date(istNow);
+      dayReset.setHours(6, 0, 0, 0);
+
+      // If currently before 6AM, today's "financial day" actually started yesterday at 6AM
+      if (istNow < dayReset) {
+        dayReset.setTime(dayReset.getTime() - 24 * 60 * 60 * 1000);
+      }
+
+      // Convert back to UTC for filtering
+      cutoff = new Date(dayReset.getTime() - istOffset);
+    } else if (timeRange === "1W") {
       cutoff = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
     } else if (timeRange === "1M") {
       cutoff = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
@@ -554,6 +610,9 @@ export default function DashboardPage() {
     } else if (timeRange === "1Y") {
       cutoff = new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000);
     }
+
+    // Any record before 6 AM IST is counted as previous day
+    // We filter by cutoff (which is already 6 AM of the selected range start)
     filtered = history.filter(h => new Date(h.timestamp) >= cutoff);
 
     // Only perform date-dependent logic on client
@@ -586,9 +645,29 @@ export default function DashboardPage() {
 
   const startValue = useMemo(() => {
     if (filteredHistory.length === 0) return Number(totalNetWorth - totalDayChange) || 0;
-    // Use the very first point in our filtered range as the base
+
+    // For 1D view, the "start" is the value at the 6AM reset point
+    // We try to find the very last record BEFORE the current cutoff if possible
+    if (timeRange === "1D") {
+      const now = new Date();
+      const istOffset = 5.5 * 60 * 60 * 1000;
+      const istNow = new Date(now.getTime() + istOffset);
+      const dayReset = new Date(istNow);
+      dayReset.setHours(6, 0, 0, 0);
+      if (istNow < dayReset) dayReset.setTime(dayReset.getTime() - 24 * 60 * 60 * 1000);
+      const cutoff = new Date(dayReset.getTime() - istOffset);
+
+      // Find the last record in full history that happened before our cutoff
+      const previousPoint = [...history]
+        .reverse()
+        .find(h => new Date(h.timestamp) < cutoff);
+
+      if (previousPoint) return Number(previousPoint.total_market_value) || 0;
+    }
+
+    // Default: Use the very first point in our filtered range as the base
     return Number(filteredHistory[0].total_market_value) || 0;
-  }, [filteredHistory, totalNetWorth, totalDayChange]);
+  }, [filteredHistory, history, timeRange, totalNetWorth, totalDayChange]);
 
   const rangeIsPositive = totalNetWorth >= startValue;
   const rangeChange = startValue > 0 ? ((totalNetWorth - startValue) / startValue) * 100 : 0;
@@ -634,9 +713,9 @@ export default function DashboardPage() {
             <div className="flex items-end gap-4">
               <h2 className={cn(
                 "font-headline font-black tracking-tighter text-white uppercase leading-none transition-all duration-300",
-                formattedName.length > 15 ? "text-4xl" : 
-                formattedName.length > 12 ? "text-5xl" : 
-                formattedName.length > 10 ? "text-6xl" : "text-7xl"
+                formattedName.length > 15 ? "text-4xl" :
+                  formattedName.length > 12 ? "text-5xl" :
+                    formattedName.length > 10 ? "text-6xl" : "text-7xl"
               )}>
                 {formattedName}
               </h2>
@@ -649,10 +728,10 @@ export default function DashboardPage() {
                 >
                   <div className="flex flex-col">
                     <span className="text-[8px] font-terminal-label uppercase tracking-widest text-emerald-500/70 font-bold">
-                      {holdings.length > 0 ? "Active Entity" : "Quick Start"}
+                      {activePortfolio ? "Active Entity" : "Quick Start"}
                     </span>
                     <span className="font-headline font-medium text-lg text-white tracking-tight">
-                      {holdings.length > 0 ? "Groww Portfolio" : "Link Portfolio"}
+                      {activePortfolio ? activePortfolio.name : "Link Portfolio"}
                     </span>
                   </div>
                   <ChevronDown className={cn(
@@ -679,91 +758,130 @@ export default function DashboardPage() {
                         className="absolute top-full left-0 mt-3 w-72 bg-zinc-950 border border-white/10 rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.5)] overflow-hidden z-[100] backdrop-blur-xl"
                       >
                         <div className="p-2 space-y-1">
-                        <div className="px-3 pt-2 pb-3">
-                          <span className="text-[10px] font-terminal-label uppercase tracking-[0.2em] text-zinc-500 font-bold">Account Selection</span>
+                          <div className="px-3 pt-2 pb-3 flex items-center justify-between">
+                            <span className="text-[10px] font-terminal-label uppercase tracking-[0.2em] text-zinc-500 font-black">Account Selection</span>
+                            <div className="flex gap-1">
+                              <div className="w-1 h-1 rounded-full bg-emerald-500/20" />
+                              <div className="w-1 h-1 rounded-full bg-emerald-500/20" />
+                            </div>
+                          </div>
+
+                          {portfolios.length > 0 ? (
+                            <div className="space-y-1.5">
+                              {portfolios.map((p) => (
+                                <div
+                                  key={p.id}
+                                  onClick={() => {
+                                    setActivePortfolio(p);
+                                    setIsPortfolioDropdownOpen(false);
+                                  }}
+                                  className={cn(
+                                    "w-full flex items-center justify-between gap-3 px-3 py-3 rounded-xl transition-all duration-500 group/item cursor-pointer relative overflow-hidden",
+                                    activePortfolio?.id === p.id
+                                      ? "bg-emerald-500/10 border border-emerald-500/20 shadow-[inset_0_1px_1px_rgba(255,255,255,0.05),0_10px_20px_rgba(0,0,0,0.2)]"
+                                      : "bg-white/[0.02] border border-white/[0.03] hover:border-white/10 hover:bg-white/[0.05]"
+                                  )}
+                                >
+                                  {/* Gloss Effect */}
+                                  {activePortfolio?.id === p.id && (
+                                    <div className="absolute inset-0 bg-gradient-to-tr from-emerald-500/5 to-transparent pointer-events-none" />
+                                  )}
+
+                                  <div className="flex items-center gap-3 relative z-10">
+                                    <div className={cn(
+                                      "size-10 rounded-xl flex items-center justify-center p-2 border transition-all duration-500",
+                                      activePortfolio?.id === p.id
+                                        ? "bg-zinc-950 border-emerald-500/30 shadow-[0_0_15px_rgba(16,185,129,0.1)]"
+                                        : "bg-white/5 border-white/10 group-hover/item:border-white/20"
+                                    )}>
+                                      <img src={p.broker_name === 'GROWW' ? "/Icons/groww.svg" : "/Icons/zerodha.svg"} alt="Broker" className="w-full h-full object-contain" />
+                                    </div>
+                                    <div className="flex flex-col items-start">
+                                      <div className="flex items-center gap-2">
+                                        <span className={cn(
+                                          "text-[15px] font-headline font-black tracking-tight transition-colors",
+                                          activePortfolio?.id === p.id ? "text-white" : "text-zinc-400 group-hover/item:text-zinc-200"
+                                        )}>{p.name}</span>
+                                        {activePortfolio?.id === p.id && (
+                                          <div className="size-1.5 rounded-full bg-emerald-500 animate-pulse shadow-[0_0_8px_rgba(16,185,129,0.6)]" />
+                                        )}
+                                      </div>
+                                      <span className={cn(
+                                        "text-[10px] font-bold uppercase tracking-wider",
+                                        activePortfolio?.id === p.id ? "text-emerald-500/60" : "text-zinc-600"
+                                      )}>
+                                        {p.is_primary ? "Main Account" : "Connected"}
+                                      </span>
+                                    </div>
+                                  </div>
+
+                                  <div className="flex items-center gap-2 relative z-10">
+                                    {activePortfolio?.id === p.id && (
+                                      <button
+                                        onClick={async (e) => {
+                                          e.stopPropagation();
+                                          if (confirm(`Delete "${p.name}"? All holdings and history for this specific portfolio will be lost.`)) {
+                                            try {
+                                              await supabase.from('holdings').delete().eq('portfolio_id', p.id);
+                                              await supabase.from('portfolio_history').delete().eq('portfolio_id', p.id);
+                                              await supabase.from('user_portfolios').delete().eq('id', p.id);
+
+                                              const remaining = portfolios.filter(x => x.id !== p.id);
+                                              setPortfolios(remaining);
+                                              if (remaining.length > 0) {
+                                                setActivePortfolio(remaining.find(r => r.is_primary) || remaining[0]);
+                                              } else {
+                                                setActivePortfolio(null);
+                                                setHoldings([]);
+                                                setHistory([]);
+                                              }
+                                            } catch (err) {
+                                              console.error("Delete error:", err);
+                                            }
+                                          }
+                                        }}
+                                        className="size-8 rounded-lg bg-red-500/5 border border-red-500/10 flex items-center justify-center hover:bg-red-500/20 hover:border-red-500/30 transition-all opacity-0 group-hover/item:opacity-100"
+                                        title="Delete Portfolio"
+                                      >
+                                        <Trash2 className="w-3.5 h-3.5 text-red-500/60 group-hover/item:text-red-500 transition-colors" />
+                                      </button>
+                                    )}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <div className="w-full flex items-center justify-between gap-3 px-3 py-3 rounded-xl bg-white/[0.02] border border-white/5 opacity-60">
+                              <div className="flex items-center gap-3">
+                                <div className="size-10 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center p-2">
+                                  <Wallet className="w-5 h-5 text-zinc-600" />
+                                </div>
+                                <div className="flex flex-col items-start">
+                                  <span className="text-[15px] font-headline font-black text-zinc-500">No Portfolio</span>
+                                  <span className="text-[10px] text-zinc-600 font-bold uppercase tracking-wider">Import Required</span>
+                                </div>
+                              </div>
+                            </div>
+                          )}
+
+                          <div className="h-[1px] bg-white/5 mx-2 my-2" />
+
+                          <button
+                            onClick={() => {
+                              setNewPortfolioName(`Portfolio ${portfolios.length + 1}`);
+                              setIsPortfolioDropdownOpen(false);
+                              setAddPortfolioModalOpen(true);
+                            }}
+                            className="w-full flex items-center gap-4 px-3 py-3 rounded-xl hover:bg-white/5 group/add transition-all text-zinc-400 hover:text-white"
+                          >
+                            <div className="size-10 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center group-hover/add:border-emerald-500/40 group-hover/add:bg-emerald-500/10 transition-all shadow-sm">
+                              <Plus className="w-5 h-5 transition-transform duration-500 group-hover/add:rotate-90 group-hover/add:text-emerald-400" />
+                            </div>
+                            <span className="text-[12px] font-headline font-black uppercase tracking-[0.2em]">Link Another</span>
+                          </button>
                         </div>
-
-                        {holdings.length > 0 ? (
-                          <div className="w-full flex items-center justify-between gap-3 px-3 py-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 group/item transition-all">
-                            <div className="flex items-center gap-3">
-                              <div className="size-8 rounded-lg bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center p-1.5">
-                                <img src="/logos/groww.svg" alt="Groww" className="w-full h-full object-contain" />
-                              </div>
-                              <div className="flex flex-col items-start">
-                                <span className="text-[15px] font-headline font-bold text-white">Groww Portfolio</span>
-                                <span className="text-[11px] text-emerald-500/80 font-medium">Main Account</span>
-                              </div>
-                            </div>
-                            <button 
-                              onClick={async (e) => {
-                                e.stopPropagation();
-                                if (!portfolioId) return;
-                                if (confirm("Are you sure you want to delete this portfolio? This will permanently remove all holdings and your entire historical performance data.")) {
-                                  try {
-                                    // Delete holdings
-                                    const { error: hErr } = await supabase
-                                      .from('holdings')
-                                      .delete()
-                                      .eq('user_id', portfolioId)
-                                      .eq('broker_name', 'GROWW');
-                                    
-                                    if (hErr) throw hErr;
-
-                                    // Delete history
-                                    const { error: histErr } = await supabase
-                                      .from('portfolio_history')
-                                      .delete()
-                                      .eq('user_id', portfolioId)
-                                      .eq('broker_name', 'GROWW');
-                                    
-                                    if (histErr) throw histErr;
-                                    
-                                    setHoldings([]);
-                                    setHistory([]);
-                                    alert("Portfolio and history deleted successfully.");
-                                  } catch (err) {
-                                    console.error("Delete error:", err);
-                                    alert("Failed to delete portfolio data.");
-                                  }
-                                }
-                              }}
-                              className="size-8 rounded-lg bg-red-500/10 border border-red-500/20 flex items-center justify-center hover:bg-red-500/20 transition-all group-hover/item:border-red-500/40"
-                              title="Delete Holdings"
-                            >
-                              <Trash2 className="w-4 h-4 text-red-500/80 group-hover/item:text-red-500 transition-colors" />
-                            </button>
-                          </div>
-                        ) : (
-                          <div className="w-full flex items-center justify-between gap-3 px-3 py-3 rounded-xl bg-white/[0.02] border border-white/5 opacity-60">
-                            <div className="flex items-center gap-3">
-                              <div className="size-8 rounded-lg bg-white/5 border border-white/10 flex items-center justify-center p-1.5">
-                                <Wallet className="w-4 h-4 text-zinc-600" />
-                              </div>
-                              <div className="flex flex-col items-start">
-                                <span className="text-[15px] font-headline font-bold text-zinc-500">No Portfolio</span>
-                                <span className="text-[11px] text-zinc-600 font-medium">Import Required</span>
-                              </div>
-                            </div>
-                          </div>
-                        )}
-
-                        <div className="h-[1px] bg-white/5 mx-2 my-1" />
-
-                        <button
-                          onClick={() => {
-                            setIsPortfolioDropdownOpen(false);
-                            setAddPortfolioModalOpen(true);
-                          }}
-                          className="w-full flex items-center gap-3 px-3 py-3 rounded-xl hover:bg-white/5 group/add transition-all text-zinc-400 hover:text-white"
-                        >
-                          <div className="size-9 rounded-lg bg-white/5 border border-white/10 flex items-center justify-center group-hover/add:border-emerald-500/40 group-hover/add:bg-emerald-500/10 transition-all">
-                            <Plus className="w-5 h-5 transition-transform group-hover/add:rotate-90" />
-                          </div>
-                          <span className="text-[14px] font-headline font-bold uppercase tracking-wider">Link Another</span>
-                        </button>
-                      </div>
-                    </motion.div>
-                  </>
+                      </motion.div>
+                    </>
                   )}
                 </AnimatePresence>
               </div>
@@ -783,51 +901,47 @@ export default function DashboardPage() {
               )}
             </AnimatePresence>
             <div className="grid grid-cols-1 md:grid-cols-[2fr_1.2fr_1.2fr] gap-6 lg:gap-10 mb-0 items-end">
-            {/* Metric 1: Total Net Worth */}
-            <div className="relative group min-w-[240px]">
-              <div className="absolute -inset-4 bg-emerald-500/5 blur-3xl rounded-full opacity-0 group-hover:opacity-100 transition-opacity duration-1000" />
-              <span className="font-terminal-label uppercase tracking-wider text-[12px] text-emerald-400 block mb-1 font-bold relative z-10">Total Net Worth</span>
-              <h1 className="font-headline font-bold text-4xl md:text-5xl tracking-tighter text-white tabular-nums leading-none relative z-10 whitespace-nowrap">
-                {formatCurrency(totalNetWorth)}
-              </h1>
-            </div>
+              {/* Metric 1: Total Net Worth */}
+              <div className="relative group min-w-[240px]">
+                <div className="absolute -inset-4 bg-emerald-500/5 blur-3xl rounded-full opacity-0 group-hover:opacity-100 transition-opacity duration-1000" />
+                <span className="font-terminal-label uppercase tracking-wider text-[12px] text-emerald-400 block mb-1 font-bold relative z-10">Total Net Worth</span>
+                <h1 className="font-headline font-bold text-4xl md:text-5xl tracking-tighter text-white tabular-nums leading-none relative z-10 whitespace-nowrap">
+                  {formatCurrency(totalNetWorth)}
+                </h1>
+              </div>
 
-            {/* Metric 2: Daily P/L */}
-            <div className="flex flex-col gap-1 border-l border-white/5 pl-6 min-w-[210px]">
-              <span className="font-terminal-label uppercase tracking-wider text-[12px] text-zinc-300 block mb-1 font-bold">Daily P/L</span>
-              <div className="flex items-center gap-4 flex-nowrap">
-                <span className={`font-headline font-bold text-2xl md:text-3xl tabular-nums whitespace-nowrap flex items-center ${
-                  ((timeRange === '1D' && getMarketStatus('IN') === 'CLOSED') || totalDayChange === 0) ? 'text-zinc-500' : (totalDayChange > 0 ? 'text-emerald-500' : 'text-red-500')
-                }`}>
-                  {((timeRange === '1D' && getMarketStatus('IN') === 'CLOSED') || totalDayChange === 0) ? '₹0' : `${totalDayChange > 0 ? '+' : ''}${formatCurrency(totalDayChange)}`}
-                </span>
-                <span className={`font-terminal-label border px-2 py-0.5 rounded-[4px] text-[10px] font-bold ${
-                  ((timeRange === '1D' && getMarketStatus('IN') === 'CLOSED') || totalDayChange === 0)
+              {/* Metric 2: Daily P/L */}
+              <div className="flex flex-col gap-1 border-l border-white/5 pl-6 min-w-[210px]">
+                <span className="font-terminal-label uppercase tracking-wider text-[12px] text-zinc-300 block mb-1 font-bold">Daily P/L</span>
+                <div className="flex items-center gap-4 flex-nowrap">
+                  <span className={`font-headline font-bold text-2xl md:text-3xl tabular-nums whitespace-nowrap flex items-center ${((timeRange === '1D' && getMarketStatus('IN') === 'CLOSED') || totalDayChange === 0) ? 'text-zinc-500' : (totalDayChange > 0 ? 'text-emerald-500' : 'text-red-500')
+                    }`}>
+                    {((timeRange === '1D' && getMarketStatus('IN') === 'CLOSED') || totalDayChange === 0) ? '₹0' : `${totalDayChange > 0 ? '+' : ''}${formatCurrency(totalDayChange)}`}
+                  </span>
+                  <span className={`font-terminal-label border px-2 py-0.5 rounded-[4px] text-[10px] font-bold ${((timeRange === '1D' && getMarketStatus('IN') === 'CLOSED') || totalDayChange === 0)
                     ? 'bg-zinc-500/10 text-zinc-500 border-zinc-500/20'
                     : (totalDayChange > 0 ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-red-500/10 text-red-400 border-red-500/20')
-                }`}>
-                  {((timeRange === '1D' && getMarketStatus('IN') === 'CLOSED') || totalDayChange === 0) ? '0.00%' : `${totalDayChange > 0 ? '+' : ''}${dayChangePerc.toFixed(2)}%`}
-                </span>
+                    }`}>
+                    {((timeRange === '1D' && getMarketStatus('IN') === 'CLOSED') || totalDayChange === 0) ? '0.00%' : `${totalDayChange > 0 ? '+' : ''}${dayChangePerc.toFixed(2)}%`}
+                  </span>
+                </div>
               </div>
-            </div>
 
-            {/* Metric 3: Aggregate P/L */}
-            <div className="flex flex-col gap-1 border-l border-white/5 pl-6 min-w-[210px]">
-              <span className="font-terminal-label uppercase tracking-wider text-[11px] text-zinc-400 block font-bold">Aggregate P/L</span>
-              <div className="flex items-center gap-4 flex-nowrap">
-                <span className={`font-headline font-bold text-xl md:text-2xl tabular-nums whitespace-nowrap flex items-center ${
-                  totalPL === 0 ? 'text-zinc-500' : (totalPL > 0 ? 'text-emerald-500' : 'text-red-500')
-                }`}>
-                  {totalPL === 0 ? '₹0' : `${totalPL > 0 ? '+' : ''}${formatCurrency(totalPL)}`}
-                </span>
-                <span className={`font-terminal-label px-2 py-0.5 rounded-[4px] text-[10px] font-bold border transition-all duration-500 ${
-                  totalPL === 0 ? 'bg-zinc-500/10 text-zinc-500 border-zinc-500/20' : (totalPL > 0 ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-red-500/10 text-red-400 border-red-500/20')
-                }`}>
-                  {totalPLPerc >= 0 ? '+' : ''}{totalPLPerc.toFixed(2)}%
-                </span>
+              {/* Metric 3: Aggregate P/L */}
+              <div className="flex flex-col gap-1 border-l border-white/5 pl-6 min-w-[210px]">
+                <span className="font-terminal-label uppercase tracking-wider text-[11px] text-zinc-400 block font-bold">Aggregate P/L</span>
+                <div className="flex items-center gap-4 flex-nowrap">
+                  <span className={`font-headline font-bold text-xl md:text-2xl tabular-nums whitespace-nowrap flex items-center ${totalPL === 0 ? 'text-zinc-500' : (totalPL > 0 ? 'text-emerald-500' : 'text-red-500')
+                    }`}>
+                    {totalPL === 0 ? '₹0' : `${totalPL > 0 ? '+' : ''}${formatCurrency(totalPL)}`}
+                  </span>
+                  <span className={`font-terminal-label px-2 py-0.5 rounded-[4px] text-[10px] font-bold border transition-all duration-500 ${totalPL === 0 ? 'bg-zinc-500/10 text-zinc-500 border-zinc-500/20' : (totalPL > 0 ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-red-500/10 text-red-400 border-red-500/20')
+                    }`}>
+                    {totalPLPerc >= 0 ? '+' : ''}{totalPLPerc.toFixed(2)}%
+                  </span>
+                </div>
               </div>
             </div>
-          </div>
           </div>
 
           {/* Performance Chart */}
@@ -850,15 +964,14 @@ export default function DashboardPage() {
                 <h3 className="font-terminal-label text-[12px] uppercase tracking-wider text-zinc-300 mb-1 font-bold">Historical Performance</h3>
                 <div className="flex items-baseline gap-4">
                   <span className="font-headline font-bold text-4xl tracking-tighter text-white tabular-nums">{formatCurrency(totalNetWorth)}</span>
-                  <span className={`font-terminal-label text-[10px] border px-2 py-0.5 rounded-[4px] uppercase tracking-widest font-bold ${
-                    totalPLPerc >= 0 ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-red-500/10 text-red-500 border-red-500/20'
-                  }`}>
+                  <span className={`font-terminal-label text-[10px] border px-2 py-0.5 rounded-[4px] uppercase tracking-widest font-bold ${totalPLPerc >= 0 ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-red-500/10 text-red-500 border-red-500/20'
+                    }`}>
                     {totalPLPerc >= 0 ? '+' : ''}{totalPLPerc.toFixed(2)}%
                   </span>
                 </div>
               </div>
               <div className="flex gap-2 relative z-20">
-                {['1W', '1M', '1Y', 'ALL'].map((range) => (
+                {['1D', '1W', '1M', '1Y', 'ALL'].map((range) => (
                   <button
                     key={range}
                     onClick={() => setTimeRange(range)}
@@ -878,19 +991,76 @@ export default function DashboardPage() {
 
             <div className="h-[340px] w-full pt-0 transition-all duration-500">
               {filteredHistory.length > 0 ? (
-                <WealthChart data={Object.values(
-                  filteredHistory.reduce((acc: any, h) => {
-                    if (!h.timestamp) return acc;
-                    const dateParts = h.timestamp.split('T');
-                    if (dateParts.length < 1) return acc;
-                    const date = dateParts[0];
-                    const ts = new Date(`${date}T15:30:00`).getTime();
-                    if (isNaN(ts)) return acc;
-                    const timestamp = Math.floor(ts / 1000);
-                    acc[date] = { time: timestamp as any, value: h.total_market_value };
-                    return acc;
-                  }, {})
-                ) as { time: string; value: number }[]} />
+                <WealthChart data={(() => {
+                  const _ = heartbeat; // Depend on heartbeat for live updates
+                  
+                  const map = new Map<string | number, { time: string | number; value: number; ts: number }>();
+                  filteredHistory.forEach((h: { timestamp: string; total_market_value: number }) => {
+                    if (!h.timestamp) return;
+                    
+                    const dateObj = new Date(h.timestamp);
+                    const financialDayDate = new Date(dateObj.getTime() - (6 * 60 * 60 * 1000));
+                    
+                    const dateKey = new Intl.DateTimeFormat('en-CA', {
+                      timeZone: 'Asia/Kolkata',
+                      year: 'numeric',
+                      month: '2-digit',
+                      day: '2-digit'
+                    }).format(financialDayDate);
+                    
+                    const ts = Math.floor(dateObj.getTime() / 1000);
+                    const key = timeRange === '1D' ? ts : dateKey;
+                    
+                    const existing = map.get(key);
+                    if (!existing || ts > existing.ts) {
+                      map.set(key, {
+                        time: timeRange === '1D' ? (ts as UTCTimestamp) : dateKey,
+                        value: Number(h.total_market_value) || 0,
+                        ts: ts
+                      });
+                    }
+                  });
+
+                  const results = Array.from(map.values()).sort((a, b) => a.ts - b.ts);
+                  
+                  const now = new Date();
+                  const nowTs = Math.floor(now.getTime() / 1000);
+                  const financialDayNow = new Date(now.getTime() - (6 * 60 * 60 * 1000));
+                  
+                  const nowKey = new Intl.DateTimeFormat('en-CA', {
+                    timeZone: 'Asia/Kolkata',
+                    year: 'numeric',
+                    month: '2-digit',
+                    day: '2-digit'
+                  }).format(financialDayNow);
+                  
+                  const currentChartKey = timeRange === '1D' ? (nowTs as UTCTimestamp) : nowKey;
+
+                  if (results.length > 0) {
+                    const lastResult = results[results.length - 1];
+                    if (lastResult.time === currentChartKey) {
+                      lastResult.value = Number(totalNetWorth) || 0;
+                      lastResult.ts = nowTs;
+                    } else if (nowTs > lastResult.ts) {
+                      results.push({
+                        time: currentChartKey,
+                        value: Number(totalNetWorth) || 0,
+                        ts: nowTs
+                      });
+                    }
+                  } else {
+                    results.push({
+                      time: currentChartKey,
+                      value: Number(totalNetWorth) || 0,
+                      ts: nowTs
+                    });
+                  }
+
+                  return results.map(item => ({
+                    time: item.time as any,
+                    value: item.value
+                  }));
+                })()} />
               ) : (
                 <div className="h-full flex flex-col items-center justify-center gap-6">
                   {holdings.length > 0 ? (
@@ -904,7 +1074,7 @@ export default function DashboardPage() {
                         <Cpu className="w-12 h-12 animate-pulse" />
                         <span className="font-terminal-label text-[10px] uppercase tracking-[0.4em]">No Data Found</span>
                       </div>
-                      <button 
+                      <button
                         onClick={() => setAddPortfolioModalOpen(true)}
                         className="px-6 py-2 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 font-terminal-label text-[10px] uppercase tracking-widest hover:bg-emerald-500/20 transition-all hover:scale-105"
                       >
@@ -915,7 +1085,7 @@ export default function DashboardPage() {
                 </div>
               )}
             </div>
-        </motion.section>
+          </motion.section>
         </motion.div>
 
         {/* TOP ROW RIGHT: Sidebar */}
@@ -1290,7 +1460,7 @@ export default function DashboardPage() {
                               {searchQuery ? "Try a different search term" : "Upload your Excel statement to start"}
                             </span>
                             {!searchQuery && (
-                              <button 
+                              <button
                                 onClick={() => setAddPortfolioModalOpen(true)}
                                 className="mt-4 px-6 py-2 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 font-terminal-label text-[10px] uppercase tracking-widest hover:bg-emerald-500/20 transition-all"
                               >
@@ -1315,7 +1485,9 @@ export default function DashboardPage() {
                         >
                           <td className="px-8 py-5">
                             <div className="flex flex-col">
-                              <span className="font-headline font-bold text-sm text-white tracking-tight group-hover:text-emerald-400 transition-colors">{asset.trading_symbol}</span>
+                              <span className="font-headline font-bold text-sm text-white tracking-tight group-hover:text-emerald-400 transition-colors">
+                                {asset.trading_symbol.replace('.NS', '')}
+                              </span>
                               <span className="font-terminal-label text-[9px] text-zinc-600 uppercase tracking-widest mt-1">NSE:EQUITY</span>
                             </div>
                           </td>
@@ -1696,7 +1868,9 @@ export default function DashboardPage() {
             </motion.div>
           )}
         </motion.section>
-        {/* Add Portfolio Modal - Portaled to Body to bypass transforms */}
+      </div>
+
+      {/* Add Portfolio Modal - Portaled to Body to bypass transforms */}
       {mounted && addPortfolioModalOpen && createPortal(
         <AnimatePresence>
           <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
@@ -1704,206 +1878,282 @@ export default function DashboardPage() {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              onClick={() => { setAddPortfolioModalOpen(false); setNewPortfolioType(""); }}
+              onClick={() => { setAddPortfolioModalOpen(false); setNewPortfolioType(""); setShowGrowwGuide(false); }}
               className="absolute inset-0 bg-black/60 backdrop-blur-xl"
             />
             <motion.div
+              layout
               initial={{ opacity: 0, scale: 0.95, y: 10 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
+              animate={{
+                opacity: 1,
+                scale: 1,
+                y: 0,
+                width: showGrowwGuide ? "1100px" : "400px",
+                height: "auto",
+                maxWidth: "95vw"
+              }}
               exit={{ opacity: 0, scale: 0.95, y: 10 }}
-              className="relative w-full max-w-[380px] glass-panel border border-white/10 rounded-[20px] overflow-hidden shadow-[0_50px_100px_rgba(0,0,0,0.8)]"
+              transition={{
+                layout: { duration: 0.4, ease: [0.16, 1, 0.3, 1] },
+                opacity: { duration: 0.2 },
+                scale: { duration: 0.3, ease: [0.16, 1, 0.3, 1] }
+              }}
+              className="relative bg-zinc-950 border border-white/10 rounded-[28px] overflow-hidden shadow-[0_0_100px_rgba(0,0,0,0.9)] flex flex-col"
             >
-              <div className="px-6 py-4 border-b border-white/5 flex items-center justify-between bg-white/[0.02]">
+              <div className="px-5 py-3 border-b border-white/5 flex items-center justify-between bg-white/[0.01]">
                 <div className="flex items-center gap-3">
                   <div className="p-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20">
                     <Wallet className="w-4 h-4 text-emerald-500" />
                   </div>
                   <div>
-                    <h2 className="font-headline font-bold text-lg text-white tracking-tight">Link Account</h2>
-                    <p className="text-[10px] font-terminal-label uppercase tracking-widest text-zinc-500 font-bold mt-0.5">Import your current holdings</p>
+                    <h2 className="font-sans font-bold text-lg text-white tracking-tight">
+                      {showGrowwGuide ? "Sync Guide" : "Link Account"}
+                    </h2>
+                    <p className="text-[10px] font-sans uppercase tracking-[0.2em] text-zinc-500 font-black mt-0.5">
+                      {showGrowwGuide ? "Follow the steps below" : "Import your current holdings"}
+                    </p>
                   </div>
                 </div>
                 <button
-                  onClick={() => { setAddPortfolioModalOpen(false); setNewPortfolioType(""); }}
+                  onClick={() => { setAddPortfolioModalOpen(false); setNewPortfolioType(""); setNewPortfolioName(""); setShowGrowwGuide(false); }}
                   className="p-1.5 rounded-lg hover:bg-white/5 text-zinc-500 hover:text-white transition-all"
                 >
                   <X className="w-4 h-4" />
                 </button>
               </div>
 
-              <div className="p-5 space-y-5">
-                <div className="space-y-3">
-                  <label className="text-[10px] font-terminal-label uppercase tracking-widest text-zinc-600 font-bold px-1">Choose your broker</label>
-                  <div className="grid grid-cols-2 gap-3">
-                    {[
-                      {
-                        id: 'GROWW',
-                        name: 'Groww',
-                        node: (
-                          <img
-                            src="/logos/groww.svg"
-                            alt="Groww"
-                            className="w-full h-full object-contain transition-all duration-500"
-                          />
-                        )
-                      },
-                      {
-                        id: 'ZERODHA',
-                        name: 'Zerodha',
-                        node: (
-                          <img
-                            src="/logos/zerodha.svg"
-                            alt="Zerodha"
-                            className="w-full h-full object-contain transition-all duration-500"
-                          />
-                        )
-                      }
-                    ].map((broker) => (
-                      <button
-                        key={broker.id}
-                        onClick={() => setNewPortfolioType(broker.id as any)}
-                        className={cn(
-                          "p-3 rounded-xl border transition-all duration-300 flex flex-col items-center gap-2 group relative overflow-hidden",
-                          newPortfolioType === broker.id
-                            ? "bg-emerald-500/10 border-emerald-500/40 shadow-[0_0_20px_rgba(16,185,129,0.05)]"
-                            : "bg-white/[0.01] border-white/5 hover:border-white/20 hover:bg-white/[0.04] hover:shadow-[0_0_40px_rgba(255,255,255,0.02)]"
-                        )}
-                      >
-                        <div className="w-12 h-12 flex items-center justify-center p-1">
-                          <div className={cn("w-full h-full transition-all duration-500", newPortfolioType === broker.id ? "scale-110 opacity-100" : "opacity-100 group-hover:scale-110")}>
-                            {broker.node}
-                          </div>
-                        </div>
-                        <span className={cn(
-                          "font-headline text-[12px] font-black tracking-tight uppercase",
-                          newPortfolioType === broker.id ? "text-emerald-400" : "text-zinc-300 group-hover:text-white"
-                        )}>{broker.name}</span>
-                        {newPortfolioType === broker.id && (
-                          <motion.div layoutId="active-broker" className="absolute inset-0 border-2 border-emerald-500/20 rounded-xl" />
-                        )}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                <AnimatePresence mode="wait">
-                  {newPortfolioType === 'GROWW' && (
-                    <motion.div
-                      key="groww-fields"
-                      initial={{ opacity: 0, y: 10 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0, y: 10 }}
-                      className="space-y-4"
-                    >
-                      <div className="space-y-6 py-4 animate-in fade-in slide-in-from-bottom-4 duration-500">
-                        <div className="p-5 bg-white/[0.02] rounded-xl border border-white/5 text-center space-y-3">
-                          <div className="w-12 h-12 bg-emerald-500/10 rounded-full flex items-center justify-center mx-auto transition-transform duration-700 hover:scale-110">
-                            <FileUp className="w-6 h-6 text-emerald-500" />
-                          </div>
-                          <div>
-                            <h3 className="text-white font-bold text-base">Upload Statement</h3>
-                            <p className="text-zinc-500 text-[11px] mt-0.5">Pick the .xlsx file you downloaded from Groww</p>
-                          </div>
-                          
-                          <input 
-                            type="file" 
-                            id="excel-upload" 
-                            className="hidden" 
-                            accept=".xlsx"
-                            onChange={async (e) => {
-                              const file = e.target.files?.[0];
-                              if (!file) return;
-
-                              const formData = new FormData();
-                              formData.append('file', file);
-                              formData.append('portfolioId', portfolioId || "");
-
-                              setIsRefreshing(true);
-                              try {
-                                const res = await axios.post(`${engineUrl}/api/broker/groww/import-excel`, formData, {
-                                  headers: { 'Content-Type': 'multipart/form-data' }
-                                });
-                                if (res.data.success) {
-                                  alert(`Success! Imported ${res.data.count} holdings.`);
-                                  setAddPortfolioModalOpen(false);
-                                  fetchHoldings();
-                                }
-                              } catch (err: any) {
-                                alert(`Import failed: ${err.response?.data?.error || err.message}`);
-                              } finally {
-                                setIsRefreshing(false);
-                              }
-                            }}
-                          />
-                          
-                          <button 
-                            onClick={() => document.getElementById('excel-upload')?.click()}
-                            disabled={isRefreshing}
-                            className="w-full py-2.5 bg-white/[0.03] hover:bg-white/[0.08] text-white/80 border border-white/10 font-bold text-[11px] uppercase tracking-[0.2em] rounded-lg transition-all disabled:opacity-50"
-                          >
-                            {isRefreshing ? "Processing..." : "Choose File"}
-                          </button>
-                        </div>
-
-                        <div className="space-y-3">
-                          <div className="flex items-start gap-3 p-3 bg-white/5 rounded-xl border border-white/5">
-                            <div className="w-5 h-5 bg-emerald-500/20 rounded flex items-center justify-center text-[10px] font-bold text-emerald-500">1</div>
-                            <p className="text-[11px] text-zinc-400 leading-relaxed">
-                              Go to <span className="text-white">Groww App &gt; Profile &gt; Reports</span>
-                            </p>
-                          </div>
-                          <div className="flex items-start gap-3 p-3 bg-white/5 rounded-xl border border-white/5">
-                            <div className="w-5 h-5 bg-emerald-500/20 rounded flex items-center justify-center text-[10px] font-bold text-emerald-500">2</div>
-                            <p className="text-[11px] text-zinc-400 leading-relaxed">
-                              Select <span className="text-white">Stocks &gt; Holdings Statement</span>.
-                            </p>
-                          </div>
-                        </div>
-                      </div>
-                    </motion.div>
-                  )}
-                  {newPortfolioType === 'ZERODHA' && (
-                    <motion.div
-                      key="zerodha-fields"
-                      initial={{ opacity: 0, y: 10 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0, y: 10 }}
-                      className="p-4 rounded-xl bg-white/[0.01] border border-white/5 flex flex-col items-center justify-center gap-3 text-center"
-                    >
-                      <div className="w-10 h-10 rounded-full bg-white/5 flex items-center justify-center">
-                        <ShieldCheck className="w-5 h-5 text-zinc-600" />
-                      </div>
-                      <p className="text-[12px] text-zinc-500 leading-relaxed font-bold uppercase tracking-wider">Zerodha integration requires Kite Connect API access.</p>
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-
-                <div className="pt-2">
-                  <button
-                    onClick={() => {
-                      if (newPortfolioType === 'GROWW') {
-                        document.getElementById('excel-upload')?.click();
-                      }
-                    }}
-                    disabled={!newPortfolioType || (newPortfolioType === 'GROWW' && isRefreshing)}
-                    className="w-full py-4 rounded-xl bg-emerald-500 text-black font-headline font-black text-[13px] uppercase tracking-wider shadow-[0_10px_30px_rgba(16,185,129,0.2)] hover:shadow-[0_15px_40px_rgba(16,185,129,0.4)] hover:scale-[1.01] active:scale-[0.99] transition-all duration-500 disabled:opacity-20 disabled:grayscale disabled:scale-100 disabled:shadow-none"
+              <AnimatePresence mode="wait">
+                {showGrowwGuide ? (
+                  <motion.div
+                    key="guide"
+                    initial={{ opacity: 0, x: 20 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    exit={{ opacity: 0, x: -20 }}
+                    className="flex-1 min-h-0"
                   >
-                    {isRefreshing ? "Importing..." : (newPortfolioType === 'GROWW' ? "Select Statement & Sync" : "Coming Soon")}
-                  </button>
-                  <div className="flex items-center justify-center gap-2 mt-5">
-                    <ShieldCheck className="w-3 h-3 text-zinc-700" />
-                    <p className="text-[8px] font-terminal-label uppercase tracking-[0.25em] text-zinc-700 font-bold">
-                      AES-256 Vault Encryption
-                    </p>
-                  </div>
-                </div>
-              </div>
+                    <GrowwImportGuide
+                      embedded={true}
+                      onClose={() => setShowGrowwGuide(false)}
+                    />
+                  </motion.div>
+                ) : (
+                  <motion.div
+                    key="form"
+                    initial={{ opacity: 0, x: -20 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    exit={{ opacity: 0, x: 20 }}
+                    className="p-4 space-y-4"
+                  >
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-sans uppercase tracking-[0.3em] text-zinc-600 font-black px-1">Portfolio Name</label>
+                      <div className="relative group">
+                        <input
+                          type="text"
+                          value={newPortfolioName}
+                          onChange={(e) => setNewPortfolioName(e.target.value)}
+                          placeholder="e.g. Tactical Assets"
+                          className="w-full bg-white/[0.02] border border-white/5 rounded-2xl px-4 py-3 text-[14px] font-headline font-bold text-white focus:outline-none focus:border-emerald-500/30 focus:bg-emerald-500/[0.02] transition-all duration-500 placeholder:text-zinc-700 shadow-[inset_0_1px_1px_rgba(255,255,255,0.02)]"
+                        />
+                        <div className="absolute inset-0 rounded-2xl border border-emerald-500/0 group-focus-within:border-emerald-500/20 transition-all duration-500 pointer-events-none shadow-[0_0_20px_rgba(16,185,129,0)] group-focus-within:shadow-[0_0_20px_rgba(16,185,129,0.05)]" />
+                      </div>
+                    </div>
+
+                    <div className="space-y-2">
+                      <div className="px-1">
+                        <label className="text-[10px] font-sans uppercase tracking-[0.3em] text-zinc-600 font-black">Choose your broker</label>
+                      </div>
+                      <div className="grid grid-cols-2 gap-4">
+                        {[
+                          { id: 'GROWW', name: 'Groww', icon: '/Icons/groww.svg' },
+                          { id: 'ZERODHA', name: 'Zerodha', icon: '/Icons/zerodha.svg' }
+                        ].map((broker) => (
+                          <button
+                            key={broker.id}
+                            onClick={() => setNewPortfolioType(broker.id as any)}
+                            className={cn(
+                              "p-3 rounded-2xl border transition-all duration-500 flex flex-col items-center gap-2 group relative overflow-hidden",
+                              newPortfolioType === broker.id
+                                ? "bg-emerald-500/5 border-emerald-500/30 shadow-[inset_0_1px_1px_rgba(255,255,255,0.05),0_10px_30px_rgba(0,0,0,0.2)]"
+                                : "bg-white/[0.01] border-white/5 hover:border-white/20 hover:bg-white/[0.03] hover:shadow-[0_10px_20px_rgba(0,0,0,0.1)]"
+                            )}
+                          >
+                            {/* Selection Glow */}
+                            {newPortfolioType === broker.id && (
+                              <div className="absolute inset-0 bg-gradient-to-br from-emerald-500/5 to-transparent pointer-events-none" />
+                            )}
+
+                            <div className={cn(
+                              "size-11 flex items-center justify-center p-1 transition-all duration-700 relative z-10",
+                              newPortfolioType === broker.id ? "scale-110" : "opacity-40 group-hover:opacity-100 group-hover:scale-110"
+                            )}>
+                              <img src={broker.icon} alt={broker.name} className="w-full h-full object-contain" />
+                            </div>
+                            <span className={cn(
+                              "font-sans text-[11px] font-bold tracking-[0.2em] uppercase relative z-10 transition-colors duration-500",
+                              newPortfolioType === broker.id ? "text-emerald-400" : "text-zinc-600 group-hover:text-zinc-300"
+                            )}>{broker.name}</span>
+
+                            {newPortfolioType === broker.id && (
+                              <motion.div layoutId="active-broker-glow" className="absolute inset-0 border-2 border-emerald-500/10 rounded-2xl pointer-events-none" />
+                            )}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <AnimatePresence mode="wait">
+                      {newPortfolioType === 'GROWW' && (
+                        <motion.div
+                          key="groww-fields"
+                          initial={{ opacity: 0, y: 10 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          exit={{ opacity: 0, y: 10 }}
+                          className="space-y-6 pt-2"
+                        >
+                          <div className="p-4 bg-white/[0.02] rounded-[24px] border border-white/5 text-center space-y-3 relative overflow-hidden group/upload">
+                            <div className="absolute inset-0 bg-gradient-to-b from-emerald-500/[0.02] to-transparent opacity-0 group-hover/upload:opacity-100 transition-opacity duration-700" />
+
+                            <div className="size-10 flex items-center justify-center mx-auto transition-transform duration-500 group-hover/upload:scale-110 relative z-10">
+                              <FileUp className="w-6 h-6 text-emerald-500/60" />
+                            </div>
+                            <div className="relative z-10">
+                              <h3 className="text-white font-headline font-black text-lg tracking-tight">Upload Statement</h3>
+                              <p className="text-zinc-500 text-[11px] font-bold uppercase tracking-widest mt-1">Select the .xlsx file from Groww</p>
+                            </div>
+
+                            <input
+                              type="file"
+                              id="excel-upload"
+                              className="hidden"
+                              accept=".xlsx"
+                              onChange={async (e) => {
+                                const file = e.target.files?.[0];
+                                if (!file) return;
+
+                                setIsRefreshing(true);
+                                setImportStatus("Analyzing Statement...");
+                                try {
+                                  // 1. Create the portfolio record first
+                                  setImportStatus("Registering Portfolio...");
+                                  const { data: pData, error: pErr } = await supabase
+                                    .from('user_portfolios')
+                                    .insert({
+                                      user_id: portfolioId,
+                                      name: newPortfolioName || "New Portfolio",
+                                      broker_name: 'GROWW',
+                                      is_primary: portfolios.length === 0
+                                    })
+                                    .select()
+                                    .single();
+
+                                  if (pErr) throw pErr;
+
+                                  setImportStatus("Ingesting Excel Data...");
+                                  const formData = new FormData();
+                                  formData.append('file', file);
+                                  formData.append('portfolioId', pData.id); // Explicit Portfolio UUID
+                                  formData.append('userId', portfolioId || ""); // Explicit User UUID
+
+                                  const res = await axios.post(`${engineUrl}/api/broker/groww/import-excel`, formData, {
+                                    headers: { 'Content-Type': 'multipart/form-data' }
+                                  });
+
+                                  if (res.data.success) {
+                                    setImportStatus("Synchronizing Dashboard...");
+                                    await fetchPortfolios();
+                                    setActivePortfolio(pData);
+                                    setAddPortfolioModalOpen(false);
+                                  }
+                                } catch (err: any) {
+                                  const errorMsg = err.response?.data?.error || err.message || "Unknown Error";
+                                  alert(`Import Failed: ${errorMsg}`);
+                                } finally {
+                                  setIsRefreshing(false);
+                                  setImportStatus("");
+                                }
+                              }}
+                            />
+
+                            <button
+                              onClick={() => document.getElementById('excel-upload')?.click()}
+                              disabled={isRefreshing}
+                              className="w-full py-2.5 bg-white/[0.04] hover:bg-white/[0.08] text-white font-headline font-black text-[11px] uppercase tracking-[0.25em] rounded-xl border border-white/10 group-hover/upload:border-white/20 transition-all duration-500 disabled:opacity-50 relative z-10 shadow-sm"
+                            >
+                              {isRefreshing ? (
+                                <div className="flex items-center justify-center gap-3">
+                                  <motion.div
+                                    animate={{ rotate: 360 }}
+                                    transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+                                    className="w-4 h-4 border-2 border-emerald-500/30 border-t-emerald-500 rounded-full"
+                                  />
+                                  <span className="text-emerald-400">{importStatus || "Processing..."}</span>
+                                </div>
+                              ) : "Choose Local File"}
+                            </button>
+
+                            <div className="pt-2 border-t border-white/5 mt-2 relative z-10">
+                              <button
+                                onClick={() => setShowGrowwGuide(true)}
+                                className="w-full py-3 px-4 rounded-xl bg-emerald-500/5 hover:bg-emerald-500/10 border border-emerald-500/10 text-emerald-400 font-terminal-label font-bold text-[10px] uppercase tracking-[0.2em] transition-all duration-500 flex items-center justify-between group/btn"
+                              >
+                                <span className="flex items-center gap-2 text-zinc-500 group-hover/btn:text-zinc-200 transition-colors">
+                                  <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shadow-[0_0_8px_rgba(16,185,129,0.5)]" />
+                                  Need fetching guide?
+                                </span>
+                                <span className="text-emerald-400 flex items-center gap-1 group-hover/btn:translate-x-1 transition-transform">
+                                  View steps &rarr;
+                                </span>
+                              </button>
+                            </div>
+                          </div>
+                        </motion.div>
+                      )}
+                      {newPortfolioType === 'ZERODHA' && (
+                        <motion.div
+                          key="zerodha-fields"
+                          initial={{ opacity: 0, y: 10 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          exit={{ opacity: 0, y: 10 }}
+                          className="p-6 rounded-[24px] bg-white/[0.01] border border-white/5 flex flex-col items-center justify-center gap-3 text-center min-h-[160px]"
+                        >
+                          <div className="w-14 h-14 rounded-full bg-white/5 flex items-center justify-center border border-white/5 shadow-sm">
+                            <ShieldCheck className="w-7 h-7 text-zinc-700" />
+                          </div>
+                          <div className="space-y-1">
+                            <p className="text-[13px] text-zinc-400 font-headline font-black uppercase tracking-[0.1em]">Broker Restricted</p>
+                            <p className="text-[10px] text-zinc-600 font-bold uppercase tracking-widest max-w-[200px]">Zerodha integration requires Kite Connect API access.</p>
+                          </div>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+
+                    <div className="pt-4">
+                      <button
+                        onClick={() => {
+                          if (newPortfolioType === 'GROWW') {
+                            document.getElementById('excel-upload')?.click();
+                          }
+                        }}
+                        disabled={!newPortfolioType || (newPortfolioType === 'GROWW' && isRefreshing)}
+                        className="w-full py-4 rounded-[20px] bg-emerald-500 text-black font-headline font-black text-[14px] uppercase tracking-[0.15em] shadow-[0_10px_40px_rgba(16,185,129,0.2)] hover:shadow-[0_15px_50px_rgba(16,185,129,0.4)] hover:scale-[1.01] active:scale-[0.98] transition-all duration-500 disabled:opacity-10 disabled:grayscale disabled:scale-100 disabled:shadow-none"
+                      >
+                        {isRefreshing ? "Syncing Account..." : (newPortfolioType === 'GROWW' ? "Select Statement & Sync" : "Connect Broker")}
+                      </button>
+                      <div className="flex items-center justify-center gap-2 mt-4">
+                        <ShieldCheck className="w-3.5 h-3.5 text-zinc-800" />
+                        <p className="text-[9px] font-terminal-label uppercase tracking-[0.3em] text-zinc-800 font-black">
+                          AES-256 Vault Encryption
+                        </p>
+                      </div>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
             </motion.div>
           </div>
         </AnimatePresence>,
         document.body
       )}
-    </div>
 
       {/* SYNC CONSOLE */}
       <AnimatePresence>
@@ -1924,7 +2174,7 @@ export default function DashboardPage() {
                 </div>
                 <span className="text-[10px] font-bold tracking-[0.2em] text-zinc-500 uppercase">System Sync Console</span>
               </div>
-              <button 
+              <button
                 onClick={() => setShowSyncConsole(false)}
                 className="text-zinc-500 hover:text-white transition-colors"
               >
@@ -1945,9 +2195,9 @@ export default function DashboardPage() {
                     <span className={cn(
                       "font-medium",
                       log.type === 'success' ? "text-emerald-400" :
-                      log.type === 'error' ? "text-red-400" :
-                      log.type === 'warn' ? "text-amber-400" :
-                      "text-zinc-300"
+                        log.type === 'error' ? "text-red-400" :
+                          log.type === 'warn' ? "text-amber-400" :
+                            "text-zinc-300"
                     )}>
                       {log.message}
                     </span>

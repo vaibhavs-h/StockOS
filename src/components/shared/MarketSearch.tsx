@@ -21,23 +21,27 @@ export function MarketSearch({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     setMounted(true);
     const fetchData = async () => {
-      // Fetch Total (Both Markets)
-      const [{ count: inCount }, { count: usCount }] = await Promise.all([
-        supabase.from("market_assets").select("*", { count: "exact", head: true }),
-        supabase.from("us_market_assets").select("*", { count: "exact", head: true })
-      ]);
-      setTotalAssets((inCount || 0) + (usCount || 0));
-
       // Fetch Global Indices
-      const [{ data: inIndices }, { data: usIndices }] = await Promise.all([
-        supabase.from("market_assets").select("*").in("symbol", ["NSEI", "BSESN", "NSEBANK"]),
-        supabase.from("us_market_assets").select("*").in("symbol", ["AAPL", "MSFT", "GOOGL"]) // Placeholder US "Indices" for UI
+      const indexSymbols = ["NSEI", "BSESN", "NSEBANK", "CNXIT", "CNXPHARMA", "CNXMETAL", "GSPC", "IXIC", "DJI"];
+      
+      const [
+        { data: inIndices }, 
+        { data: usIndices },
+        { count: inCount },
+        { count: usCount }
+      ] = await Promise.all([
+        supabase.from("market_assets").select("*").in("symbol", indexSymbols),
+        supabase.from("us_market_assets").select("*").in("symbol", indexSymbols),
+        supabase.from("market_assets").select("*", { count: 'exact', head: true }),
+        supabase.from("us_market_assets").select("*", { count: 'exact', head: true })
       ]);
       
       setIndices([
         ...(inIndices || []).map(i => ({ ...i, market: 'IN' })),
         ...(usIndices || []).map(i => ({ ...i, market: 'US' }))
       ]);
+
+      setTotalAssets((inCount || 0) + (usCount || 0));
     };
     fetchData();
   }, []);
@@ -50,13 +54,19 @@ export function MarketSearch({ children }: { children: React.ReactNode }) {
       setResults([]);
     }
 
-    const searchStocks = async () => {
+    const searchIndices = async () => {
       if (query.length < 1) return;
 
       try {
         const [{ data: inData }, { data: usData }] = await Promise.all([
-          supabase.from("market_assets").select("*").or(`symbol.ilike.%${query}%,name.ilike.%${query}%`).limit(5),
-          supabase.from("us_market_assets").select("*").or(`symbol.ilike.%${query}%,name.ilike.%${query}%`).limit(5)
+          supabase.from("market_assets")
+            .select("*")
+            .or(`symbol.ilike.%${query}%,name.ilike.%${query}%`)
+            .limit(10),
+          supabase.from("us_market_assets")
+            .select("*")
+            .or(`symbol.ilike.%${query}%,name.ilike.%${query}%`)
+            .limit(10)
         ]);
 
         const combined = [
@@ -73,7 +83,7 @@ export function MarketSearch({ children }: { children: React.ReactNode }) {
     };
 
     const timer = setTimeout(() => {
-      searchStocks();
+      searchIndices();
     }, 300);
 
     return () => clearTimeout(timer);

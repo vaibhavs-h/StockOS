@@ -60,7 +60,7 @@ const HeroWave = () => {
       lastTimeRef.current = now;
 
       // Gradual speed transition
-      const targetSpeed = pathname === '/' ? 1.0 : 0.3;
+      const targetSpeed = pathname === '/' ? 1.0 : 0.6;
       speedRef.current += (targetSpeed - speedRef.current) * 0.02; // Smooth transition
 
       timeRef.current += deltaTime * speedRef.current;

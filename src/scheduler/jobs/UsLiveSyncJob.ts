@@ -1,10 +1,11 @@
 import { BaseJob } from '../core/BaseJob';
 import { YahooProvider } from '../providers/YahooProvider';
 import { SupabaseProvider } from '../providers/SupabaseProvider';
-import { SymbolUniverseManager, normalizeStorageSymbol, getMarketStatus } from '../../constants/market-constants';
+import { SymbolUniverseManager, normalizeStorageSymbol } from '../../constants/market-constants';
 import { syncOrchestrator } from '../core/orchestrator';
+import { MarketStatusEngine } from '../core/MarketStatusEngine';
 
-import { JobMetadata, RefreshTier, MarketRegion, QueuePriority } from '../core/types';
+import { JobMetadata, RefreshTier, MarketRegion, QueuePriority, MarketSession } from '../core/types';
 
 export class UsLiveSyncJob extends BaseJob {
   public readonly id = 'UsLiveSyncJob';
@@ -12,106 +13,99 @@ export class UsLiveSyncJob extends BaseJob {
   public readonly metadata: JobMetadata = {
     id: this.id,
     tier: RefreshTier.TIER_1_HOT,
-    symbols: SymbolUniverseManager.getUniqueUsEquities().map(d => d.s),
+    symbols: SymbolUniverseManager.getUniqueUsEquities().map(a => a.s),
     region: MarketRegion.US,
-    priority: QueuePriority.DEFAULT,
+    priority: QueuePriority.WATCHLIST,
     bullMqQueueName: 'q-live-quotes',
     retryCount: 0,
-    maxRetries: 1
+    maxRetries: 3
   };
 
   protected async process(): Promise<number> {
-    const startTime = Date.now();
-    const supabase = SupabaseProvider.getClient();
-    const symbols = this.metadata.symbols;
-    const assets = SymbolUniverseManager.getUniqueUsEquities();
+    const assets = [
+      ...SymbolUniverseManager.getUniqueUsEquities(),
+      ...SymbolUniverseManager.getGlobalIndices().filter(a => a.region === 'US')
+    ];
 
-    const status = getMarketStatus('US');
-    console.log(`[UsLiveSyncJob] Market Status: ${status} | Total Symbols: ${symbols.length}`);
-
-    // Priority Filtering: In extended hours, only sync Tier A (S&P/Nasdaq/Dow) every minute
-    let targetSymbols = symbols;
-    if (status === 'PRE' || status === 'AFTER') {
-      const tierA = assets.filter(a => a.isSP500 || a.isNASDAQ100 || a.isDOW30).map(a => a.s);
-      // During extended hours, we only process Tier A every minute. 
-      // Tier B will be handled by a different frequency or every N-th cycle (for simplicity here, we filter).
-      targetSymbols = symbols.filter(s => tierA.includes(s));
-      console.log(`[UsLiveSyncJob] Extended Hours: Throttling to ${targetSymbols.length} Tier A stocks.`);
-    }
-
-    // 1. Chunk symbols into larger batches for Yahoo (max 250)
-    const batchSize = 250;
-    const batches = [];
-    for (let i = 0; i < targetSymbols.length; i += batchSize) {
-      batches.push(targetSymbols.slice(i, i + batchSize));
-    }
+    const symbols = assets.map(a => a.s);
+    const targetSymbols = symbols; 
 
     let processedCount = 0;
-    let skippedCount = 0;
-    let errorCount = 0;
+    const supabase = SupabaseProvider.getClient();
 
-    const allUpdates: any[] = [];
+    // 1. PRE-SYNC: Fetch existing High/Low from DB to prevent NULL overwrites
+    const { data: dbState } = await supabase
+      .from('us_market_assets')
+      .select('symbol, regularmarketdayhigh, regularmarketdaylow')
+      .in('symbol', targetSymbols.map(s => normalizeStorageSymbol(s).replace('^', '')));
 
-    // 2. Process batches sequentially via Queue
-    for (const batch of batches) {
-      try {
-        const quotes = await YahooProvider.fetchQuotes(batch, 'US');
+    const dbLookup = new Map(dbState?.map(s => [s.symbol, s]) || []);
+
+    try {
+      const quotes = await YahooProvider.fetchQuotes(targetSymbols, 'US');
+      const allUpdates = [];
+
+      for (const q of quotes) {
+        const symbol = normalizeStorageSymbol(q.symbol).replace('^', '');
+        const assetInfo = assets.find(a => normalizeStorageSymbol(a.s).replace('^', '') === symbol);
         
-        for (const q of quotes) {
-          const symbol = normalizeStorageSymbol(q.symbol);
+        const regularPrice = q.regularMarketPrice || q.postMarketPrice || q.preMarketPrice;
+        if (!regularPrice) continue;
+
+        // --- DYNAMIC SESSION HIGHS/LOWS (TRIPLE-GUARD) ---
+        const prevSnapshot = this.getSnapshot(symbol);
+        const dbSnapshot = dbLookup.get(symbol);
+
+        // Fallback chain: Yahoo -> Memory Cache -> Live Database -> Current Price (Initial Anchor)
+        const currentHigh = q.regularMarketDayHigh || prevSnapshot?.regularmarketdayhigh || dbSnapshot?.regularmarketdayhigh || null;
+        const currentLow = q.regularMarketDayLow || prevSnapshot?.regularmarketdaylow || dbSnapshot?.regularmarketdaylow || null;
+
+        // Logic: Keep the highest/lowest seen today
+        const finalHigh = (regularPrice && (!currentHigh || regularPrice > currentHigh)) ? regularPrice : currentHigh;
+        const finalLow = (regularPrice && (!currentLow || regularPrice < currentLow)) ? regularPrice : currentLow;
+
+        const fullPayload: any = {
+          symbol,
+          name: assetInfo?.n || q.shortName || q.longName || symbol,
+          current_price: regularPrice,
+          day_change: q.regularMarketChange || 0,
+          day_change_percentage: q.regularMarketChangePercent || 0,
+          prev_close: q.regularMarketPreviousClose,
           
-          if (!q.regularMarketPrice && !q.preMarketPrice && !q.postMarketPrice) continue;
+          // Institutional Metrics (Session Peaks)
+          regularmarketdayhigh: finalHigh,
+          regularmarketdaylow: finalLow,
+          
+          updated_at: new Date().toISOString()
+        };
 
-          const fullPayload = {
-            symbol,
-            current_price: q.regularMarketPrice || q.postMarketPrice || q.preMarketPrice,
-            day_change: q.regularMarketChange || 0,
-            day_change_percentage: q.regularMarketChangePercent || 0,
-            prev_close: q.regularMarketPreviousClose,
-            
-            // Extended Hours Capture
-            premarket_price: q.preMarketPrice || null,
-            premarket_change: q.preMarketChange || null,
-            after_hours_price: q.postMarketPrice || null,
-            after_hours_change: q.postMarketChange || null,
-
-            regularmarketdayhigh: q.regularMarketDayHigh || null,
-            regularmarketdaylow: q.regularMarketDayLow || null,
-            updated_at: new Date().toISOString()
-          };
-
-          const diffPayload = this.getDiff(symbol, fullPayload);
-
-          if (!diffPayload) {
-            skippedCount++;
-            syncOrchestrator.recordWriteSkip();
-            continue;
-          }
-
-          // Stage for batch upsert
-          allUpdates.push(diffPayload);
-          this.commitSnapshot(symbol, fullPayload);
-        }
-      } catch (e: any) {
-        console.error(`[UsLiveSyncJob] Batch failed:`, e.message);
-        errorCount += batch.length;
+        // 2. DIRTY CHECK (MANDATORY HYDRATION)
+        const diffPayload = this.getDiff(symbol, fullPayload);
+        
+        // We ALWAYS push a write if we have a valid High/Low, bypassing the dirty check logic 
+        // to ensure the database stays perfectly synchronized with session action.
+        const updatePayload = diffPayload || { symbol };
+        
+        // Inject mandatory fields
+        updatePayload.regularmarketdayhigh = finalHigh;
+        updatePayload.regularmarketdaylow = finalLow;
+        updatePayload.current_price = regularPrice;
+        updatePayload.updated_at = fullPayload.updated_at;
+        
+        allUpdates.push(updatePayload);
+        this.commitSnapshot(symbol, fullPayload);
       }
-    }
 
-    // 3. Perform a single batch upsert to Supabase
-    if (allUpdates.length > 0) {
-      const { error } = await supabase.from('us_market_assets').upsert(allUpdates, { onConflict: 'symbol' });
-      if (error) {
-        console.error(`[UsLiveSyncJob] Batch DB update failed:`, error.message);
-        errorCount += allUpdates.length;
-      } else {
+      if (allUpdates.length > 0) {
+        const { error } = await supabase.from('us_market_assets').upsert(allUpdates, { onConflict: 'symbol' });
+        if (error) throw error;
         processedCount = allUpdates.length;
       }
+
+    } catch (error: any) {
+      console.warn(`[UsLiveSyncJob] Batch pulse failed: ${error.message}`);
     }
 
-    const duration = Date.now() - startTime;
-    console.log(`[JOB END] ${this.id} | Writes: ${processedCount} | Skips: ${skippedCount} | Errors: ${errorCount} | Time: ${duration}ms`);
     return processedCount;
   }
 }
-

@@ -1,12 +1,24 @@
 "use client"
 
-import Link from "next/link"
+import { useRouter } from "next/navigation"
+import { useSession } from "next-auth/react"
 import "./CTAButton.css"
 
 export function CTAButton() {
+  const { status } = useSession()
+  const router = useRouter()
+
+  const handleEnter = () => {
+    if (status === 'authenticated') {
+      router.push('/dashboard')
+    } else {
+      router.push('/auth/login')
+    }
+  }
+
   return (
-    <Link href="/auth/login" className="cta-button">
+    <button onClick={handleEnter} className="cta-button">
       <span>Enter Terminal</span>
-    </Link>
+    </button>
   )
 }
