@@ -114,6 +114,47 @@ export class SymbolUniverseManager {
   static getNiftyTotalAssets(): ReadonlyArray<MarketAsset> {
     return Object.freeze(this.getUniqueIndianEquities().filter(a => a.isNIFTYTOTAL));
   }
+
+  static resolveSymbol(s: string, region: 'IN' | 'US'): string {
+    let upper = s.toUpperCase().trim();
+    if (region === 'US') return upper;
+    if (upper.includes('.') || upper.startsWith('^')) return upper;
+
+    // 0. Manual Portfolio Overrides (High-Fidelity Mappings)
+    const overrides: Record<string, string> = {
+      'DELTACORPLIMITED': 'DELTACORP.NS',
+      'RAJESHEXPORTSLTD': 'RAJESHEXPO.NS',
+      'PRINCEPIPESFITTINGSLTD': 'PRINCEPIPE.NS',
+      'KWALITYWALLSINDIAL': 'KWIL.NS',
+      'UTKARSHSMALLFINBANKL': 'UTKARSHBNK.NS',
+      'AXISBANK': 'AXISBANK.NS',
+      'HDFCLIFE': 'HDFCLIFE.NS',
+      'WIPRO': 'WIPRO.NS'
+    };
+    if (overrides[upper]) return overrides[upper];
+
+    const inAssets = this.getUniqueIndianEquities();
+    
+    // 1. Direct Universe Match (Standard)
+    const match = inAssets.find((a: any) => a.s.startsWith(upper) || upper.startsWith(a.s.split('.')[0]));
+    if (match) return match.s;
+
+    // 2. Suffix Stripping for Indian Broker Tickers (e.g. DELTACORPLIMITED -> DELTACORP)
+    const suffixes = ['LIMITED', 'LTD', 'INDIA', ' PLC', ' CORP', ' INC']; // Added space for CORP to be safe
+    let stripped = upper;
+    for (const suffix of suffixes) {
+      if (stripped.endsWith(suffix) && stripped.length > suffix.length) {
+        stripped = stripped.substring(0, stripped.length - suffix.length);
+      }
+    }
+
+    // 3. Re-check Universe with stripped version
+    const strippedMatch = inAssets.find((a: any) => a.s.startsWith(stripped) || stripped.startsWith(a.s.split('.')[0]));
+    if (strippedMatch) return strippedMatch.s;
+
+    // 4. Default fallback: .NS on stripped version
+    return `${stripped}.NS`;
+  }
 }
 
 export const getAssetRoute = (symbol: string) => {

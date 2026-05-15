@@ -23,26 +23,29 @@ export class IndianAnalyticsSyncJob extends BaseJob {
 
   protected async process(): Promise<number> {
     const supabase = SupabaseProvider.getClient();
-    const assets = SymbolUniverseManager.getUniqueIndianEquities();
-    const sliceSize = 50;
-    const totalSlices = Math.ceil(assets.length / sliceSize);
     
-    const sliceIndex = RotationManager.getNextSliceIndex('IN', totalSlices);
-    const start = sliceIndex * sliceSize;
-    const end = Math.min(start + sliceSize, assets.length);
-    const slice = assets.slice(start, end);
+    // Target only the active universe (Holdings + Active Views) for hourly analytics
+    const { ActiveRegistryService } = require('../core/ActiveRegistryService');
+    const universe = await ActiveRegistryService.getActiveUniverse('IN');
+    const symbols = universe.total;
 
-    console.log(`[IndianAnalyticsSyncJob] Processing Slice ${sliceIndex + 1}/${totalSlices} (${slice.length} stocks)`);
+    if (symbols.length === 0) return 0;
+
+    console.log(`[IndianAnalyticsSyncJob] Processing ${symbols.length} active symbols for hourly analytics.`);
 
     let processedCount = 0;
 
-    for (const item of slice) {
-      const symbol = normalizeStorageSymbol(item.s);
+    for (const symbol of symbols) {
       
       try {
         // Fetch Intelligence + Valuation modules
         const modules = ['summaryDetail', 'defaultKeyStatistics'];
         const summary = await YahooProvider.fetchQuoteSummary(symbol, modules, 'IN');
+
+        if (!summary) {
+           console.warn(`[IndianAnalyticsSyncJob] Skipping ${symbol}: No summary data returned.`);
+           continue;
+        }
 
         const sd = (summary.summaryDetail || {}) as any;
         const ks = (summary.defaultKeyStatistics || {}) as any;

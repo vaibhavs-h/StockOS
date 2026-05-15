@@ -4,6 +4,8 @@ import axios from 'axios';
 import { MarketAsset, AssetType, MarketRegion } from '../scheduler/core/types';
 
 const OUTPUT_PATH = path.resolve(process.cwd(), 'src/constants/generated/universes.json');
+const NSE_LOCAL_PATH = path.resolve(process.cwd(), 'data/symbols/nse_symbols.csv');
+const BSE_LOCAL_PATH = path.resolve(process.cwd(), 'data/symbols/bse_symbols.csv');
 
 // Reusable normalization
 const normalizeStorageSymbol = (symbol: string): string => {
@@ -121,17 +123,21 @@ async function fetchIndianUniverses() {
 
   const mergedMap = new Map<string, MarketAsset>();
 
-  const processList = (list: any[], flags: { nifty50?: boolean, total?: boolean }) => {
+  const processList = (list: any[], flags: { nifty50?: boolean, total?: boolean }, exchange: 'NSE' | 'BSE' = 'NSE') => {
+    const suffix = exchange === 'NSE' ? '.NS' : '.BO';
+    
     list.forEach(item => {
       let rawSymbol = item.s.toUpperCase().trim();
-      // Remove any existing .NS if present to prevent double suffix
-      rawSymbol = rawSymbol.replace('.NS', '');
+      // Remove any existing suffixes to prevent double suffixing
+      rawSymbol = rawSymbol.replace('.NS', '').replace('.BO', '');
       
-      const symbolWithSuffix = `${rawSymbol}.NS`;
+      const symbolWithSuffix = `${rawSymbol}${suffix}`;
       const storageKey = normalizeStorageSymbol(symbolWithSuffix);
       if (!storageKey) return;
 
       const existing = mergedMap.get(storageKey);
+
+
       if (existing) {
         if (flags.nifty50) existing.isNIFTY50 = true;
         if (flags.total) existing.isNIFTYTOTAL = true;
@@ -145,12 +151,12 @@ async function fetchIndianUniverses() {
         if (flags.total) memberships.push('NIFTY_TOTAL_MARKET');
         
         mergedMap.set(storageKey, {
-          s: storageKey, // Store with canonical NSE suffix
+          s: storageKey,
           n: item.n,
           assetType: AssetType.STOCK,
           region: MarketRegion.IN,
           currency: 'INR',
-          exchange: 'NSE',
+          exchange: exchange,
           indexMemberships: memberships,
           isNIFTY50: flags.nifty50 || false,
           isNIFTYTOTAL: flags.total || false
@@ -159,10 +165,53 @@ async function fetchIndianUniverses() {
     });
   };
 
-  // Process total market first to get the broad base
-  processList(totalMarket, { total: true });
-  // Process Nifty 50 to merge in the isNIFTY50 flags
-  processList(nifty50, { nifty50: true, total: true });
+  // Process total market for BOTH NSE and BSE to ensure full coverage
+  processList(totalMarket, { total: true }, 'NSE');
+  processList(totalMarket, { total: true }, 'BSE');
+  
+  // Process Nifty 50 for BOTH to merge in flags
+  processList(nifty50, { nifty50: true, total: true }, 'NSE');
+  processList(nifty50, { nifty50: true, total: true }, 'BSE');
+
+  // 3. SUPPLEMENT WITH LOCAL SYMBOL LISTS (FOR FULL 5000+ COVERAGE)
+  
+  // A. NSE Symbols (Local)
+  if (fs.existsSync(NSE_LOCAL_PATH)) {
+    console.log('[IN] Merging local NSE symbol list...');
+    const nseLocalCsv = fs.readFileSync(NSE_LOCAL_PATH, 'utf-8');
+    const nseLines = nseLocalCsv.split('\n');
+    const localNseAssets = [];
+    for (let i = 1; i < nseLines.length; i++) {
+      const cols = nseLines[i].split(',');
+      if (cols.length >= 2) {
+        const symbol = cols[0].trim();
+        const name = cols[1].trim();
+        if (symbol && name && symbol !== 'SYMBOL') {
+          localNseAssets.push({ s: symbol, n: name });
+        }
+      }
+    }
+    processList(localNseAssets, {}, 'NSE');
+  }
+
+  // B. BSE Symbols (Local UUID File)
+  if (fs.existsSync(BSE_LOCAL_PATH)) {
+    console.log('[IN] Merging local BSE symbol list...');
+    const bseLocalCsv = fs.readFileSync(BSE_LOCAL_PATH, 'utf-8');
+    const bseLines = bseLocalCsv.split('\n');
+    const localBseAssets = [];
+    for (let i = 1; i < bseLines.length; i++) {
+      const cols = bseLines[i].split(',');
+      if (cols.length >= 3) {
+        const name = cols[1].trim();
+        const symbol = cols[2].trim();
+        if (symbol && name && symbol !== 'Security Id') {
+          localBseAssets.push({ s: symbol, n: name });
+        }
+      }
+    }
+    processList(localBseAssets, {}, 'BSE');
+  }
 
   return Array.from(mergedMap.values());
 }

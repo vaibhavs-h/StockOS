@@ -2,32 +2,32 @@
 
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ChevronLeft, ChevronRight, X, ExternalLink, Download, FileText, Calendar, ArrowLeft, Check } from 'lucide-react';
+import { ChevronLeft, ChevronRight, X, ExternalLink, Download, FileText, Calendar, ArrowLeft, Check, Info } from 'lucide-react';
 
 const steps = [
   {
-    title: "Navigate to Reports",
-    description: "First, go to the Groww Reports page to access your official statements.",
-    image: "/Groww Holdings Fetch Guide/1-GrowwReportsPage.webp",
+    title: "Open Zerodha Console",
+    description: "Start by navigating to your Zerodha Console dashboard to access your portfolio reports.",
+    image: "/Zerodha Holdings Fetch Guide/1-ZerodhaDashboardPage.webp",
     icon: ExternalLink,
-    action: "https://groww.in/user/profile/report"
+    action: "https://console.zerodha.com/"
   },
   {
-    title: "Select Holdings Statement",
-    description: "Scroll to the 'Stocks' section and find the 'Holdings Statement' option.",
-    image: "/Groww Holdings Fetch Guide/2-GoToStockHoldingsStatement.webp",
+    title: "Navigate to Holdings",
+    description: "Click on 'Portfolio' in the top navigation bar, then select 'Holdings' from the dropdown.",
+    image: "/Zerodha Holdings Fetch Guide/2-GoToHoldings.webp",
     icon: FileText
   },
   {
-    title: "Pick Latest Date",
-    description: "Ensure you select the most recent available date for accurate data.",
-    image: "/Groww Holdings Fetch Guide/3-SelectLatestAvailableDate.webp",
-    icon: Calendar
+    title: "Configure Equity View",
+    description: "Select 'Equity' as the asset class and ensure the filter is set to 'All Equity' to capture all your assets.",
+    image: "/Zerodha Holdings Fetch Guide/3-SelectEquityAndSetItToAllEquityIfNotAlready.webp",
+    icon: Info
   },
   {
-    title: "Download Excel",
-    description: "Click the download button. The terminal expects the Excel (.xlsx) version.",
-    image: "/Groww Holdings Fetch Guide/4-ClickonDownload.webp",
+    title: "Download Statement",
+    description: "Click the download icon to export your holdings. The terminal prefers the CSV version for the most accurate sync.",
+    image: "/Zerodha Holdings Fetch Guide/4-ClickDownload.webp",
     icon: Download
   }
 ];
@@ -37,7 +37,7 @@ interface GuideProps {
   embedded?: boolean;
 }
 
-export const GrowwImportGuide: React.FC<GuideProps> = ({ onClose, embedded = false }) => {
+export const ZerodhaImportGuide: React.FC<GuideProps> = ({ onClose, embedded = false }) => {
   const [[currentStep, direction], setStep] = useState([0, 0]);
 
   const isLastStep = currentStep === steps.length - 1;
@@ -121,9 +121,9 @@ export const GrowwImportGuide: React.FC<GuideProps> = ({ onClose, embedded = fal
               <motion.div variants={staggerContainer} initial="hidden" animate="show" className="space-y-6">
                 <motion.div 
                   variants={staggerItem}
-                  className="w-12 h-12 rounded-2xl bg-emerald-500/10 flex items-center justify-center border border-emerald-500/20"
+                  className="w-12 h-12 rounded-2xl bg-indigo-500/10 flex items-center justify-center border border-indigo-500/20"
                 >
-                  {React.createElement(steps[currentStep].icon, { className: "w-6 h-6 text-emerald-400" })}
+                  {React.createElement(steps[currentStep].icon, { className: "w-6 h-6 text-indigo-400" })}
                 </motion.div>
                 
                 <div className="space-y-3">
@@ -148,9 +148,9 @@ export const GrowwImportGuide: React.FC<GuideProps> = ({ onClose, embedded = fal
                       href={steps[currentStep].action}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="inline-flex items-center gap-3 px-6 py-3 rounded-xl bg-white text-black font-terminal-label font-bold text-[10px] uppercase tracking-widest hover:bg-emerald-400 active:scale-95 transition-all group"
+                      className="inline-flex items-center gap-3 px-6 py-3 rounded-xl bg-white text-black font-terminal-label font-bold text-[10px] uppercase tracking-widest hover:bg-indigo-400 active:scale-95 transition-all group"
                     >
-                      Open Groww Reports
+                      Open Zerodha Console
                       <ExternalLink className="w-4 h-4 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-transform" />
                     </a>
                   </motion.div>
@@ -169,7 +169,7 @@ export const GrowwImportGuide: React.FC<GuideProps> = ({ onClose, embedded = fal
                 key={i} 
                 className={cn(
                   "flex-1 rounded-full transition-all duration-500",
-                  i === currentStep ? "bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.5)]" : i < currentStep ? "bg-emerald-500/40" : "bg-white/10"
+                  i === currentStep ? "bg-indigo-500 shadow-[0_0_10px_rgba(99,102,241,0.5)]" : i < currentStep ? "bg-indigo-500/40" : "bg-white/10"
                 )} 
               />
             ))}
@@ -191,7 +191,7 @@ export const GrowwImportGuide: React.FC<GuideProps> = ({ onClose, embedded = fal
               className={cn(
                 "flex-1 h-12 rounded-xl border flex items-center justify-between px-6 font-terminal-label font-bold text-[10px] uppercase tracking-[0.2em] transition-all active:scale-[0.98] group overflow-hidden relative",
                 isLastStep 
-                  ? "bg-emerald-500 text-black border-emerald-500 hover:bg-emerald-400 shadow-[0_0_30px_rgba(16,185,129,0.2)]" 
+                  ? "bg-indigo-500 text-black border-indigo-500 hover:bg-indigo-400 shadow-[0_0_30px_rgba(99,102,241,0.2)]" 
                   : "bg-white/5 text-white border-white/10 hover:bg-white/10"
               )}
             >
@@ -251,7 +251,7 @@ export const GrowwImportGuide: React.FC<GuideProps> = ({ onClose, embedded = fal
         </AnimatePresence>
         
         {/* Subtle Backdrop Glow */}
-        <div className="absolute inset-0 pointer-events-none bg-[radial-gradient(circle_at_center,rgba(16,185,129,0.05)_0,transparent_70%)] opacity-0 group-hover/preview:opacity-100 transition-opacity duration-1000" />
+        <div className="absolute inset-0 pointer-events-none bg-[radial-gradient(circle_at_center,rgba(99,102,241,0.05)_0,transparent_70%)] opacity-0 group-hover/preview:opacity-100 transition-opacity duration-1000" />
       </div>
     </div>
   );
@@ -271,10 +271,10 @@ export const GrowwImportGuide: React.FC<GuideProps> = ({ onClose, embedded = fal
         {/* Header (Solo Mode) */}
         <div className="flex items-center justify-between p-8 border-b border-white/5 bg-white/[0.02]">
           <div className="flex items-center gap-4">
-            <div className="w-12 h-12 rounded-2xl bg-emerald-500/10 flex items-center justify-center border border-emerald-500/20">
-              <Download className="w-6 h-6 text-emerald-400" />
+            <div className="w-12 h-12 rounded-2xl bg-indigo-500/10 flex items-center justify-center border border-indigo-500/20">
+              <Download className="w-6 h-6 text-indigo-400" />
             </div>
-            <h2 className="text-xl font-headline font-bold text-white tracking-tight">Import Guide</h2>
+            <h2 className="text-xl font-headline font-bold text-white tracking-tight">Zerodha Import Guide</h2>
           </div>
           <button onClick={onClose} className="p-2 rounded-full hover:bg-white/5 text-zinc-400 hover:text-white">
             <X className="w-8 h-8" />

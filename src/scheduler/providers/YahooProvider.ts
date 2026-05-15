@@ -3,52 +3,49 @@ import { yahooRequestQueue } from '../core/YahooRequestQueue';
 
 const yahooFinance = new YahooFinance();
 
+/**
+ * YahooProvider: The Institutional Data Gateway.
+ * Interfaces with yahoo-finance2 via the prioritized YahooRequestQueue.
+ */
 export class YahooProvider {
   /**
-   * Fetches lightweight quote data (Live Sync)
+   * Fetches lightweight quote data (Live Sync / Ephemeral Pulse)
+   * Priority: P1 (High)
    */
   static async fetchQuotes(symbols: string[], region: 'IN' | 'US' = 'IN') {
     return yahooRequestQueue.enqueue(
-      `quotes-${region}-${symbols.length}`,
+      `quotes-${region}-${symbols.length}-${symbols[0]}`, // ID includes first symbol for basic uniqueness
       async () => {
-        const start = Date.now();
         try {
-          const results = await yahooFinance.quote(symbols);
-          const latency = Date.now() - start;
-          console.log(`[YAHOO] 📦 BATCH  | ${region} | Symbols: ${String(symbols.length).padStart(3)} | Latency: ${latency}ms`);
+          const results = await yahooFinance.quote(symbols, {}, { validateResult: false } as any);
           return results;
         } catch (error: any) {
-          if (error.status === 429 || error.response?.status === 429) {
-             console.error(`\n[YAHOO] 🚨 RATE LIMIT REACHED (429) | Backing off...\n`);
-          }
           throw error;
         }
       },
-      5 // Higher priority for live quotes
+      1 // Priority P1: High priority for live market data
     );
   }
 
   /**
-   * Fetches heavy quote summary modules (Deep Sync)
+   * Fetches heavy quote summary modules (Deep Sync / Fundamentals)
+   * Priority: P4 (Low)
    */
   static async fetchQuoteSummary(symbol: string, modules: string[], region: 'IN' | 'US' = 'IN') {
     return yahooRequestQueue.enqueue(
       `summary-${region}-${symbol}`,
       async () => {
-        const start = Date.now();
         try {
-          const result = await yahooFinance.quoteSummary(symbol, { modules: modules as any }, { validate: false } as any);
-          const latency = Date.now() - start;
-//           console.log(`[YAHOO] 📑 SUMMARY| ${region} | Symbol: ${symbol.padEnd(10)} | Latency: ${latency}ms`);
+          // Note: yahoo-finance2 uses 'validateResult' for quoteSummary as well
+          const result = await yahooFinance.quoteSummary(symbol, { modules: modules as any }, { validateResult: false } as any);
           return result;
         } catch (error: any) {
-          throw error;
+          console.error(`[YahooProvider] Failed fetchQuoteSummary for ${symbol}:`, error.message);
+          // Return null instead of throwing to prevent global crash
+          return null;
         }
       },
-      20 // Lower priority for deep sync
+      4 // Priority P4: Low priority for deep enrichment
     );
   }
 }
-
-
-

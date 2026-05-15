@@ -1,23 +1,21 @@
 import { BaseJob } from '../core/BaseJob';
-import { YahooProvider } from '../providers/YahooProvider';
-import { SupabaseProvider } from '../providers/SupabaseProvider';
-import { SymbolUniverseManager, normalizeStorageSymbol } from '../../constants/market-constants';
+import { BatchAggregationService } from '../core/BatchAggregationService';
+import { ActiveRegistryService } from '../core/ActiveRegistryService';
 import { syncOrchestrator } from '../core/orchestrator';
-
+import { PortfolioRevaluationJob } from './PortfolioRevaluationJob';
 import { JobMetadata, RefreshTier, MarketRegion, QueuePriority } from '../core/types';
 
+/**
+ * IndianLiveSyncJob: The Institutional Live Sync.
+ * Refactored for Pulse Engine v2: Demand-driven and Coalesced.
+ */
 export class IndianLiveSyncJob extends BaseJob {
   public readonly id = 'IndianLiveSyncJob';
 
   public readonly metadata: JobMetadata = {
     id: this.id,
     tier: RefreshTier.TIER_1_HOT,
-    symbols: [
-      ...SymbolUniverseManager.getUniqueIndianEquities().map(a => a.s),
-      ...SymbolUniverseManager.getGlobalIndices()
-        .filter(a => a.region === 'IN')
-        .map(a => a.s)
-    ],
+    symbols: [], // Populated dynamically via ActiveRegistry
     region: MarketRegion.IN,
     priority: QueuePriority.DEFAULT,
     bullMqQueueName: 'q-live-quotes',
@@ -27,92 +25,28 @@ export class IndianLiveSyncJob extends BaseJob {
 
   protected async process(): Promise<number> {
     const startTime = Date.now();
-    const supabase = SupabaseProvider.getClient();
-    const symbols = this.metadata.symbols;
-    const assets = SymbolUniverseManager.getUniqueIndianEquities();
+    
+    // 1. Identify Demand-Driven Universe
+    const { total: symbols } = await ActiveRegistryService.getActiveUniverse('IN');
+    
+    if (symbols.length === 0) {
+      console.log(`[JOB] ${this.id} | No active demand found. Skipping.`);
+      return 0;
+    }
 
     console.log(`[JOB START] ${this.id} | Symbols to process: ${symbols.length}`);
     
-    // 1. Chunk symbols into larger batches for Yahoo (max 250)
-    const batchSize = 250;
-    const batches = [];
-    for (let i = 0; i < symbols.length; i += batchSize) {
-      batches.push(symbols.slice(i, i + batchSize));
-    }
-
-    let processedCount = 0;
-    let skippedCount = 0;
-    let errorCount = 0;
-
-    const allUpdates: any[] = [];
-
-    // 2. Fetch all batches (we can parallelize slightly but sequential batches are safer for Yahoo rate limits)
-    for (const batch of batches) {
-      try {
-        const quotes = await YahooProvider.fetchQuotes(batch, 'IN');
-        
-        for (const q of quotes) {
-          // Strip '^' for indices to match storage conventions if needed, 
-          // but normalizeStorageSymbol preserves it. We'll strip it for DB matching.
-          const symbol = normalizeStorageSymbol(q.symbol).replace('^', '');
-          const assetInfo = assets.find(a => normalizeStorageSymbol(a.s).replace('^', '') === symbol);
-          
-          if (!q.regularMarketPrice && !q.preMarketPrice && !q.postMarketPrice) continue;
-
-          const fullPayload = {
-            symbol,
-            name: assetInfo?.n || q.shortName || q.longName || symbol,
-            current_price: q.regularMarketPrice,
-            day_change: q.regularMarketChange,
-            day_change_percentage: q.regularMarketChangePercent,
-            open_price: q.regularMarketOpen,
-            high_price: q.regularMarketDayHigh,
-            low_price: q.regularMarketDayLow,
-            prev_close: q.regularMarketPreviousClose,
-            volume: q.regularMarketVolume,
-            updated_at: new Date().toISOString()
-          };
-
-          const diffPayload = this.getDiff(symbol, fullPayload);
-          
-          if (!diffPayload) {
-            skippedCount++;
-            syncOrchestrator.recordWriteSkip();
-            continue;
-          }
-
-          // Stage for batch upsert
-          allUpdates.push(diffPayload);
-          this.commitSnapshot(symbol, fullPayload);
-        }
-      } catch (e: any) {
-        console.error(`[IndianLiveSyncJob] Batch failed:`, e.message);
-        errorCount += batch.length;
-      }
-    }
-
-    // 3. Perform a single batch upsert to Supabase
-    if (allUpdates.length > 0) {
-      const { error } = await supabase.from('market_assets').upsert(allUpdates, { onConflict: 'symbol' });
-      if (error) {
-        console.error(`[IndianLiveSyncJob] Batch DB update failed:`, error.message);
-        errorCount += allUpdates.length;
-      } else {
-        processedCount = allUpdates.length;
-      }
-    }
+    // 2. Batch Sync Quotes (Greedy Aggregation + Coalescing)
+    const results = await BatchAggregationService.fetchQuotesInBatches(symbols, 'IN');
 
     const duration = Date.now() - startTime;
-    console.log(`[JOB END] ${this.id} | Writes: ${processedCount} | Skips: ${skippedCount} | Errors: ${errorCount} | Time: ${duration}ms`);
+    console.log(`[JOB END] ${this.id} | Processed: ${results.length} | Time: ${duration}ms`);
     
-    // ATOMIC HANDSHAKE: Trigger revaluation immediately after price sync
-    if (processedCount > 0) {
+    // 3. ATOMIC HANDSHAKE: Trigger revaluation
+    if (results.length > 0) {
       syncOrchestrator.dispatch(new PortfolioRevaluationJob());
     }
 
-    return processedCount;
+    return results.length;
   }
 }
-
-import { PortfolioRevaluationJob } from './PortfolioRevaluationJob';
-

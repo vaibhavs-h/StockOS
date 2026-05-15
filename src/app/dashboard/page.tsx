@@ -2,7 +2,7 @@
 
 export const dynamic = 'force-dynamic';
 
-import React, { useState, useEffect, useMemo } from "react"
+import React, { useState, useEffect, useMemo, useRef } from "react"
 import { createPortal } from "react-dom"
 import { motion, AnimatePresence } from "framer-motion"
 import {
@@ -14,28 +14,45 @@ import {
   ShieldCheck,
   Newspaper,
   Cpu,
-  TrendingUp,
-  RefreshCcw,
-  Send,
-  Database,
+  Wallet,
   ArrowUpRight,
   ArrowDownRight,
+  TrendingUp,
+  TrendingDown,
   Activity,
-  Menu,
-  ChevronDown,
+  PieChart,
+  Target,
+  Zap,
+  LayoutGrid,
+  Filter,
+  RefreshCcw,
+  Plus,
+  Trash2,
+  AlertCircle,
   Clock,
+  History,
+  Download,
+  Share2,
+  Calendar,
+  Globe,
+  Settings,
+  MoreHorizontal,
+  ChevronRight,
   ShieldAlert,
   Lightbulb,
-  Percent,
-  AlertCircle,
+  Database,
   ThumbsUp,
   ThumbsDown,
-  Wallet,
+  Send,
+  Sparkles,
+  Menu,
+  ChevronDown,
+  Percent,
   X,
   Moon,
-  Trash2,
-  Plus
+  Info
 } from "lucide-react"
+
 import { supabase } from "@/services/DatabaseClient"
 import axios from "axios"
 import { WealthPerformanceChart as WealthChart } from "@/components/dashboard/WealthPerformanceChart"
@@ -45,6 +62,10 @@ import { useRouter } from "next/navigation"
 import { cn } from "@/lib/utils"
 import { useSession } from "next-auth/react"
 import { GrowwImportGuide } from "@/components/dashboard/GrowwImportGuide"
+import { ZerodhaImportGuide } from "@/components/dashboard/ZerodhaImportGuide"
+import { RollingNumber } from "@/components/shared/RollingNumber"
+import { PortfolioAnalyzer } from "@/components/dashboard/PortfolioAnalyzer"
+import { FloatingAssistant } from "@/components/dashboard/FloatingAssistant"
 
 export default function DashboardPage() {
   const router = useRouter()
@@ -76,212 +97,40 @@ export default function DashboardPage() {
   const [showSyncConsole, setShowSyncConsole] = useState(false)
   const [lastSyncTime, setLastSyncTime] = useState<string>('SYNCHRONIZING...')
 
+  // Stable daily P/L from server-side aggregate (avoids frontend partial-read race condition)
+  const [dailyPLData, setDailyPLData] = useState<{ total_day_change: number; day_change_percentage: number } | null>(null);
+
   useEffect(() => {
     setMounted(true);
   }, []);
 
 
-  const { data: session } = useSession()
-  const portfolioId = (session?.user as any)?.id || process.env.NEXT_PUBLIC_PORTFOLIO_ID || "vaibhav";
+  const { data: session, status } = useSession()
+  const portfolioId = (session?.user as any)?.id || process.env.NEXT_PUBLIC_PORTFOLIO_ID || "guest";
 
   const formattedName = useMemo(() => {
-    const rawName = session?.user?.name || "VAIBHAV SINGH";
+    if (status === 'loading') return "Fetching User's Name...";
+
+    const rawName = session?.user?.name || "GUEST";
     const parts = rawName.trim().split(/\s+/);
-    if (parts.length === 0) return "GUEST";
+    if (parts.length === 0 || !parts[0]) return "GUEST";
     if (parts.length === 1) return parts[0].toUpperCase();
 
     const firstName = parts[0];
     const secondPart = parts[1];
     return `${firstName} ${secondPart[0]}.`.toUpperCase();
-  }, [session?.user?.name]);
-
-  const [marketIntelligence, setMarketIntelligence] = useState<any>(() => {
-    if (typeof window !== 'undefined') {
-      const cached = localStorage.getItem('stockos_market_intelligence');
-      if (cached) {
-        try { return JSON.parse(cached); } catch (e) { return null; }
-      }
-    }
-    return null;
-  });
-  const [lastIntelligenceFetch, setLastIntelligenceFetch] = useState<string | null>(() => {
-    if (typeof window !== 'undefined') {
-      return localStorage.getItem('stockos_intelligence_timestamp');
-    }
-    return null;
-  });
-  const [intelligenceLoading, setIntelligenceLoading] = useState(() => {
-    if (typeof window !== 'undefined') {
-      return !localStorage.getItem('stockos_market_intelligence');
-    }
-    return true;
-  });
-
-  // AI Assistant State
-  const [assistantMessages, setAssistantMessages] = useState<any[]>([])
-  const [assistantLoading, setAssistantLoading] = useState(false)
+  }, [session?.user?.name, status]);
 
   // Portfolio Linking State
   const [addPortfolioModalOpen, setAddPortfolioModalOpen] = useState(false)
   const [newPortfolioType, setNewPortfolioType] = useState<'GROWW' | 'ZERODHA' | ''>('')
   const [newPortfolioName, setNewPortfolioName] = useState('')
   const [showGrowwGuide, setShowGrowwGuide] = useState(false)
+  const [showZerodhaGuide, setShowZerodhaGuide] = useState(false)
 
-  // Initialize welcome message on mount to avoid hydration mismatch
-  useEffect(() => {
-    if (mounted) {
-      setAssistantMessages([
-        {
-          role: 'assistant',
-          content: 'Hello! I am your research assistant. Ask me about any stock or portfolio risk.',
-          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-          hideFeedback: true
-        }
-      ]);
-    }
-  }, [mounted]);
-  const chatContainerRef = React.useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    if (chatContainerRef.current) {
-      chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
-    }
-  }, [assistantMessages]);
-
-  const handleAssistantQuery = async (query: string) => {
-    if (!query.trim()) return;
-
-    const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-
-    // Add user message
-    const userMsg = { role: 'user', content: query, timestamp };
-    setAssistantMessages(prev => [...prev, userMsg]);
-    setAssistantLoading(true);
-
-    const assistantUrl = process.env.NEXT_PUBLIC_STOCK_ASSISTANT;
-
-    if (!assistantUrl) {
-      setAssistantMessages(prev => [...prev, {
-        role: 'assistant',
-        content: "Error: AI Assistant URL not found in .env file.",
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
-        isError: true
-      }]);
-      setAssistantLoading(false);
-      return;
-    }
-
-    try {
-      const response = await axios.post(assistantUrl, {
-        user_id: portfolioId,
-        user_query: query
-      }, {
-        timeout: 180000
-      });
-
-      const rawData = response.data;
-      let analysisItem = null;
-
-      // --- 0. Partial/Malformed JSON Extraction (The "n8n Truncation" Case) ---
-      let processedData = rawData;
-
-      // If we got a nested 'output' or 'raw_output' string, try to recover data from it
-      const firstItem = Array.isArray(rawData) ? rawData[0] : rawData;
-      const rawStr = firstItem?.output || firstItem?.raw_output;
-
-      if (rawStr && typeof rawStr === 'string') {
-        try {
-          // Attempt 1: Try to fix trailing truncation by adding closing braces/brackets
-          // We try multiple closing variations to be safe
-          let repaired = rawStr.trim();
-          if (!repaired.endsWith(']')) repaired += '"}]';
-          processedData = JSON.parse(repaired);
-        } catch (e) {
-          // Attempt 2: Use regex to extract key fields if JSON is too broken
-          const extractField = (field: string) => {
-            const regex = new RegExp(`"${field}"\\s*:\\s*"([^"]+)"`, 'i');
-            const match = rawStr.match(regex);
-            return match ? match[1] : null;
-          };
-
-          analysisItem = {
-            answer: extractField('answer') || "I analyzed your portfolio, but the response format was slightly different. Here is the partial insight:",
-            portfolio: extractField('portfolio') || "Portfolio summary available.",
-            analysis: extractField('analysis') || "Analysis details were partially retrieved.",
-            risk: extractField('risk') || "Moderate (Inferred)",
-            action: extractField('action') || "HOLD",
-            confidence: { score: 50, reason: "Inferred from partial data" },
-            isPartial: true
-          };
-
-          if (analysisItem.answer && analysisItem.answer.length > 20) {
-            // Success!
-          } else {
-            analysisItem = null;
-          }
-        }
-      }
-
-      // --- 1. Standard Robust Extraction ---
-      if (!analysisItem) {
-        const dataToParse = Array.isArray(processedData) ? processedData : [processedData];
-        if (dataToParse.length > 0) {
-          const first = dataToParse[0];
-          // Case: [{ analysis: [{ ... }] }]
-          if (Array.isArray(first.analysis) && first.analysis.length > 0) {
-            analysisItem = first.analysis[0];
-          }
-          // Case: [{ answer: "...", risk: "..." }]
-          else if (first.answer) {
-            analysisItem = {
-              answer: first.answer,
-              portfolio: first.portfolio || 'Analysis complete.',
-              risk: first.risk || 'Unknown',
-              action: first.action || 'HOLD',
-              confidence: {
-                score: (typeof first.confidence === 'object' && first.confidence !== null)
-                  ? (first.confidence.score || 50)
-                  : (first.confidence || 50),
-                reason: (typeof first.confidence === 'object' && first.confidence !== null)
-                  ? (first.confidence.reason || first.reason || 'Provided by AI.')
-                  : (first.reason || 'Provided by AI.')
-              },
-              recommended_stocks: first.recommended_stocks || []
-            };
-          }
-        }
-      }
-
-      if (analysisItem) {
-        setAssistantMessages(prev => [...prev, {
-          role: 'assistant',
-          content: analysisItem.answer,
-          analysisData: analysisItem,
-          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-        }]);
-      } else {
-        // Ultimate fallback: display something useful
-        const fallbackContent = typeof rawData === 'object' ? JSON.stringify(rawData, null, 2) : String(rawData);
-        setAssistantMessages(prev => [...prev, {
-          role: 'assistant',
-          content: "I received the data but the format is a bit unusual. Here is the raw insight:\n\n" + fallbackContent,
-          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-        }]);
-      }
-
-    } catch (err) {
-      console.error("Assistant error:", err);
-      setAssistantMessages(prev => [...prev, {
-        role: 'assistant',
-        content: "Connection Error: Could not reach the AI server. Check if your ngrok tunnel is still active.",
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
-        isError: true
-      }]);
-    } finally {
-      setAssistantLoading(false);
-    }
-  };
-
+  // Debounce ref: prevents partial-read flicker when revaluation job batch-upserts holdings
+  const holdingsFetchTimer = useRef<NodeJS.Timeout | null>(null);
 
   const fetchHoldings = async () => {
     if (!activePortfolio) return;
@@ -300,47 +149,18 @@ export default function DashboardPage() {
     } finally {
       setLoading(false);
     }
-  }
+  };
 
-  const fetchMarketIntelligence = async () => {
-    if (intelligenceLoading) return;
+  // Debounced version: waits 3s for all batch upsert rows to settle before fetching
+  const debouncedFetchHoldings = () => {
+    if (holdingsFetchTimer.current) clearTimeout(holdingsFetchTimer.current);
+    holdingsFetchTimer.current = setTimeout(() => {
+      fetchHoldings();
+      if (activePortfolio) fetchDailyPL(activePortfolio.id);
+    }, 3000);
+  };
 
-    setIntelligenceLoading(true);
-    try {
-      const res = await fetch('/api/market-intelligence');
-      const data = await res.json();
 
-      const result = Array.isArray(data) ? data[0] : data;
-
-      if (result && result.output) {
-        const parsed = JSON.parse(result.output);
-
-        // Only update if data is different from cache to preserve stable timestamps
-        const currentDataStr = localStorage.getItem('stockos_market_intelligence');
-        const newDataStr = JSON.stringify(parsed);
-
-        if (newDataStr !== currentDataStr) {
-          setMarketIntelligence(parsed);
-          const now = new Date().toLocaleString('en-IN', {
-            day: '2-digit',
-            month: '2-digit',
-            year: 'numeric',
-            hour: '2-digit',
-            minute: '2-digit',
-            second: '2-digit',
-            hour12: true
-          });
-          setLastIntelligenceFetch(now);
-          localStorage.setItem('stockos_market_intelligence', newDataStr);
-          localStorage.setItem('stockos_intelligence_timestamp', now);
-        }
-      }
-    } catch (err) {
-      console.error("[DASHBOARD] Intelligence fetch failed:", err);
-    } finally {
-      setIntelligenceLoading(false);
-    }
-  }
 
 
   const fetchHistory = async () => {
@@ -412,8 +232,7 @@ export default function DashboardPage() {
     try {
       await Promise.all([
         fetchHoldings(),
-        fetchIndices(),
-        fetchMarketIntelligence()
+        fetchIndices()
       ]);
     } catch (err) {
       console.error("Refresh failed", err);
@@ -505,7 +324,6 @@ export default function DashboardPage() {
     window.scrollTo(0, 0);
     fetchPortfolios();
     fetchIndices();
-    fetchMarketIntelligence();
 
     // Subscribe to Realtime Updates for Holdings & History
     if (activePortfolio) {
@@ -516,7 +334,7 @@ export default function DashboardPage() {
           schema: 'public',
           table: 'holdings',
           filter: `portfolio_id=eq.${activePortfolio.id}`
-        }, () => setTimeout(fetchHoldings, 1000))
+        }, () => debouncedFetchHoldings())
         .subscribe();
 
       const historySubscription = supabase
@@ -542,34 +360,93 @@ export default function DashboardPage() {
     // INSTANT FETCH: Don't wait for heartbeat
     fetchHoldings();
     fetchHistory();
+    fetchDailyPL(activePortfolio.id);
+
+    // Dashboard Heartbeat: Pulse all active holdings to the engine
+    const sendDashboardHeartbeat = async () => {
+      if (!mounted || document.hidden || holdings.length === 0) return;
+
+      try {
+        const uniqueSymbols = Array.from(new Set(holdings.map(h => h.trading_symbol.toUpperCase())));
+        for (const symbol of uniqueSymbols) {
+          // Heuristic for market: .NS means Indian market
+          const market = symbol.endsWith('.NS') ? 'IN' : 'US';
+          fetch('/api/market/heartbeat', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ symbol, market })
+          }).catch(() => { });
+        }
+      } catch (e) { }
+    };
 
     const interval = setInterval(fetchIndices, 10000); // 10s Indices refresh
-    const intelligenceInterval = setInterval(fetchMarketIntelligence, 3600000);
-    const syncInterval = setInterval(() => {
-      fetchHoldings();
-      fetchHistory();
-    }, 10000); // 10s Dashboard Heartbeat
+    // Poll daily P/L via server-side aggregate every 8s — atomic SUM, no partial-read risk
+    const dailyPLInterval = setInterval(() => fetchDailyPL(activePortfolio.id), 8000);
+    // Holdings poll every 30s as backup; realtime subscription handles live updates
+    const syncInterval = setInterval(() => { fetchHoldings(); fetchHistory(); }, 30000);
+
+    const pulseInterval = setInterval(sendDashboardHeartbeat, 30000);
+    setTimeout(sendDashboardHeartbeat, 5000);
 
     return () => {
       clearInterval(interval);
-      clearInterval(intelligenceInterval);
+      clearInterval(dailyPLInterval);
       clearInterval(syncInterval);
+      clearInterval(pulseInterval);
     };
-  }, [mounted, activePortfolio]);
+  }, [mounted, activePortfolio, holdings.length]);
 
 
   const totalNetWorth = holdings.reduce((sum, h) => sum + (Number(h.market_value) || 0), 0);
   const totalInvested = holdings.reduce((sum, h) => sum + (Number(h.invested_value) || 0), 0);
 
-  // Calculate Daily P/L based on real-time holdings data
-  const totalDayChange = useMemo(() => {
-    return holdings.reduce((sum, h) => sum + (Number(h.day_change) || 0), 0);
-  }, [holdings]);
+  // INSTITUTIONAL METRIC PERSISTENCE: Freeze the latest high-fidelity snapshot to end flickering
+  const lastGoodSnapshot = useRef<any>(null);
 
-  const baselineForPerc = totalNetWorth - totalDayChange;
-  const dayChangePerc = (totalNetWorth > 0 && baselineForPerc > 0)
-    ? (totalDayChange / baselineForPerc) * 100
-    : 0;
+  const latestSnapshot = useMemo(() => {
+    if (!history || history.length === 0) return lastGoodSnapshot.current;
+    
+    // 1. PRIMARY: Filter by active portfolio ID for absolute symmetry
+    const portfolioHistory = activePortfolio 
+      ? history.filter(h => h.portfolio_id === activePortfolio.id)
+      : [];
+      
+    let latest = portfolioHistory.length > 0 
+      ? portfolioHistory.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())[portfolioHistory.length - 1]
+      : null;
+
+    // 2. FALLBACK: If active filter is empty, use the absolute latest snapshot for this user
+    if (!latest && history.length > 0) {
+      latest = history.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())[history.length - 1];
+    }
+    
+    if (latest) {
+      lastGoodSnapshot.current = latest;
+    }
+    
+    return latest || lastGoodSnapshot.current;
+  }, [history, activePortfolio]);
+
+  // SERVER-SIDE AGGREGATE: Single atomic SUM query avoids frontend partial-read race conditions
+  const fetchDailyPL = async (portfolioId: string) => {
+    try {
+      const res = await fetch(`/api/portfolio/daily-pl?portfolio_id=${portfolioId}`);
+      if (!res.ok) return;
+      const data = await res.json();
+      setDailyPLData(data);
+    } catch (e) {
+      console.error('[DASHBOARD] fetchDailyPL failed:', e);
+    }
+  };
+
+  const totalDayChange = dailyPLData?.total_day_change ?? holdings.reduce((sum, h) => sum + (Number(h.day_change) || 0), 0);
+
+  const dayChangePerc = dailyPLData?.day_change_percentage ?? (() => {
+    const baseline = totalNetWorth - totalDayChange;
+    return (totalNetWorth > 0 && baseline > 0) ? (totalDayChange / baseline) * 100 : 0;
+  })();
+
 
   const totalPL = totalNetWorth - totalInvested;
   const totalPLPerc = totalInvested > 0 ? (totalPL / totalInvested) * 100 : 0;
@@ -680,7 +557,7 @@ export default function DashboardPage() {
 
       {/* Main Dashboard Grid */}
       <section
-        className="pt-[130px] pb-6 px-12 max-w-full mx-auto w-full grid grid-cols-1 lg:grid-cols-[1fr_560px] gap-x-10 gap-y-6 relative items-stretch"
+        className="pt-[130px] pb-12 px-12 max-w-full mx-auto w-full grid grid-cols-1 lg:grid-cols-[1fr_520px] gap-x-6 gap-y-6 relative items-stretch"
       >
         {/* TOP ROW LEFT: Header + Metrics + Chart */}
         <motion.div
@@ -816,36 +693,34 @@ export default function DashboardPage() {
                                   </div>
 
                                   <div className="flex items-center gap-2 relative z-10">
-                                    {activePortfolio?.id === p.id && (
-                                      <button
-                                        onClick={async (e) => {
-                                          e.stopPropagation();
-                                          if (confirm(`Delete "${p.name}"? All holdings and history for this specific portfolio will be lost.`)) {
-                                            try {
-                                              await supabase.from('holdings').delete().eq('portfolio_id', p.id);
-                                              await supabase.from('portfolio_history').delete().eq('portfolio_id', p.id);
-                                              await supabase.from('user_portfolios').delete().eq('id', p.id);
+                                    <button
+                                      onClick={async (e) => {
+                                        e.stopPropagation();
+                                        if (confirm(`Delete "${p.name}"? All holdings and history for this specific portfolio will be lost.`)) {
+                                          try {
+                                            await supabase.from('holdings').delete().eq('portfolio_id', p.id);
+                                            await supabase.from('portfolio_history').delete().eq('portfolio_id', p.id);
+                                            await supabase.from('user_portfolios').delete().eq('id', p.id);
 
-                                              const remaining = portfolios.filter(x => x.id !== p.id);
-                                              setPortfolios(remaining);
-                                              if (remaining.length > 0) {
-                                                setActivePortfolio(remaining.find(r => r.is_primary) || remaining[0]);
-                                              } else {
-                                                setActivePortfolio(null);
-                                                setHoldings([]);
-                                                setHistory([]);
-                                              }
-                                            } catch (err) {
-                                              console.error("Delete error:", err);
+                                            const remaining = portfolios.filter(x => x.id !== p.id);
+                                            setPortfolios(remaining);
+                                            if (remaining.length > 0) {
+                                              setActivePortfolio(remaining.find(r => r.is_primary) || remaining[0]);
+                                            } else {
+                                              setActivePortfolio(null);
+                                              setHoldings([]);
+                                              setHistory([]);
                                             }
+                                          } catch (err) {
+                                            console.error("Delete error:", err);
                                           }
-                                        }}
-                                        className="size-8 rounded-lg bg-red-500/5 border border-red-500/10 flex items-center justify-center hover:bg-red-500/20 hover:border-red-500/30 transition-all opacity-0 group-hover/item:opacity-100"
-                                        title="Delete Portfolio"
-                                      >
-                                        <Trash2 className="w-3.5 h-3.5 text-red-500/60 group-hover/item:text-red-500 transition-colors" />
-                                      </button>
-                                    )}
+                                        }
+                                      }}
+                                      className="size-8 rounded-lg bg-red-500/5 border border-red-500/10 flex items-center justify-center hover:bg-red-500/20 hover:border-red-500/30 transition-all"
+                                      title="Delete Portfolio"
+                                    >
+                                      <Trash2 className="w-3.5 h-3.5 text-red-500/60 group-hover/item:text-red-500 transition-colors" />
+                                    </button>
                                   </div>
                                 </div>
                               ))}
@@ -906,7 +781,7 @@ export default function DashboardPage() {
                 <div className="absolute -inset-4 bg-emerald-500/5 blur-3xl rounded-full opacity-0 group-hover:opacity-100 transition-opacity duration-1000" />
                 <span className="font-terminal-label uppercase tracking-wider text-[12px] text-emerald-400 block mb-1 font-bold relative z-10">Total Net Worth</span>
                 <h1 className="font-headline font-bold text-4xl md:text-5xl tracking-tighter text-white tabular-nums leading-none relative z-10 whitespace-nowrap">
-                  {formatCurrency(totalNetWorth)}
+                  <RollingNumber value={totalNetWorth} currency prefix="₹" decimals={0} />
                 </h1>
               </div>
 
@@ -916,13 +791,21 @@ export default function DashboardPage() {
                 <div className="flex items-center gap-4 flex-nowrap">
                   <span className={`font-headline font-bold text-2xl md:text-3xl tabular-nums whitespace-nowrap flex items-center ${((timeRange === '1D' && getMarketStatus('IN') === 'CLOSED') || totalDayChange === 0) ? 'text-zinc-500' : (totalDayChange > 0 ? 'text-emerald-500' : 'text-red-500')
                     }`}>
-                    {((timeRange === '1D' && getMarketStatus('IN') === 'CLOSED') || totalDayChange === 0) ? '₹0' : `${totalDayChange > 0 ? '+' : ''}${formatCurrency(totalDayChange)}`}
+                    {((timeRange === '1D' && getMarketStatus('IN') === 'CLOSED') || totalDayChange === 0) ? (
+                      <RollingNumber value={0} currency prefix="₹" decimals={0} />
+                    ) : (
+                      <RollingNumber value={totalDayChange} currency prefix="₹" showSign decimals={0} />
+                    )}
                   </span>
                   <span className={`font-terminal-label border px-2 py-0.5 rounded-[4px] text-[10px] font-bold ${((timeRange === '1D' && getMarketStatus('IN') === 'CLOSED') || totalDayChange === 0)
                     ? 'bg-zinc-500/10 text-zinc-500 border-zinc-500/20'
                     : (totalDayChange > 0 ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-red-500/10 text-red-400 border-red-500/20')
                     }`}>
-                    {((timeRange === '1D' && getMarketStatus('IN') === 'CLOSED') || totalDayChange === 0) ? '0.00%' : `${totalDayChange > 0 ? '+' : ''}${dayChangePerc.toFixed(2)}%`}
+                    {((timeRange === '1D' && getMarketStatus('IN') === 'CLOSED') || totalDayChange === 0) ? (
+                      <RollingNumber value={0} suffix="%" decimals={2} />
+                    ) : (
+                      <RollingNumber value={dayChangePerc} suffix="%" decimals={2} showSign />
+                    )}
                   </span>
                 </div>
               </div>
@@ -933,11 +816,11 @@ export default function DashboardPage() {
                 <div className="flex items-center gap-4 flex-nowrap">
                   <span className={`font-headline font-bold text-xl md:text-2xl tabular-nums whitespace-nowrap flex items-center ${totalPL === 0 ? 'text-zinc-500' : (totalPL > 0 ? 'text-emerald-500' : 'text-red-500')
                     }`}>
-                    {totalPL === 0 ? '₹0' : `${totalPL > 0 ? '+' : ''}${formatCurrency(totalPL)}`}
+                    <RollingNumber value={totalPL} currency prefix="₹" showSign decimals={0} />
                   </span>
                   <span className={`font-terminal-label px-2 py-0.5 rounded-[4px] text-[10px] font-bold border transition-all duration-500 ${totalPL === 0 ? 'bg-zinc-500/10 text-zinc-500 border-zinc-500/20' : (totalPL > 0 ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-red-500/10 text-red-400 border-red-500/20')
                     }`}>
-                    {totalPLPerc >= 0 ? '+' : ''}{totalPLPerc.toFixed(2)}%
+                    <RollingNumber value={totalPLPerc} suffix="%" decimals={2} prefix={totalPLPerc >= 0 ? "+" : ""} />
                   </span>
                 </div>
               </div>
@@ -946,7 +829,7 @@ export default function DashboardPage() {
 
           {/* Performance Chart */}
           <motion.section
-            className="glass-panel rounded-3xl pt-4 px-6 pb-4 relative group border border-white/10 shadow-[0_20px_50px_rgba(0,0,0,0.5)] bg-gradient-to-b from-white/[0.04] to-transparent h-full transition-all duration-500"
+            className="glass-panel rounded-3xl pt-4 px-6 pb-4 relative group border border-white/10 shadow-[0_20px_50px_rgba(0,0,0,0.5)] bg-gradient-to-b from-white/[0.04] to-transparent relative transition-all duration-500"
           >
             <AnimatePresence>
               {isPortfolioDropdownOpen && (
@@ -963,18 +846,18 @@ export default function DashboardPage() {
               <div>
                 <h3 className="font-terminal-label text-[12px] uppercase tracking-wider text-zinc-300 mb-1 font-bold">Historical Performance</h3>
                 <div className="flex items-baseline gap-4">
-                  <span className="font-headline font-bold text-4xl tracking-tighter text-white tabular-nums">{formatCurrency(totalNetWorth)}</span>
+                  <span className="font-headline font-bold text-4xl tracking-tighter text-white tabular-nums"><RollingNumber value={totalNetWorth} currency prefix="₹" decimals={0} /></span>
                   <span className={`font-terminal-label text-[10px] border px-2 py-0.5 rounded-[4px] uppercase tracking-widest font-bold ${totalPLPerc >= 0 ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-red-500/10 text-red-500 border-red-500/20'
                     }`}>
-                    {totalPLPerc >= 0 ? '+' : ''}{totalPLPerc.toFixed(2)}%
+                    <RollingNumber value={totalPLPerc} suffix="%" decimals={2} prefix={totalPLPerc >= 0 ? "+" : ""} />
                   </span>
                 </div>
               </div>
               <div className="flex gap-2 relative z-20">
-                {['1D', '1W', '1M', '1Y', 'ALL'].map((range) => (
+                {['1W', '1M', '1Y', 'ALL'].map((range) => (
                   <button
                     key={range}
-                    onClick={() => setTimeRange(range)}
+                    onClick={() => setTimeRange(range as any)}
                     className={`px-4 py-1.5 rounded-lg font-terminal-label text-[11px] font-bold tracking-widest border transition-all duration-300 ${timeRange === range
                       ? (range === '1D' && getMarketStatus('IN') === 'CLOSED'
                         ? 'bg-zinc-500/20 border-zinc-500/60 text-zinc-400 shadow-[0_0_25px_rgba(113,113,122,0.15)]'
@@ -993,24 +876,24 @@ export default function DashboardPage() {
               {filteredHistory.length > 0 ? (
                 <WealthChart data={(() => {
                   const _ = heartbeat; // Depend on heartbeat for live updates
-                  
+
                   const map = new Map<string | number, { time: string | number; value: number; ts: number }>();
                   filteredHistory.forEach((h: { timestamp: string; total_market_value: number }) => {
                     if (!h.timestamp) return;
-                    
+
                     const dateObj = new Date(h.timestamp);
                     const financialDayDate = new Date(dateObj.getTime() - (6 * 60 * 60 * 1000));
-                    
+
                     const dateKey = new Intl.DateTimeFormat('en-CA', {
                       timeZone: 'Asia/Kolkata',
                       year: 'numeric',
                       month: '2-digit',
                       day: '2-digit'
                     }).format(financialDayDate);
-                    
+
                     const ts = Math.floor(dateObj.getTime() / 1000);
                     const key = timeRange === '1D' ? ts : dateKey;
-                    
+
                     const existing = map.get(key);
                     if (!existing || ts > existing.ts) {
                       map.set(key, {
@@ -1022,18 +905,18 @@ export default function DashboardPage() {
                   });
 
                   const results = Array.from(map.values()).sort((a, b) => a.ts - b.ts);
-                  
+
                   const now = new Date();
                   const nowTs = Math.floor(now.getTime() / 1000);
                   const financialDayNow = new Date(now.getTime() - (6 * 60 * 60 * 1000));
-                  
+
                   const nowKey = new Intl.DateTimeFormat('en-CA', {
                     timeZone: 'Asia/Kolkata',
                     year: 'numeric',
                     month: '2-digit',
                     day: '2-digit'
                   }).format(financialDayNow);
-                  
+
                   const currentChartKey = timeRange === '1D' ? (nowTs as UTCTimestamp) : nowKey;
 
                   if (results.length > 0) {
@@ -1060,7 +943,10 @@ export default function DashboardPage() {
                     time: item.time as any,
                     value: item.value
                   }));
-                })()} />
+                })()} 
+                isProfitOverride={totalPL >= 0}
+                />
+
               ) : (
                 <div className="h-full flex flex-col items-center justify-center gap-6">
                   {holdings.length > 0 ? (
@@ -1088,14 +974,14 @@ export default function DashboardPage() {
           </motion.section>
         </motion.div>
 
-        {/* TOP ROW RIGHT: Sidebar */}
+        {/* TOP ROW RIGHT: Portfolio Analyzer */}
         <motion.aside
           animate={{
             opacity: isPortfolioDropdownOpen ? 0.8 : 1,
             scale: isPortfolioDropdownOpen ? 0.995 : 1
           }}
           transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
-          className="glass-panel rounded-3xl border border-white/10 bg-[#0a0d14]/80 backdrop-blur-3xl shadow-[0_40px_100px_rgba(0,0,0,0.4)] group/sidebar overflow-hidden h-full flex flex-col transition-all duration-500 relative"
+          className="glass-panel rounded-3xl border border-white/10 bg-[#0a0d14]/80 backdrop-blur-3xl shadow-[0_40px_100px_rgba(0,0,0,0.4)] group/sidebar overflow-hidden transition-all duration-500 relative flex flex-col h-full"
         >
           <AnimatePresence>
             {isPortfolioDropdownOpen && (
@@ -1108,292 +994,7 @@ export default function DashboardPage() {
             )}
           </AnimatePresence>
 
-          <div className="flex flex-col h-full overflow-hidden">
-            {/* Clean Header */}
-            <div className="px-8 py-6 border-b border-white/5 flex items-center justify-between shrink-0">
-              <div className="flex items-center gap-4">
-                <div className="w-2.5 h-2.5 rounded-full bg-emerald-500 shadow-[0_0_15px_rgba(16,185,129,0.5)]" />
-                <span className="font-headline text-[13px] uppercase tracking-[0.2em] text-white font-bold">
-                  Research Assistant
-                </span>
-              </div>
-              <motion.button
-                whileHover={{ rotate: 180 }}
-                transition={{ duration: 0.5 }}
-                onClick={() => setAssistantMessages([{
-                  role: 'assistant',
-                  content: 'Hello! I am ready to help with your market research. Ask me about any stock or portfolio risk.',
-                  timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-                  hideFeedback: true
-                }])}
-                className="p-2 rounded-xl bg-white/5 hover:bg-emerald-500/10 text-zinc-500 hover:text-emerald-400 transition-all duration-300"
-              >
-                <RefreshCcw className="w-4 h-4" />
-              </motion.button>
-            </div>
-
-            {/* Chat Area - Bottom-Anchored */}
-            <div
-              ref={chatContainerRef}
-              className="flex-grow p-8 overflow-y-auto custom-scrollbar flex flex-col gap-10 scroll-smooth"
-            >
-              <div className="flex-grow" />
-              <AnimatePresence mode="popLayout" initial={false}>
-                {assistantMessages.map((msg, i) => (
-                  <motion.div
-                    key={`${msg.timestamp}-${i}`}
-                    initial={{ opacity: 0, x: msg.role === 'user' ? 20 : -20, scale: 0.95 }}
-                    animate={{ opacity: 1, x: 0, scale: 1 }}
-                    transition={{
-                      type: "spring",
-                      stiffness: 260,
-                      damping: 20
-                    }}
-                    className={cn(
-                      "flex flex-col gap-4",
-                      msg.role === 'user' ? "items-end" : "items-start"
-                    )}
-                  >
-                    <div className="flex items-center gap-3">
-                      <span className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">
-                        {msg.role === 'assistant' ? 'Assistant' : 'You'}
-                      </span>
-                      <span className="text-[10px] text-zinc-700 font-medium tabular-nums uppercase">{msg.timestamp}</span>
-                    </div>
-
-                    <div className={cn(
-                      "relative p-6 rounded-3xl text-[15px] leading-[1.6] transition-all duration-500",
-                      msg.role === 'user'
-                        ? "bg-emerald-500/10 border border-emerald-500/20 text-emerald-50 rounded-tr-sm"
-                        : msg.isError
-                          ? "bg-red-500/10 border border-red-500/20 text-red-200 rounded-tl-sm"
-                          : "bg-white/[0.03] border border-white/10 text-zinc-200 rounded-tl-sm shadow-xl"
-                    )}>
-                      <span className="relative z-10 whitespace-pre-wrap">{msg.content}</span>
-
-                      {/* Analysis Data */}
-                      {msg.analysisData && (
-                        <motion.div
-                          initial="hidden"
-                          animate="visible"
-                          variants={{
-                            hidden: { opacity: 0 },
-                            visible: {
-                              opacity: 1,
-                              transition: { staggerChildren: 0.1, delayChildren: 0.4 }
-                            }
-                          }}
-                          className="mt-8 space-y-4 pt-8 border-t border-white/5"
-                        >
-                          <motion.div variants={{ hidden: { opacity: 0, y: 10 }, visible: { opacity: 1, y: 0 } }} className="p-5 rounded-2xl bg-white/[0.02] border border-white/5 hover:border-white/10 transition-colors">
-                            <div className="flex items-center gap-3 mb-3">
-                              <div className="p-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
-                                <Database className="w-3.5 h-3.5 text-emerald-500" />
-                              </div>
-                              <span className="text-[10px] font-bold uppercase tracking-[0.15em] text-zinc-500">Portfolio Breakdown</span>
-                            </div>
-                            <p className="text-[14px] text-white/90 leading-relaxed font-medium">{msg.analysisData.portfolio}</p>
-                          </motion.div>
-
-                          <div className="grid grid-cols-2 gap-4">
-                            <motion.div variants={{ hidden: { opacity: 0, x: -10 }, visible: { opacity: 1, x: 0 } }} className="p-5 rounded-2xl bg-white/[0.02] border border-white/5 hover:border-red-500/10 transition-colors">
-                              <div className="flex items-center gap-3 mb-4">
-                                <div className="p-1.5 rounded-lg bg-red-500/10 border border-red-500/20">
-                                  <ShieldAlert className="w-3.5 h-3.5 text-red-400" />
-                                </div>
-                                <span className="text-[10px] font-bold uppercase tracking-[0.15em] text-zinc-500">Risk Level</span>
-                              </div>
-                              <p className="text-[14px] text-white font-black tracking-tight">{msg.analysisData.risk}</p>
-                            </motion.div>
-                            <motion.div variants={{ hidden: { opacity: 0, x: 10 }, visible: { opacity: 1, x: 0 } }} className="p-5 rounded-2xl bg-white/[0.02] border border-white/5 hover:border-amber-500/10 transition-colors">
-                              <div className="flex items-center gap-3 mb-4">
-                                <div className="p-1.5 rounded-lg bg-amber-500/10 border border-amber-500/20">
-                                  <Lightbulb className="w-3.5 h-3.5 text-amber-400" />
-                                </div>
-                                <span className="text-[10px] font-bold uppercase tracking-[0.15em] text-zinc-500">Action</span>
-                              </div>
-                              <span className={cn(
-                                "text-[12px] font-black px-4 py-1.5 rounded-xl border",
-                                msg.analysisData.action === 'BUY' ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" :
-                                  msg.analysisData.action === 'SELL' ? "bg-red-500/10 text-red-400 border-red-500/20" :
-                                    "bg-amber-500/10 text-amber-400 border-amber-500/20"
-                              )}>
-                                {msg.analysisData.action}
-                              </span>
-                            </motion.div>
-                          </div>
-
-                          {/* Recommended Stocks Section */}
-                          {msg.analysisData.recommended_stocks && msg.analysisData.recommended_stocks.length > 0 && (
-                            <motion.div variants={{ hidden: { opacity: 0, y: 10 }, visible: { opacity: 1, y: 0 } }} className="p-5 rounded-2xl bg-white/[0.02] border border-white/5 space-y-4">
-                              <div className="flex items-center gap-3">
-                                <div className="p-1.5 rounded-lg bg-blue-500/10 border border-blue-500/20">
-                                  <TrendingUp className="w-3.5 h-3.5 text-blue-400" />
-                                </div>
-                                <span className="text-[10px] font-bold uppercase tracking-[0.15em] text-zinc-500">Actionable Suggestions</span>
-                              </div>
-                              <div className="space-y-3">
-                                {msg.analysisData.recommended_stocks.map((stock: any, sidx: number) => (
-                                  <div key={sidx} className="flex justify-between items-center p-3 rounded-xl bg-black/20 border border-white/5">
-                                    <div className="flex flex-col">
-                                      <span className="text-[13px] font-black text-white">{stock.symbol}</span>
-                                      <span className="text-[11px] text-zinc-500 line-clamp-1 italic">{stock.reason}</span>
-                                    </div>
-                                    <span className={cn(
-                                      "text-[9px] font-black px-3 py-1 rounded-lg border",
-                                      stock.action === 'BUY' ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" : "bg-red-500/10 text-red-400 border-red-500/20"
-                                    )}>
-                                      {stock.action}
-                                    </span>
-                                  </div>
-                                ))}
-                              </div>
-                            </motion.div>
-                          )}
-
-                          <motion.div variants={{ hidden: { opacity: 0, y: 10 }, visible: { opacity: 1, y: 0 } }} className="p-6 rounded-2xl bg-gradient-to-br from-emerald-500/[0.03] to-transparent border border-white/5">
-                            <div className="flex justify-between items-center mb-5">
-                              <span className="text-[10px] font-bold uppercase tracking-[0.15em] text-zinc-500">AI Confidence</span>
-                              <span className="text-[16px] font-black text-emerald-400 tabular-nums">
-                                {msg.analysisData.confidence.score}%
-                              </span>
-                            </div>
-                            <div className="h-2 w-full bg-black/40 rounded-full overflow-hidden mb-5">
-                              <motion.div
-                                initial={{ width: 0 }}
-                                animate={{ width: `${msg.analysisData.confidence.score}%` }}
-                                transition={{ duration: 1.5, ease: "easeOut" }}
-                                className="h-full bg-gradient-to-r from-emerald-600 to-emerald-400 shadow-[0_0_10px_rgba(16,185,129,0.3)]"
-                              />
-                            </div>
-                            <p className="text-[13px] text-zinc-400 leading-relaxed italic border-l-2 border-emerald-500/20 pl-4 py-1">
-                              "{msg.analysisData.confidence.reason}"
-                            </p>
-                          </motion.div>
-                        </motion.div>
-                      )}
-
-                      {/* Interactive Feedback - Nice & Subtle */}
-                      {msg.role === 'assistant' && !msg.isError && !msg.hideFeedback && (
-                        <motion.div
-                          initial={{ opacity: 0, y: 5 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          transition={{ delay: 1 }}
-                          className="mt-6 pt-4 border-t border-white/5 flex items-center justify-between"
-                        >
-                          <span className="text-[11px] text-zinc-500 font-medium">Was this research helpful?</span>
-                          <div className="flex items-center gap-2">
-                            <button
-                              onClick={() => {
-                                setAssistantMessages(prev => prev.map((m, idx) =>
-                                  idx === i ? { ...m, feedbackProvided: 'positive' } : m
-                                ));
-                              }}
-                              className={cn(
-                                "px-3 py-1.5 rounded-xl transition-all",
-                                msg.feedbackProvided === 'positive' ? "bg-emerald-500 text-white" : "bg-white/5 text-zinc-400 hover:text-emerald-400 hover:bg-emerald-500/10"
-                              )}
-                            >
-                              <span className="text-[10px] font-black uppercase tracking-wider flex items-center gap-1.5">
-                                Good <ThumbsUp className="w-3 h-3" />
-                              </span>
-                            </button>
-                            <button
-                              onClick={() => {
-                                setAssistantMessages(prev => prev.map((m, idx) =>
-                                  idx === i ? { ...m, feedbackProvided: 'negative' } : m
-                                ));
-                              }}
-                              className={cn(
-                                "px-3 py-1.5 rounded-xl transition-all",
-                                msg.feedbackProvided === 'negative' ? "bg-red-500 text-white" : "bg-white/5 text-zinc-400 hover:text-red-400 hover:bg-red-500/10"
-                              )}
-                            >
-                              <span className="text-[10px] font-black uppercase tracking-wider flex items-center gap-1.5">
-                                Bad <ThumbsDown className="w-3 h-3" />
-                              </span>
-                            </button>
-                          </div>
-                        </motion.div>
-                      )}
-
-                      {msg.feedbackProvided && (
-                        <motion.div
-                          initial={{ opacity: 0, scale: 0.9 }}
-                          animate={{ opacity: 1, scale: 1 }}
-                          className="mt-3 text-[11px] text-emerald-500 font-bold tracking-tight italic"
-                        >
-                          Thank you for your feedback!
-                        </motion.div>
-                      )}
-                    </div>
-                  </motion.div>
-                ))}
-
-                {assistantLoading && (
-                  <motion.div
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, scale: 0.9 }}
-                    className="flex flex-col gap-4 items-start"
-                  >
-                    <div className="flex items-center gap-3">
-                      <motion.div
-                        animate={{ scale: [1, 1.2, 1], opacity: [1, 0.5, 1] }}
-                        transition={{ repeat: Infinity, duration: 1.5 }}
-                        className="w-2 h-2 rounded-full bg-emerald-500 shadow-[0_0_10px_#10b981]"
-                      />
-                      <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-emerald-500">Researching Portfolio...</span>
-                    </div>
-                    <motion.div
-                      animate={{ opacity: [0.6, 1, 0.6] }}
-                      transition={{ repeat: Infinity, duration: 2 }}
-                      className="px-6 py-4 rounded-2xl bg-white/[0.02] border border-white/5 text-zinc-400 text-[14px] leading-relaxed italic"
-                    >
-                      Gathering market intelligence and analyzing your performance...
-                    </motion.div>
-                  </motion.div>
-                )}
-              </AnimatePresence>
-            </div>
-
-            <div className="p-8 bg-black/40 border-t border-white/5 backdrop-blur-2xl shrink-0 mt-auto">
-              <form
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  const form = e.target as HTMLFormElement;
-                  const input = form.elements.namedItem('ticker') as HTMLInputElement;
-                  const val = input.value.trim();
-                  if (!val || assistantLoading) return;
-                  handleAssistantQuery(val);
-                  input.value = "";
-                }}
-                className="flex items-center gap-2 bg-white/[0.03] border border-white/10 rounded-2xl px-4 py-2 focus-within:border-emerald-500/50 focus-within:bg-white/[0.05] transition-all group"
-              >
-                <input
-                  name="ticker"
-                  type="text"
-                  placeholder="Ask a question or enter a ticker..."
-                  autoComplete="off"
-                  disabled={assistantLoading}
-                  className="flex-grow bg-transparent py-2 text-[14px] text-white placeholder:text-zinc-600 focus:outline-none disabled:opacity-30"
-                />
-                <motion.button
-                  type="submit"
-                  disabled={assistantLoading}
-                  whileHover={{ x: 3 }}
-                  whileTap={{ x: -1 }}
-                  className="p-2 rounded-xl text-emerald-500 hover:bg-emerald-500/10 transition-all disabled:opacity-30 shrink-0"
-                >
-                  {assistantLoading ? (
-                    <RefreshCcw className="w-4 h-4 animate-spin text-emerald-500/50" />
-                  ) : (
-                    <Send className="w-5 h-5" />
-                  )}
-                </motion.button>
-              </form>
-            </div>
-          </div>
+          <PortfolioAnalyzer holdings={holdings} />
         </motion.aside>
 
         {/* BOTTOM ROW: Asset Allocation Console */}
@@ -1432,13 +1033,14 @@ export default function DashboardPage() {
               </div>
             </div>
 
-            <div className="overflow-x-auto no-scrollbar">
+            <div className="overflow-x-auto overflow-y-auto max-h-[440px] custom-scrollbar">
               <table className="w-full text-left">
                 <thead>
                   <tr className="bg-white/[0.02]">
                     <th className="px-6 py-3 font-terminal-label text-[9px] uppercase tracking-wider text-zinc-500 font-bold">Stock Details</th>
                     <th className="px-5 py-3 font-terminal-label text-[9px] uppercase tracking-wider text-zinc-500 text-right font-bold">Quantity</th>
                     <th className="px-5 py-3 font-terminal-label text-[9px] uppercase tracking-wider text-zinc-500 text-right font-bold">Avg. Cost</th>
+                    <th className="px-5 py-3 font-terminal-label text-[9px] uppercase tracking-wider text-zinc-500 text-right font-bold">Invested</th>
                     <th className="px-5 py-3 font-terminal-label text-[9px] uppercase tracking-wider text-zinc-500 text-right font-bold">Market Value</th>
                     <th className="px-6 py-3 font-terminal-label text-[9px] uppercase tracking-wider text-zinc-500 text-right font-bold">Returns (%)</th>
                   </tr>
@@ -1491,16 +1093,17 @@ export default function DashboardPage() {
                               <span className="font-terminal-label text-[9px] text-zinc-600 uppercase tracking-widest mt-1">NSE:EQUITY</span>
                             </div>
                           </td>
-                          <td className="px-6 py-5 text-right font-data-md text-xs text-white/50 tabular-nums">{asset.quantity}</td>
-                          <td className="px-6 py-5 text-right font-data-md text-xs text-white/50 tabular-nums">{formatCurrency(Number(asset.invested_value) || 0)}</td>
-                          <td className="px-6 py-5 text-right font-data-md text-xs text-white tabular-nums">{formatCurrency(Number(asset.market_value) || 0)}</td>
+                          <td className="px-6 py-5 text-right font-data-md text-xs text-white/50 tabular-nums"><RollingNumber value={asset.quantity || 0} decimals={0} /></td>
+                          <td className="px-6 py-5 text-right font-data-md text-xs text-white/50 tabular-nums"><RollingNumber value={Number(asset.average_price) || 0} currency prefix="₹" decimals={2} /></td>
+                          <td className="px-6 py-5 text-right font-data-md text-xs text-white/50 tabular-nums"><RollingNumber value={Number(asset.invested_value) || 0} currency prefix="₹" decimals={0} /></td>
+                          <td className="px-6 py-5 text-right font-data-md text-xs text-white tabular-nums"><RollingNumber value={Number(asset.market_value) || 0} currency prefix="₹" decimals={0} /></td>
                           <td className="px-8 py-5 text-right">
                             <div className="flex flex-col items-end">
                               <span className={`font-data-md text-sm font-bold tabular-nums ${Number(asset.p_l) >= 0 ? 'text-emerald-500' : 'text-red-500'}`}>
-                                {Number(asset.p_l) >= 0 ? '+' : ''}{formatCurrency(Number(asset.p_l) || 0)}
+                                <RollingNumber value={Math.abs(Number(asset.p_l)) || 0} currency prefix={Number(asset.p_l) >= 0 ? "+₹" : "-₹"} decimals={0} />
                               </span>
                               <span className={`font-terminal-label text-[10px] font-bold tabular-nums mt-1 ${Number(asset.p_l) >= 0 ? 'text-emerald-500/40' : 'text-red-500/40'}`}>
-                                {(Number(asset.p_l_percentage) || 0).toFixed(2)}%
+                                <RollingNumber value={Number(asset.p_l_percentage) || 0} suffix="%" decimals={2} />
                               </span>
                             </div>
                           </td>
@@ -1516,12 +1119,11 @@ export default function DashboardPage() {
             <div className="px-8 py-5 bg-black/40 flex justify-between items-center border-t border-white/5">
               <span className="font-terminal-label text-[10px] text-white/30 uppercase tracking-[0.2em]">Showing {filteredHoldings.length} of {holdings.length} holdings</span>
               <button
-                onClick={refreshAll}
-                disabled={isRefreshing}
-                className={`font-terminal-label text-[10px] uppercase tracking-[0.25em] font-bold flex items-center gap-2 transition-all ${isRefreshing ? 'text-emerald-500 animate-pulse' : 'text-emerald-500/60 hover:text-emerald-500'}`}
+                onClick={() => { console.log("ADD_NEW_HOLDING_TRIGGERED") }}
+                className="font-terminal-label text-[10px] uppercase tracking-[0.25em] font-bold flex items-center gap-2 transition-all text-emerald-500/60 hover:text-emerald-500"
               >
-                <RefreshCcw className={`w-3 h-3 ${isRefreshing ? 'animate-spin' : ''}`} />
-                {isRefreshing ? 'Fetching Data..' : 'Refresh Data'}
+                <Plus className="w-3.5 h-3.5" />
+                Add New Holding
               </button>
             </div>
           </motion.section>
@@ -1612,263 +1214,6 @@ export default function DashboardPage() {
         </motion.div>
       </section>
 
-      {/* Full-Width Market Intelligence Feed */}
-      <div className="max-w-full mx-auto px-12 pb-16">
-        <motion.section
-          className="glass-panel rounded-3xl flex flex-col border border-white/10 shadow-[0_0_100px_rgba(16,185,129,0.05)] bg-gradient-to-br from-white/[0.02] to-transparent transition-all duration-500 relative"
-        >
-          <AnimatePresence>
-            {isPortfolioDropdownOpen && (
-              <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                className="absolute inset-0 backdrop-blur-[4px] bg-black/10 z-50 pointer-events-none rounded-3xl"
-              />
-            )}
-          </AnimatePresence>
-
-          <div className="px-8 py-5 border-b border-emerald-500/10 bg-emerald-500/[0.03] flex justify-between items-center">
-            <div className="flex items-center gap-4">
-              <div className="p-2 rounded-xl bg-emerald-500/10 border border-emerald-500/20">
-                <Newspaper className="w-4 h-4 text-emerald-500" />
-              </div>
-              <div>
-                <h3 className="font-terminal-label text-[11px] uppercase tracking-wider text-white font-black">Market Intelligence</h3>
-                <div className="flex items-center gap-2 mt-0.5">
-                  <Activity className="w-2.5 h-2.5 text-emerald-500/40" />
-                  <p className="text-[9px] text-emerald-500/40 uppercase tracking-wider font-bold">
-                    PORTFOLIO SYNC: {lastSyncTime} | INTEL: {(mounted && lastIntelligenceFetch) ? lastIntelligenceFetch : 'SYNCHRONIZING...'}
-                  </p>
-                </div>
-              </div>
-            </div>
-            <div className="flex items-center gap-4">
-              {marketIntelligence?.overall_sentiment && (
-                <div className="flex items-center gap-2 bg-black/40 px-3 py-1.5 rounded-lg border border-white/5">
-                  <div className={cn(
-                    "w-1.5 h-1.5 rounded-full animate-pulse",
-                    marketIntelligence.overall_sentiment === "BULLISH" ? "bg-emerald-500 shadow-[0_0_8px_#10b981]" : "bg-red-500 shadow-[0_0_8px_#ef4444]"
-                  )} />
-                  <span className={cn(
-                    "text-[9px] font-black uppercase tracking-wider",
-                    marketIntelligence.overall_sentiment === "BULLISH" ? "text-emerald-400" : "text-red-400"
-                  )}>
-                    {marketIntelligence.overall_sentiment} SENTIMENT
-                  </span>
-                </div>
-              )}
-              {intelligenceLoading && marketIntelligence && (
-                <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-emerald-500/5 border border-emerald-500/10">
-                  <span className="text-[9px] font-black uppercase tracking-wider text-emerald-400 animate-pulse">Updating Insights</span>
-                </div>
-              )}
-              <button
-                onClick={fetchMarketIntelligence}
-                disabled={intelligenceLoading}
-                className="p-2.5 rounded-full bg-white/5 border border-white/10 text-zinc-400 hover:text-emerald-500 hover:border-emerald-500/30 transition-all disabled:opacity-50 group"
-              >
-                <RefreshCcw className={cn("w-3.5 h-3.5 group-hover:rotate-180 transition-transform duration-700", intelligenceLoading && "animate-spin")} />
-              </button>
-            </div>
-          </div>
-
-          <div className="p-6 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 relative">
-            <AnimatePresence mode="popLayout">
-              {intelligenceLoading && !marketIntelligence ? (
-                <motion.div
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  exit={{ opacity: 0 }}
-                  className="col-span-full py-48 flex flex-col items-center justify-center gap-8"
-                >
-                  <div className="relative">
-                    <RefreshCcw className="w-16 h-16 animate-spin text-emerald-500" />
-                    <div className="absolute inset-0 blur-3xl bg-emerald-500/40 animate-pulse" />
-                  </div>
-                  <div className="flex flex-col items-center gap-3">
-                    <span className="font-terminal-label text-[11px] uppercase tracking-widest text-emerald-400 animate-pulse font-bold">Analyzing Market Trends</span>
-                    <div className="w-80 h-[1px] bg-white/5 relative overflow-hidden">
-                      <motion.div
-                        initial={{ left: '-100%' }}
-                        animate={{ left: '100%' }}
-                        transition={{ repeat: Infinity, duration: 2.5, ease: "linear" }}
-                        className="absolute inset-0 w-1/3 bg-gradient-to-r from-transparent via-emerald-500 to-transparent"
-                      />
-                    </div>
-                  </div>
-                </motion.div>
-              ) : marketIntelligence?.sectors ? (
-                marketIntelligence.sectors.map((sector: any, idx: number) => (
-                  <motion.div
-                    key={sector.sectorName || idx}
-                    initial={{ opacity: 0, scale: 0.98, y: 20 }}
-                    animate={{ opacity: 1, scale: 1, y: 0 }}
-                    transition={{ duration: 0.6, delay: idx * 0.12, ease: [0.16, 1, 0.3, 1] }}
-                    className="group"
-                  >
-                    <div className="glass-panel p-5 rounded-2xl border border-white/[0.03] group-hover:border-emerald-500/30 transition-all duration-500 flex flex-col gap-5 h-full bg-black/20 relative overflow-hidden">
-
-                      {/* Background Accents */}
-                      <div className="absolute -right-8 -top-8 opacity-[0.02] group-hover:opacity-[0.05] transition-opacity pointer-events-none">
-                        <TrendingUp className={cn(
-                          "w-48 h-48 rotate-12",
-                          sector.sentiment === "BULLISH" ? "text-emerald-500" : "text-red-500"
-                        )} />
-                      </div>
-
-                      <div className="flex justify-between items-start relative z-10">
-                        <div className="space-y-3">
-                          <div className={cn(
-                            "text-[10px] font-black uppercase tracking-wider px-3 py-1.5 rounded-lg border w-fit shadow-2xl backdrop-blur-md",
-                            sector.sentiment === "BULLISH" ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" :
-                              sector.sentiment === "BEARISH" ? "bg-red-500/10 text-red-400 border-red-500/20" :
-                                "bg-zinc-800/40 text-zinc-400 border-zinc-700/50"
-                          )}>
-                            {sector.sectorName}
-                          </div>
-                          {sector.riskLevel && (
-                            <div className="flex items-center gap-2 px-1">
-                              <div className={cn(
-                                "w-1.5 h-1.5 rounded-full",
-                                sector.riskLevel === "Low" ? "bg-emerald-500 shadow-[0_0_8px_#10b981]" :
-                                  sector.riskLevel === "Medium" ? "bg-yellow-500 shadow-[0_0_8px_#f59e0b]" :
-                                    "bg-red-500 shadow-[0_0_8px_#ef4444]"
-                              )} />
-                              <span className="text-[9px] uppercase tracking-wider text-zinc-500 font-black">
-                                {sector.riskLevel} Risk
-                              </span>
-                            </div>
-                          )}
-                        </div>
-
-                        <div className="flex flex-col items-end gap-1">
-                          <span className="text-[22px] font-black font-data tabular-nums text-white group-hover:text-emerald-400 transition-colors leading-none tracking-tight">
-                            {typeof sector.confidence === 'object' ? sector.confidence.score : sector.confidence}
-                          </span>
-                          <span className="text-[9px] uppercase tracking-wider text-zinc-500 font-black">Confidence</span>
-                        </div>
-                      </div>
-
-                      <div className="relative flex-grow">
-                        <div className="absolute inset-y-0 left-0 w-[2px] bg-gradient-to-b from-emerald-500/40 via-emerald-500/5 to-transparent rounded-full" />
-                        <p className="text-[13px] text-zinc-300 leading-relaxed group-hover:text-white transition-colors pl-5 font-medium">
-                          {sector.reasoning}
-                        </p>
-                      </div>
-
-                      {sector.topStocks && sector.topStocks.length > 0 && (
-                        <div className="mt-auto space-y-3">
-                          <div className="flex items-center gap-3">
-                            <span className="text-[9px] uppercase tracking-widest text-zinc-600 font-black whitespace-nowrap">Asset Flows</span>
-                            <div className="h-[1px] flex-1 bg-gradient-to-r from-white/10 to-transparent" />
-                          </div>
-                          <div className="grid grid-cols-2 gap-3">
-                            {sector.topStocks.map((stock: any, sIdx: number) => (
-                              <motion.div
-                                key={stock.symbol || sIdx}
-                                onClick={() => {
-                                  const sym = stock.symbol.toUpperCase();
-                                  // Institutional Heuristic: US symbols are typically <= 5 chars and alphabetic
-                                  // Indian symbols in our DB are often longer or mapped differently
-                                  const isUs = sym.length <= 5 && !sym.includes('.');
-                                  const route = isUs ? `/us-stocks/${sym}` : `/stocks/${sym}`;
-                                  router.push(route);
-                                }}
-                                className="bg-zinc-900/40 p-3 rounded-xl border border-white/[0.03] flex flex-col gap-2 transition-all duration-300 cursor-pointer group/stock"
-                              >
-                                <div className="flex justify-between items-start">
-                                  <div className="flex flex-col">
-                                    <span className="text-[12px] font-black text-white font-data group-hover/stock:text-emerald-400 transition-colors">{stock.symbol}</span>
-                                    <span className={cn(
-                                      "text-[8px] font-black px-1.5 py-0.5 rounded-md w-fit tracking-tighter uppercase mt-0.5",
-                                      stock.rating === 'BUY' ? "bg-emerald-500/10 text-emerald-400" : "bg-zinc-800 text-zinc-500"
-                                    )}>{stock.rating || 'TRACK'}</span>
-                                  </div>
-                                  <div className="text-right">
-                                    <div className="text-[12px] font-bold text-zinc-100 font-data tabular-nums">₹{stock.price}</div>
-                                    <div className={cn(
-                                      "text-[9px] font-black tabular-nums font-data",
-                                      String(stock.change).startsWith('+') ? "text-emerald-400" : "text-red-400"
-                                    )}>{stock.change}</div>
-                                  </div>
-                                </div>
-                              </motion.div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  </motion.div>
-                ))
-              ) : (
-                <div className="col-span-full py-48 flex flex-col items-center justify-center gap-6 opacity-30">
-                  <Database className="w-16 h-16 text-zinc-500" />
-                  <span className="font-terminal-label text-[14px] uppercase tracking-widest">No Insights Available</span>
-                </div>
-              )}
-            </AnimatePresence>
-          </div>
-
-          {(marketIntelligence?.actionableInsights || marketIntelligence?.marketRisks || marketIntelligence?.executiveSummary) && (
-            <motion.div
-              initial={{ opacity: 0 }}
-              whileInView={{ opacity: 1 }}
-              className="p-8 bg-emerald-500/[0.02] border-t border-white/5 grid grid-cols-1 lg:grid-cols-3 gap-10"
-            >
-              {marketIntelligence.executiveSummary && (
-                <div className="space-y-4">
-                  <div className="flex items-center gap-3">
-                    <div className="p-2 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
-                      <Activity className="w-4 h-4 text-emerald-500" />
-                    </div>
-                    <h4 className="text-[10px] font-black uppercase tracking-wider text-emerald-400">Analysis Summary</h4>
-                  </div>
-                  <p className="text-[13px] text-zinc-400 leading-relaxed font-medium italic border-l-2 border-emerald-500/30 pl-6">
-                    "{marketIntelligence.executiveSummary}"
-                  </p>
-                </div>
-              )}
-              {marketIntelligence.actionableInsights && (
-                <div className="space-y-4">
-                  <div className="flex items-center gap-3">
-                    <div className="p-2 rounded-lg bg-blue-500/10 border border-blue-500/20">
-                      <Cpu className="w-4 h-4 text-blue-500" />
-                    </div>
-                    <h4 className="text-[10px] font-black uppercase tracking-wider text-blue-400">Recommendations</h4>
-                  </div>
-                  <ul className="space-y-3">
-                    {(Array.isArray(marketIntelligence.actionableInsights) ? marketIntelligence.actionableInsights : [marketIntelligence.actionableInsights]).map((insight: string, i: number) => (
-                      <li key={i} className="text-[12px] text-zinc-300 flex items-start gap-4 group/item">
-                        <div className="mt-1.5 w-1.5 h-1.5 rounded-full bg-blue-500 shadow-[0_0_10px_rgba(59,130,246,0.5)] group-hover/item:scale-110 transition-transform" />
-                        <span className="group-hover/item:text-white transition-colors">{insight}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-              {marketIntelligence.marketRisks && (
-                <div className="space-y-4">
-                  <div className="flex items-center gap-3">
-                    <div className="p-2 rounded-lg bg-red-500/10 border border-red-500/20">
-                      <TrendingUp className="w-4 h-4 text-red-500 rotate-180" />
-                    </div>
-                    <h4 className="text-[10px] font-black uppercase tracking-wider text-red-400">Market Risks</h4>
-                  </div>
-                  <ul className="space-y-3">
-                    {(Array.isArray(marketIntelligence.marketRisks) ? marketIntelligence.marketRisks : [marketIntelligence.marketRisks]).map((risk: string, i: number) => (
-                      <li key={i} className="text-[12px] text-zinc-300 flex items-start gap-4 group/item">
-                        <div className="mt-1.5 w-1.5 h-1.5 rounded-full bg-red-500 shadow-[0_0_10px_rgba(239,68,68,0.5)] group-hover/item:scale-110 transition-transform" />
-                        <span className="group-hover/item:text-white transition-colors">{risk}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-            </motion.div>
-          )}
-        </motion.section>
-      </div>
 
       {/* Add Portfolio Modal - Portaled to Body to bypass transforms */}
       {mounted && addPortfolioModalOpen && createPortal(
@@ -1878,7 +1223,7 @@ export default function DashboardPage() {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              onClick={() => { setAddPortfolioModalOpen(false); setNewPortfolioType(""); setShowGrowwGuide(false); }}
+              onClick={() => { setAddPortfolioModalOpen(false); setNewPortfolioType(""); setShowGrowwGuide(false); setShowZerodhaGuide(false); }}
               className="absolute inset-0 bg-black/60 backdrop-blur-xl"
             />
             <motion.div
@@ -1888,7 +1233,7 @@ export default function DashboardPage() {
                 opacity: 1,
                 scale: 1,
                 y: 0,
-                width: showGrowwGuide ? "1100px" : "400px",
+                width: (showGrowwGuide || showZerodhaGuide) ? "1100px" : "400px",
                 height: "auto",
                 maxWidth: "95vw"
               }}
@@ -1902,20 +1247,20 @@ export default function DashboardPage() {
             >
               <div className="px-5 py-3 border-b border-white/5 flex items-center justify-between bg-white/[0.01]">
                 <div className="flex items-center gap-3">
-                  <div className="p-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20">
-                    <Wallet className="w-4 h-4 text-emerald-500" />
+                  <div className="p-2.5 rounded-xl bg-indigo-500/10 border border-indigo-500/20">
+                    <Wallet className="w-4 h-4 text-indigo-400" />
                   </div>
                   <div>
                     <h2 className="font-sans font-bold text-lg text-white tracking-tight">
-                      {showGrowwGuide ? "Sync Guide" : "Link Account"}
+                      {(showGrowwGuide || showZerodhaGuide) ? "Sync Guide" : "Link Account"}
                     </h2>
                     <p className="text-[10px] font-sans uppercase tracking-[0.2em] text-zinc-500 font-black mt-0.5">
-                      {showGrowwGuide ? "Follow the steps below" : "Import your current holdings"}
+                      {(showGrowwGuide || showZerodhaGuide) ? "Follow the steps below" : "Import your current holdings"}
                     </p>
                   </div>
                 </div>
                 <button
-                  onClick={() => { setAddPortfolioModalOpen(false); setNewPortfolioType(""); setNewPortfolioName(""); setShowGrowwGuide(false); }}
+                  onClick={() => { setAddPortfolioModalOpen(false); setNewPortfolioType(""); setNewPortfolioName(""); setShowGrowwGuide(false); setShowZerodhaGuide(false); }}
                   className="p-1.5 rounded-lg hover:bg-white/5 text-zinc-500 hover:text-white transition-all"
                 >
                   <X className="w-4 h-4" />
@@ -1925,7 +1270,7 @@ export default function DashboardPage() {
               <AnimatePresence mode="wait">
                 {showGrowwGuide ? (
                   <motion.div
-                    key="guide"
+                    key="groww-guide"
                     initial={{ opacity: 0, x: 20 }}
                     animate={{ opacity: 1, x: 0 }}
                     exit={{ opacity: 0, x: -20 }}
@@ -1934,6 +1279,19 @@ export default function DashboardPage() {
                     <GrowwImportGuide
                       embedded={true}
                       onClose={() => setShowGrowwGuide(false)}
+                    />
+                  </motion.div>
+                ) : showZerodhaGuide ? (
+                  <motion.div
+                    key="zerodha-guide"
+                    initial={{ opacity: 0, x: 20 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    exit={{ opacity: 0, x: -20 }}
+                    className="flex-1 min-h-0"
+                  >
+                    <ZerodhaImportGuide
+                      embedded={true}
+                      onClose={() => setShowZerodhaGuide(false)}
                     />
                   </motion.div>
                 ) : (
@@ -2032,10 +1390,11 @@ export default function DashboardPage() {
 
                                 setIsRefreshing(true);
                                 setImportStatus("Analyzing Statement...");
+                                let pData: any;
                                 try {
                                   // 1. Create the portfolio record first
                                   setImportStatus("Registering Portfolio...");
-                                  const { data: pData, error: pErr } = await supabase
+                                  const { data: createdPortfolio, error: pErr } = await supabase
                                     .from('user_portfolios')
                                     .insert({
                                       user_id: portfolioId,
@@ -2045,6 +1404,7 @@ export default function DashboardPage() {
                                     })
                                     .select()
                                     .single();
+                                  pData = createdPortfolio;
 
                                   if (pErr) throw pErr;
 
@@ -2065,6 +1425,10 @@ export default function DashboardPage() {
                                     setAddPortfolioModalOpen(false);
                                   }
                                 } catch (err: any) {
+                                  // ROLLBACK: Delete the empty portfolio if ingestion failed
+                                  if (typeof pData !== 'undefined' && pData?.id) {
+                                    await supabase.from('user_portfolios').delete().eq('id', pData.id);
+                                  }
                                   const errorMsg = err.response?.data?.error || err.message || "Unknown Error";
                                   alert(`Import Failed: ${errorMsg}`);
                                 } finally {
@@ -2114,15 +1478,121 @@ export default function DashboardPage() {
                           initial={{ opacity: 0, y: 10 }}
                           animate={{ opacity: 1, y: 0 }}
                           exit={{ opacity: 0, y: 10 }}
-                          className="p-6 rounded-[24px] bg-white/[0.01] border border-white/5 flex flex-col items-center justify-center gap-3 text-center min-h-[160px]"
+                          className="space-y-6 pt-2"
                         >
-                          <div className="w-14 h-14 rounded-full bg-white/5 flex items-center justify-center border border-white/5 shadow-sm">
-                            <ShieldCheck className="w-7 h-7 text-zinc-700" />
-                          </div>
-                          <div className="space-y-1">
-                            <p className="text-[13px] text-zinc-400 font-headline font-black uppercase tracking-[0.1em]">Broker Restricted</p>
-                            <p className="text-[10px] text-zinc-600 font-bold uppercase tracking-widest max-w-[200px]">Zerodha integration requires Kite Connect API access.</p>
-                          </div>
+                          <div className="p-4 bg-white/[0.02] rounded-[24px] border border-white/5 text-center space-y-3 relative overflow-hidden group/upload">
+                            <div className="absolute inset-0 bg-gradient-to-b from-indigo-500/[0.02] to-transparent opacity-0 group-hover/upload:opacity-100 transition-opacity duration-700" />
+
+                            <div className="size-10 flex items-center justify-center mx-auto transition-transform duration-500 group-hover/upload:scale-110 relative z-10">
+                              <FileUp className="w-6 h-6 text-indigo-500/60" />
+                            </div>
+                            <div className="relative z-10">
+                              <h3 className="text-white font-headline font-black text-lg tracking-tight">Upload CSV</h3>
+                              <p className="text-zinc-500 text-[11px] font-bold uppercase tracking-widest mt-1">Select the .csv file from Zerodha Console</p>
+                            </div>
+
+                            <input
+                              type="file"
+                              id="zerodha-upload"
+                              className="hidden"
+                              accept=".csv"
+                              onChange={async (e) => {
+                                const file = e.target.files?.[0];
+                                if (!file) return;
+
+                                setIsRefreshing(true);
+                                setImportStatus("Analyzing CSV...");
+                                let pData: any;
+                                try {
+                                  setImportStatus("Registering Portfolio...");
+                                  const { data: createdPortfolio, error: pErr } = await supabase
+                                    .from('user_portfolios')
+                                    .insert({
+                                      user_id: portfolioId,
+                                      name: newPortfolioName || "Zerodha Portfolio",
+                                      broker_name: 'ZERODHA',
+                                      is_primary: portfolios.length === 0
+                                    })
+                                    .select()
+                                    .single();
+                                  pData = createdPortfolio;
+
+                                  if (pErr) throw pErr;
+
+                                  setImportStatus("Ingesting Zerodha Data...");
+                                  const formData = new FormData();
+                                  formData.append('file', file);
+                                  formData.append('portfolioId', pData.id);
+                                  formData.append('userId', portfolioId || "");
+
+                                  const res = await axios.post(`${engineUrl}/api/broker/zerodha/import-csv`, formData, {
+                                    headers: { 'Content-Type': 'multipart/form-data' }
+                                  });
+
+                                  if (res.data.success) {
+                                    setImportStatus("Synchronizing Dashboard...");
+                                    await fetchPortfolios();
+                                    setActivePortfolio(pData);
+                                    setAddPortfolioModalOpen(false);
+                                  }
+                                } catch (err: any) {
+                                  // ROLLBACK: Delete the empty portfolio if ingestion failed
+                                  if (typeof pData !== 'undefined' && pData?.id) {
+                                    await supabase.from('user_portfolios').delete().eq('id', pData.id);
+                                  }
+                                  const errorMsg = err.response?.data?.error || err.message || "Unknown Error";
+                                  alert(`Import Failed: ${errorMsg}`);
+                                } finally {
+                                  setIsRefreshing(false);
+                                  setImportStatus("");
+                                }
+                              }}
+                            />
+
+                            <button
+                              onClick={() => document.getElementById('zerodha-upload')?.click()}
+                              disabled={isRefreshing}
+                              className="w-full py-2.5 bg-white/[0.04] hover:bg-white/[0.08] text-white font-headline font-black text-[11px] uppercase tracking-[0.25em] rounded-xl border border-white/10 group-hover/upload:border-white/20 transition-all duration-500 disabled:opacity-50 relative z-10 shadow-sm"
+                            >
+                              {isRefreshing ? (
+                                <div className="flex items-center justify-center gap-3">
+                                  <motion.div
+                                    animate={{ rotate: 360 }}
+                                    transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+                                    className="w-4 h-4 border-2 border-indigo-500/30 border-t-indigo-500 rounded-full"
+                                  />
+                                  <span className="text-indigo-400">{importStatus || "Processing..."}</span>
+                                </div>
+                              ) : "Choose Local CSV"}
+                            </button>
+
+                              <div className="pt-2 border-t border-white/5 mt-2 relative z-10">
+                                <button
+                                  onClick={() => setShowZerodhaGuide(true)}
+                                  className="w-full py-3 px-4 rounded-xl bg-indigo-500/5 hover:bg-indigo-500/10 border border-indigo-500/10 text-indigo-400 font-terminal-label font-bold text-[10px] uppercase tracking-[0.2em] transition-all duration-500 flex items-center justify-between group/btn"
+                                >
+                                  <span className="flex items-center gap-2 text-zinc-500 group-hover/btn:text-zinc-200 transition-colors">
+                                    <span className="w-2 h-2 rounded-full bg-indigo-500 animate-pulse shadow-[0_0_8px_rgba(99,102,241,0.5)]" />
+                                    Need fetching guide?
+                                  </span>
+                                  <span className="text-indigo-400 flex items-center gap-1 group-hover/btn:translate-x-1 transition-transform">
+                                    View steps &rarr;
+                                  </span>
+                                </button>
+                              </div>
+
+                              <div className="mt-4 p-4 rounded-2xl bg-amber-500/[0.03] border border-amber-500/10 flex gap-4 items-start text-left relative z-10">
+                                <Info className="w-5 h-5 text-amber-500/40 shrink-0 mt-0.5" />
+                                <div className="space-y-1">
+                                  <h4 className="text-[10px] font-sans uppercase tracking-[0.2em] text-amber-500/60 font-black">Data Fidelity Advisory</h4>
+                                  <p className="text-[11px] text-zinc-500 leading-relaxed font-medium">
+                                    For <span className="text-zinc-300">100% settlement accuracy</span>, we recommend uploading after <span className="text-amber-500/60">4:00 PM IST</span>. Always download a <span className="text-zinc-200 underline underline-offset-4 decoration-amber-500/30">fresh statement</span> from your broker console immediately before uploading.
+                                  </p>
+                                </div>
+                              </div>
+
+                            </div>
+
                         </motion.div>
                       )}
                     </AnimatePresence>
@@ -2132,21 +1602,18 @@ export default function DashboardPage() {
                         onClick={() => {
                           if (newPortfolioType === 'GROWW') {
                             document.getElementById('excel-upload')?.click();
+                          } else if (newPortfolioType === 'ZERODHA') {
+                            document.getElementById('zerodha-upload')?.click();
                           }
                         }}
-                        disabled={!newPortfolioType || (newPortfolioType === 'GROWW' && isRefreshing)}
+                        disabled={!newPortfolioType || (newPortfolioType === 'GROWW' && isRefreshing) || (newPortfolioType === 'ZERODHA' && isRefreshing)}
                         className="w-full py-4 rounded-[20px] bg-emerald-500 text-black font-headline font-black text-[14px] uppercase tracking-[0.15em] shadow-[0_10px_40px_rgba(16,185,129,0.2)] hover:shadow-[0_15px_50px_rgba(16,185,129,0.4)] hover:scale-[1.01] active:scale-[0.98] transition-all duration-500 disabled:opacity-10 disabled:grayscale disabled:scale-100 disabled:shadow-none"
                       >
-                        {isRefreshing ? "Syncing Account..." : (newPortfolioType === 'GROWW' ? "Select Statement & Sync" : "Connect Broker")}
+                        {isRefreshing ? "Syncing Account..." : (newPortfolioType === 'GROWW' ? "Select Statement & Sync" : newPortfolioType === 'ZERODHA' ? "Select CSV & Sync" : "Connect Broker")}
                       </button>
-                      <div className="flex items-center justify-center gap-2 mt-4">
-                        <ShieldCheck className="w-3.5 h-3.5 text-zinc-800" />
-                        <p className="text-[9px] font-terminal-label uppercase tracking-[0.3em] text-zinc-800 font-black">
-                          AES-256 Vault Encryption
-                        </p>
-                      </div>
                     </div>
                   </motion.div>
+
                 )}
               </AnimatePresence>
             </motion.div>
@@ -2226,6 +1693,7 @@ export default function DashboardPage() {
         )}
       </AnimatePresence>
 
+      <FloatingAssistant />
     </div>
   )
 }

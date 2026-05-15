@@ -14,9 +14,10 @@ import {
   Briefcase,
   Landmark,
   Moon,
-  ShoppingCart,
-  BellRing
+  BellRing,
+  ShoppingCart
 } from "lucide-react";
+import { RollingNumber } from "@/components/shared/RollingNumber";
 import { getMarketStatus } from "@/constants/market-constants";
 import { WealthPerformanceChart as WealthChart } from "@/components/dashboard/WealthPerformanceChart";
 import { supabase } from "@/services/DatabaseClient";
@@ -125,8 +126,27 @@ export default function StockPage() {
   useEffect(() => {
     setStatus(getMarketStatus('IN') as any);
     const interval = setInterval(() => setStatus(getMarketStatus('IN') as any), 60000);
-    return () => clearInterval(interval);
-  }, []);
+
+    // Heartbeat Neural Link: Activates Ephemeral Sync on demand
+    const sendHeartbeat = async () => {
+      if (!symbol || document.hidden) return;
+      try {
+        await fetch('/api/market/heartbeat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ symbol: (symbol as string).toUpperCase(), market: 'IN' })
+        });
+      } catch (e) {}
+    };
+
+    sendHeartbeat();
+    const heartbeatInterval = setInterval(sendHeartbeat, 30000);
+
+    return () => {
+      clearInterval(interval);
+      clearInterval(heartbeatInterval);
+    };
+  }, [symbol]);
 
   useEffect(() => {
     async function fetchStock() {
@@ -194,7 +214,7 @@ export default function StockPage() {
         <motion.div key="loading" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="min-h-screen bg-transparent flex items-center justify-center">
           <div className="flex flex-col items-center gap-4">
             <div className="w-16 h-16 border-4 border-emerald-500/20 border-t-emerald-500 rounded-full animate-spin" />
-            <div className="text-emerald-500 font-black tracking-[0.6em] uppercase text-xs animate-pulse">Scanning Markets...</div>
+            <div className="text-emerald-500 font-black tracking-[0.2em] uppercase text-xs animate-pulse">Scanning Markets...</div>
           </div>
         </motion.div>
       ) : !data ? (
@@ -202,7 +222,7 @@ export default function StockPage() {
           <div className="text-zinc-500 font-bold uppercase tracking-widest text-xl">Asset Not Found</div>
         </motion.div>
       ) : (
-        <motion.main key="content" initial="hidden" animate="visible" variants={{ hidden: { opacity: 0 }, visible: { opacity: 1, transition: { staggerChildren: 0.1 } } }} className="relative min-h-screen w-full bg-transparent text-white pt-24 pb-10">
+        <motion.main key="content" initial="hidden" animate="visible" variants={{ hidden: { opacity: 0 }, visible: { opacity: 1, transition: { staggerChildren: 0.1 } } }} className="relative min-h-screen w-full bg-transparent text-white pt-24 pb-24">
           <div className="relative z-10 max-w-[1700px] mx-auto px-6">
             {/* HERO SECTION */}
             <motion.div variants={{ hidden: { opacity: 0, y: 20 }, visible: { opacity: 1, y: 0, transition: { duration: 0.6, ease: "easeOut" } } }} className="flex flex-col md:flex-row justify-between items-start md:items-end gap-3 mb-4">
@@ -218,9 +238,9 @@ export default function StockPage() {
                 </div>
                 <h1 className="text-7xl font-black tracking-tighter mb-4 flex items-baseline gap-6 group/symbol">
                   <span className="bg-clip-text text-transparent bg-gradient-to-b from-white to-white/60 drop-shadow-[0_0_30px_rgba(255,255,255,0.15)] group-hover/symbol:drop-shadow-[0_0_40px_rgba(255,255,255,0.25)] transition-all duration-700">
-                    {data.symbol}
+                    {data.name}
                   </span>
-                  <span className="text-2xl font-medium text-zinc-500 tracking-tight">{data.name}</span>
+                  <span className="text-2xl font-medium text-zinc-500 tracking-tight">{data.symbol}</span>
                 </h1>
                 <div className="flex items-center gap-8 text-zinc-400">
                   <div className="flex items-center gap-3">
@@ -236,7 +256,7 @@ export default function StockPage() {
 
               <div className="text-right">
                 <div className="text-5xl font-mono font-black tracking-tighter mb-2 text-white drop-shadow-[0_0_20px_rgba(255,255,255,0.1)]">
-                  {safeFormat(data.current_price, 'currency')}
+                  <RollingNumber value={data.current_price} currency prefix="₹" />
                 </div>
                 <div className={cn("flex items-center justify-end gap-2 font-black text-xl", isPositive ? 'text-emerald-400' : 'text-rose-400')}>
                   {isPositive ? <TrendingUp className="w-6 h-6" /> : <TrendingDown className="w-6 h-6" />}
@@ -291,7 +311,7 @@ export default function StockPage() {
                               <Moon className="w-16 h-16 text-zinc-500" />
                               <div className="absolute inset-0 bg-zinc-500/20 blur-2xl animate-pulse" />
                             </div>
-                            <span className="font-mono text-xs uppercase tracking-[0.8em] text-zinc-500">Market is Currently Closed</span>
+                            <span className="font-mono text-xs uppercase tracking-[0.2em] text-zinc-500">No Data for this Period</span>
                           </>
                         ) : (
                           <>
@@ -299,7 +319,7 @@ export default function StockPage() {
                               <Activity className="w-16 h-16 text-emerald-500 animate-pulse" />
                               <div className="absolute inset-0 bg-emerald-500/30 blur-2xl animate-pulse" />
                             </div>
-                            <span className="font-mono text-xs uppercase tracking-[0.8em] text-emerald-500 animate-pulse">Fetching Real-Time Stream...</span>
+                            <span className="font-mono text-xs uppercase tracking-[0.2em] text-emerald-500 animate-pulse">Fetching Real-Time Stream...</span>
                           </>
                         )}
                       </div>

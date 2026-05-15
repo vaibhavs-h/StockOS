@@ -22,7 +22,7 @@ export function MarketSearch({ children }: { children: React.ReactNode }) {
     setMounted(true);
     const fetchData = async () => {
       // Fetch Global Indices
-      const indexSymbols = ["NSEI", "BSESN", "NSEBANK", "CNXIT", "CNXPHARMA", "CNXMETAL", "GSPC", "IXIC", "DJI"];
+      const indexSymbols = ["NSEI", "BSESN", "NSEBANK", "CNXPHARMA", "CNXMETAL", "GSPC", "IXIC", "DJI"];
       
       const [
         { data: inIndices }, 

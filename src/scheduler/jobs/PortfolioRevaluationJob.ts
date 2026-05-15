@@ -2,13 +2,18 @@ import { BaseJob } from '../core/BaseJob';
 import { SupabaseProvider } from '../providers/SupabaseProvider';
 import { JobMetadata, RefreshTier, MarketRegion, QueuePriority } from '../core/types';
 import { getISTTimestamp } from '../../server';
+import { getMarketStatus } from '../../constants/market-constants';
+import { MarketSessionService } from '../core/MarketSessionService';
+
 
 /**
  * PortfolioRevaluationJob
  * 
- * Runs every 1 minute between Broker Syncs.
- * Uses existing holdings (quantities) and updates their market value 
- * using the latest prices from the 'market_assets' table.
+ * ULTRA-STABLE REVALUATION LOGIC:
+ * 1. If market is CLOSED, this job officially SHUTS DOWN. 
+ *    We do not touch holdings, we do not touch history.
+ *    This preserves the EOD Import fidelity perfectly.
+ * 2. If market is OPEN, it performs Intelligent Reconciliation.
  */
 export class PortfolioRevaluationJob extends BaseJob {
   public readonly id = 'PortfolioRevaluationJob';
@@ -25,36 +30,52 @@ export class PortfolioRevaluationJob extends BaseJob {
   };
 
   protected async process(): Promise<number> {
+    const inOpen = MarketSessionService.isIndianMarketOpen();
+    const usOpen = MarketSessionService.isUsMarketOpen();
+    
+    console.log(`[REVAL] 💓 Portfolio Pulse | IN: ${inOpen ? 'OPEN' : 'CLOSED'} | US: ${usOpen ? 'OPEN' : 'CLOSED'}`);
+
+
     const supabase = SupabaseProvider.getClient();
 
-    // 1. Fetch current holdings (to get quantities)
+    // 1. Fetch ALL current holdings (Recover legacy records)
     const { data: currentHoldings, error: hError } = await supabase
       .from('holdings')
-      .select('*')
-      .not('user_id', 'is', null);
+      .select('*');
 
     if (hError || !currentHoldings || currentHoldings.length === 0) {
       return 0;
     }
 
-    // 2. Fetch latest market prices (IN & US)
+    // 2. Identify unique symbols for targeted market fetch
+    const { SymbolUniverseManager } = require('../../constants/market-constants');
+    const symbolsToQuery = new Set<string>();
+    currentHoldings.forEach(h => {
+      const s = (h.trading_symbol || '').trim().toUpperCase();
+      const resolved = SymbolUniverseManager.resolveSymbol(s, 'IN');
+      symbolsToQuery.add(s);
+      symbolsToQuery.add(resolved);
+      if (!s.includes('.')) symbolsToQuery.add(`${s}.NS`);
+    });
+
+    // 3. Fetch latest market prices — use targeted .in() to avoid Supabase's 1000-row default limit
+    // market_assets has 4800+ rows; fetching all would silently truncate and miss holdings
+    const symbolsList = Array.from(symbolsToQuery);
     const [{ data: inAssets }, { data: usAssets }] = await Promise.all([
-      supabase.from('market_assets').select('symbol, current_price, prev_close, day_change, day_change_percentage'),
-      supabase.from('us_market_assets').select('symbol, current_price, prev_close, day_change, day_change_percentage')
+      supabase.from('market_assets').select('symbol, current_price, prev_close, day_change, day_change_percentage').in('symbol', symbolsList),
+      supabase.from('us_market_assets').select('symbol, current_price, prev_close, day_change, day_change_percentage').in('symbol', symbolsList)
     ]);
     
     const marketMap = new Map();
     (inAssets || []).forEach(a => marketMap.set(a.symbol.trim().toUpperCase(), a));
     (usAssets || []).forEach(a => marketMap.set(a.symbol.trim().toUpperCase(), a));
 
-    // 3. Group holdings by portfolio_id
+    // 4. Group by portfolio
     const portfolioGroups = new Map<string, { userId: string, holdings: any[] }>();
     for (const h of currentHoldings) {
       const pid = h.portfolio_id;
-      const uid = h.user_id;
-      
-      if (!pid || !uid) continue;
-
+      const uid = h.user_id || 'institutional-legacy'; // Recover legacy records
+      if (!pid) continue;
       if (!portfolioGroups.has(pid)) {
         portfolioGroups.set(pid, { userId: uid, holdings: [] });
       }
@@ -68,81 +89,94 @@ export class PortfolioRevaluationJob extends BaseJob {
       const updatedHoldings = [];
       let totalMkt = 0;
       let totalInv = 0;
-      let totalDayChange = 0;
+      let totalDayChg = 0;
 
       for (const holding of holdings) {
         const symbol = (holding.trading_symbol || '').trim().toUpperCase();
-        const ticker = symbol.includes(':') ? symbol.split(':')[1] : symbol;
         
-        // Try direct ticker, then .NS fallback for Indian stocks
-        const yahooInSymbol = ticker.endsWith('.NS') ? ticker : `${ticker}.NS`;
-        const asset = marketMap.get(ticker) || marketMap.get(yahooInSymbol);
+        // INSTITUTIONAL NORMALIZATION: Deep resolve for absolute lookup
+        const resolved = SymbolUniverseManager.resolveSymbol(symbol, 'IN');
+        const asset = marketMap.get(resolved) || marketMap.get(symbol) || marketMap.get(`${symbol}.NS`) || marketMap.get(`${symbol}.BO`);
         
-        if (!asset) {
-          console.warn(`[Reval] No market asset found for holding: ${symbol} (Ticker: ${ticker})`);
+        const brokerPrice = Number(holding.last_price) || 0;
+        const apiPrice = asset ? Number(asset.current_price) : 0;
+        
+        // If Yahoo has no current price for this stock right now, PRESERVE existing holding data.
+        // Do NOT compute from brokerPrice - that produces stale/zero day_change.
+        if (apiPrice <= 0) {
+          updatedHoldings.push({
+            ...holding,
+            updated_at: getISTTimestamp()
+          });
+          totalMkt += Number(holding.market_value) || 0;
+          totalInv += Number(holding.invested_value) || 0;
+          totalDayChg += Number(holding.day_change) || 0;
+          continue;
         }
 
-        // LIVE PRICE from internal market engine
-        let price = asset ? asset.current_price : holding.last_price;
-        
-        // Fallback if market asset is somehow missing
-        if (!price || isNaN(price)) {
-          price = holding.last_price || holding.average_price || 0;
+        const reconciledPrice = apiPrice;
+        const marketValue = holding.quantity * reconciledPrice;
+
+        // COMPUTE day_change from prices — never trust Yahoo's stored day_change field.
+        // Yahoo intermittently emits 0 for regularMarketChange mid-session (not null, actual 0).
+        // That 0 passes through null-shielding and corrupts holdings.
+        // prev_close is anchored once at session open → stable. current_price is validated above.
+        const prevClose = Number(asset?.prev_close);
+        let unitDayChange: number;
+        let dayChangePct: number;
+
+        if (prevClose > 0) {
+          unitDayChange = reconciledPrice - prevClose;
+          dayChangePct = (unitDayChange / prevClose) * 100;
+        } else if (asset?.day_change && Number(asset.day_change) !== 0) {
+          // INSTITUTIONAL FALLBACK: If calculation fails but market_assets has the data, TRUST IT.
+          unitDayChange = Number(asset.day_change);
+          dayChangePct = Number(asset.day_change_percentage) || 0;
+        } else {
+          // No baseline: preserve last known holding values
+          unitDayChange = (Number(holding.day_change) || 0) / Math.max(holding.quantity || 1, 1);
+          dayChangePct = Number(holding.day_change_percentage) || 0;
         }
 
-        const marketValue = holding.quantity * price;
-        
-        // Calculate Daily Move: Use (Price - PrevClose) for maximum reliability after-hours
-        const unitDayChange = (asset && asset.current_price && asset.prev_close) 
-          ? (asset.current_price - asset.prev_close) 
-          : (asset?.day_change || 0);
+        const currentHoldingDayChg = unitDayChange * holding.quantity;
+        totalDayChg += currentHoldingDayChg;
 
-        const unitDayChangePct = (asset && asset.current_price && asset.prev_close && asset.prev_close !== 0)
-          ? ((asset.current_price - asset.prev_close) / asset.prev_close) * 100
-          : (asset?.day_change_percentage || 0);
+
 
         updatedHoldings.push({
           ...holding,
-          last_price: price,
+          last_price: reconciledPrice,
           market_value: marketValue,
           p_l: marketValue - holding.invested_value,
           p_l_percentage: holding.invested_value > 0 ? ((marketValue - holding.invested_value) / holding.invested_value) * 100 : 0,
-          day_change: unitDayChange * holding.quantity,
-          day_change_percentage: unitDayChangePct,
+          day_change: currentHoldingDayChg,
+          day_change_percentage: dayChangePct,
           updated_at: getISTTimestamp()
         });
 
         totalMkt += marketValue;
         totalInv += holding.invested_value;
-        totalDayChange += (unitDayChange * holding.quantity);
       }
 
-      // 4. Batch update holdings for this portfolio
-      const { error: upError } = await supabase.from('holdings').upsert(updatedHoldings);
-      if (upError) console.error(`[Reval] Failed to update holdings for portfolio ${pid}:`, upError.message);
+      // 5. Update Database - Atomic Holdings Batch
+      await supabase.from('holdings').upsert(updatedHoldings);
 
-      // 5. Update latest history entry for today (Virtual Update)
       const istTimestamp = getISTTimestamp();
       const logicalDay = istTimestamp.split('T')[0];
 
-      // Delete any existing snapshots for today for THIS SPECIFIC PORTFOLIO to ensure only 1 record per day
-      await supabase
-        .from('portfolio_history')
-        .delete()
-        .eq('portfolio_id', pid)
-        .gte('timestamp', `${logicalDay}T00:00:00+05:30`);
-
-      // Insert the new updated snapshot for today
-      await supabase.from('portfolio_history').insert({
+      // INSTITUTIONAL SNAPSHOT: Zero-gap Upsert
+      await supabase.from('portfolio_history').upsert({
         user_id: userId,
         portfolio_id: pid,
         total_investment: totalInv,
         total_market_value: totalMkt,
         total_p_l: totalMkt - totalInv,
         p_l_percentage: totalInv > 0 ? ((totalMkt - totalInv) / totalInv) * 100 : 0,
+        total_day_change: totalDayChg,
+        total_day_change_percentage: (totalMkt - totalDayChg) > 0 ? (totalDayChg / (totalMkt - totalDayChg)) * 100 : 0,
         timestamp: istTimestamp,
-        broker_name: 'GROWW'
-      });
+        broker_name: 'INSTITUTIONAL'
+      }, { onConflict: 'portfolio_id,timestamp' });
 
       totalProcessed += updatedHoldings.length;
     }

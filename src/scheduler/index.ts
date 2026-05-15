@@ -1,96 +1,60 @@
 import cron from 'node-cron';
 import { syncOrchestrator } from './core/orchestrator';
-import { IndianLiveSyncJob } from './jobs/IndianLiveSyncJob';
 import { IndianAnalyticsSyncJob } from './jobs/IndianAnalyticsSyncJob';
 import { IndianDeepSyncJob } from './jobs/IndianDeepSyncJob';
-import { UsLiveSyncJob } from './jobs/UsLiveSyncJob';
 import { UsAnalyticsSyncJob } from './jobs/UsAnalyticsSyncJob';
 import { UsDeepSyncJob } from './jobs/UsDeepSyncJob';
 import { UsMarketResetJob } from './jobs/UsMarketResetJob';
+import { StartupRecoveryManager } from './core/StartupRecoveryManager';
+import { IndianMasterSeedJob } from './jobs/internal/IndianMasterSeedJob';
 import { PortfolioRevaluationJob } from './jobs/PortfolioRevaluationJob';
-import { SYNC_CONFIG } from './config/sync.config';
-import { MarketStatusEngine } from './core/MarketStatusEngine';
-import { MarketRegion, MarketSession } from './core/types';
 
+/**
+ * initializeScheduler: The Ignition Point for Pulse Engine v2.
+ * Switches from static cron polling to demand-driven institutional orchestration.
+ */
 export function initializeScheduler() {
-  console.log('[SCHEDULER] Initializing Zero-Failure Ingestion Engine...');
+  console.log('[SCHEDULER] 🚀 Initializing Pulse Engine v2 (Resilient Orchestration)...');
 
-  // 1. TIER 1: Live Indian Equities (10 Sec Heartbeat when Open, 15 Min when Closed)
-  cron.schedule(`* * * * *`, () => {
-    const status = MarketStatusEngine.isMarketOpen(MarketRegion.IN) || MarketStatusEngine.isPremarket(MarketRegion.IN);
-    
-    if (status) {
-      // Fire at 0, 10, 20, 30, 40, 50 seconds
-      [0, 10, 20, 30, 40, 50].forEach(offset => {
-        setTimeout(() => syncOrchestrator.dispatch(new IndianLiveSyncJob()), offset * 1000);
-      });
-    } else {
-      // Heartbeat for Closed Market (Every 15 mins to lock in final data)
-      const min = new Date().getMinutes();
-      if (min % 15 === 0) {
-        syncOrchestrator.dispatch(new IndianLiveSyncJob());
-      }
-    }
-  }, { timezone: 'Asia/Kolkata' });
+  // 1. PHASED STARTUP: Hand over to Recovery Manager
+  // This starts the SyncCoordinator pulse loop with jitter and safety offsets.
+  StartupRecoveryManager.initiateRecovery();
 
-  // 2. TIER 1: Live US Equities (Session-Aware 15 Sec Heartbeat)
-  cron.schedule(`* * * * *`, () => {
-    const session = MarketStatusEngine.getCurrentSession(MarketRegion.US);
-    
-    if (session === MarketSession.REGULAR) {
-      // Fire at 0, 15, 30, 45 seconds (Balanced for safety)
-      [0, 15, 30, 45].forEach(offset => {
-        setTimeout(() => syncOrchestrator.dispatch(new UsLiveSyncJob()), offset * 1000);
-      });
-    } else if (session === MarketSession.PREMARKET || session === MarketSession.AFTER_HOURS) {
-      const min = new Date().getMinutes();
-      if (min % 15 === 0) {
-        syncOrchestrator.dispatch(new UsLiveSyncJob());
-      }
-    }
-  }, { timezone: 'America/New_York' });
+  // 2. PORTFOLIO HEARTBEAT: Tier 1 (1 Min)
+  // Ensures Total Value, Day Change, and History are recalculated every minute.
+  cron.schedule('* * * * *', () => {
+    syncOrchestrator.dispatch(new PortfolioRevaluationJob());
+  });
 
-  // 3. TIER 2: Indian Analytics & Valuation (15 Min Rolling Window)
-  cron.schedule(`*/15 * * * *`, () => {
+  // 2. BACKGROUND ANALYTICS: Tier 3 (1 Hour)
+  // Focused exclusively on the Active Universe (Holdings + Active Views)
+  cron.schedule(`0 * * * *`, () => {
     syncOrchestrator.dispatch(new IndianAnalyticsSyncJob());
+    syncOrchestrator.dispatch(new UsAnalyticsSyncJob());
   }, { timezone: 'Asia/Kolkata' });
 
-  // 4. TIER 2: US Analytics & Valuation (15 Min Rolling Window)
-  cron.schedule(`*/15 * * * *`, () => {
-    const session = MarketStatusEngine.getCurrentSession(MarketRegion.US);
-    if (session !== MarketSession.CLOSED) {
-      syncOrchestrator.dispatch(new UsAnalyticsSyncJob());
-    }
-  }, { timezone: 'America/New_York' });
-
-  // 5. TIER 3: Deep Indian Equities (Daily 00:00 IST - Midnight Settlement)
-  cron.schedule('0 0 * * *', () => {
+  // 3. POST-SESSION SETTLEMENT: Tier 4 (Deep Sync)
+  // Fires 15 minutes after market close to capture final daily metrics.
+  // India (Market closes 3:30 PM IST)
+  cron.schedule('45 15 * * *', () => {
     syncOrchestrator.dispatch(new IndianDeepSyncJob());
   }, { timezone: 'Asia/Kolkata' });
 
-  // 6. TIER 3: Deep US Equities (Daily 05:00 IST / 19:30 EST - Post Market)
-  cron.schedule('0 5 * * *', () => {
+  // US (Market closes 4:00 PM EST)
+  cron.schedule('15 16 * * *', () => {
     syncOrchestrator.dispatch(new UsDeepSyncJob());
-  }, { timezone: 'Asia/Kolkata' });
+  }, { timezone: 'America/New_York' });
 
-  // 7. TIER 4: US Market Daily Reset (8:30 AM EST - 1 Hr before Open)
+  // 4. MAINTENANCE: Market Daily Reset (8:30 AM EST)
   cron.schedule('30 8 * * *', () => {
     syncOrchestrator.dispatch(new UsMarketResetJob());
   }, { timezone: 'America/New_York' });
 
+  // 5. MASTER SEEDING: Tier 5 (Low-Priority Discovery Sweep)
+  // Runs every hour to check for unseeded symbols at lowest P5 priority.
+  cron.schedule('0 * * * *', () => {
+    syncOrchestrator.dispatch(new IndianMasterSeedJob());
+  }, { timezone: 'Asia/Kolkata' });
 
-  // 8. Virtual Portfolio Revaluation (Atomic Trigger via LiveSyncJobs)
-  // No longer needed as a separate cron job. It is triggered directly by IndianLiveSyncJob and UsLiveSyncJob.
-
-
-  // WARM START
-  setTimeout(() => {
-    console.log('[SCHEDULER] Injecting Warm Start Jobs...');
-    syncOrchestrator.dispatch(new IndianLiveSyncJob());
-    syncOrchestrator.dispatch(new UsLiveSyncJob());
-    syncOrchestrator.dispatch(new UsAnalyticsSyncJob());
-  }, 2000);
+  console.log('[SCHEDULER] ✅ Institutional Orchestration Active.');
 }
-
-
-

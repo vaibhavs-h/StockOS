@@ -9,14 +9,17 @@ interface WealthChartProps {
   currency?: string;
   locale?: string;
   timezoneLabel?: string;
+  isProfitOverride?: boolean;
 }
 
 export const WealthPerformanceChart: React.FC<WealthChartProps> = ({ 
   data, 
   currency = 'INR', 
   locale = 'en-IN',
-  timezoneLabel = 'IST'
+  timezoneLabel = 'IST',
+  isProfitOverride
 }) => {
+
   const chartContainerRef = useRef<HTMLDivElement>(null);
   const tooltipRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
@@ -64,9 +67,13 @@ export const WealthPerformanceChart: React.FC<WealthChartProps> = ({
       }
     };
 
-    const isProfit = displayData.length >= 2 ? displayData[displayData.length - 1].value >= displayData[0].value : true;
+    const isProfit = isProfitOverride !== undefined 
+      ? isProfitOverride 
+      : (displayData.length >= 2 ? displayData[displayData.length - 1].value >= displayData[0].value : true);
+      
     const color = isProfit ? '#10b981' : '#ef4444';
     const rgba = isProfit ? '16, 185, 129' : '239, 68, 68';
+
 
     const chart = createChart(chartContainerRef.current, {
       layout: {

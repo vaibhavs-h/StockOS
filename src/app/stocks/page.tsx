@@ -15,7 +15,9 @@ import {
   BarChart3,
   TrendingDown,
   ChevronRight,
-  Sparkles
+  Sparkles,
+  Cpu,
+  Car
 } from "lucide-react"
 import { supabase } from "@/services/DatabaseClient"
 import { useRouter } from "next/navigation"
@@ -26,6 +28,7 @@ export default function StocksPage() {
   const [mounted, setMounted] = useState(false)
   const [indianStocks, setIndianStocks] = useState<any[]>([])
   const [usStocks, setUsStocks] = useState<any[]>([])
+  const [indices, setIndices] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [searchQuery, setSearchQuery] = useState("")
   const [activeMarket, setActiveMarket] = useState<'ALL' | 'IN' | 'US'>('ALL')
@@ -41,12 +44,23 @@ export default function StocksPage() {
     setLoading(true)
     try {
       const [{ data: inData }, { data: usData }] = await Promise.all([
-        supabase.from('market_assets').select('*').order('market_cap', { ascending: false }).limit(20),
-        supabase.from('us_market_assets').select('*').order('market_cap', { ascending: false }).limit(20)
+        supabase.from('market_assets').select('*').order('market_cap', { ascending: false }).limit(50),
+        supabase.from('us_market_assets').select('*').order('market_cap', { ascending: false }).limit(50)
       ])
 
-      setIndianStocks(inData || [])
-      setUsStocks(usData || [])
+      const indianWithMarket = (inData || []).map(s => ({ ...s, market: 'IN' as const, region: 'IN' as const }))
+      const usWithMarket = (usData || []).map(s => ({ ...s, market: 'US' as const, region: 'US' as const }))
+
+      setIndianStocks(indianWithMarket)
+      setUsStocks(usWithMarket)
+      
+      // Filter for indices if they exist, or just use top stocks as placeholders for now
+      setIndices([
+        { symbol: 'NIFTY 50', name: 'NSE Index', price: 23532.70, change: 0.45, isUp: true, market: 'IN' },
+        { symbol: 'SENSEX', name: 'BSE Index', price: 77337.59, change: 0.38, isUp: true, market: 'IN' },
+        { symbol: 'NASDAQ 100', name: 'US Index', price: 19935.40, change: 1.20, isUp: true, market: 'US' },
+        { symbol: 'S&P 500', name: 'US Index', price: 5473.23, change: 0.77, isUp: true, market: 'US' },
+      ])
     } catch (err) {
       console.error("Failed to fetch stocks:", err)
     } finally {
@@ -54,11 +68,28 @@ export default function StocksPage() {
     }
   }
 
+  const topGainers = useMemo(() => {
+    return [...indianStocks, ...usStocks]
+      .filter(s => (s.day_change_percentage || 0) > 0)
+      .sort((a, b) => (b.day_change_percentage || 0) - (a.day_change_percentage || 0))
+      .slice(0, 4)
+  }, [indianStocks, usStocks])
+
+  const topLosers = useMemo(() => {
+    return [...indianStocks, ...usStocks]
+      .filter(s => (s.day_change_percentage || 0) < 0)
+      .sort((a, b) => (a.day_change_percentage || 0) - (b.day_change_percentage || 0))
+      .slice(0, 4)
+  }, [indianStocks, usStocks])
+
+  const mostBought = useMemo(() => {
+    return [...indianStocks, ...usStocks]
+      .sort((a, b) => (b.market_cap || 0) - (a.market_cap || 0))
+      .slice(0, 8)
+  }, [indianStocks, usStocks])
+
   const filteredStocks = useMemo(() => {
-    let combined = [
-      ...indianStocks.map(s => ({ ...s, market: 'IN' as const })),
-      ...usStocks.map(s => ({ ...s, market: 'US' as const }))
-    ]
+    let combined = [...indianStocks, ...usStocks]
 
     if (activeMarket !== 'ALL') {
       combined = combined.filter(s => s.market === activeMarket)
@@ -74,179 +105,261 @@ export default function StocksPage() {
     return combined.sort((a, b) => (b.market_cap || 0) - (a.market_cap || 0))
   }, [indianStocks, usStocks, searchQuery, activeMarket])
 
-  const formatCurrency = (val: number, market: 'IN' | 'US') => {
-    return new Intl.NumberFormat(market === 'US' ? 'en-US' : 'en-IN', {
-      style: 'currency',
-      currency: market === 'US' ? 'USD' : 'INR',
-      maximumFractionDigits: market === 'US' ? 2 : 0
-    }).format(val)
-  }
-
-  const formatCompact = (val: number) => {
-    if (val >= 1e12) return (val / 1e12).toFixed(2) + 'T'
-    if (val >= 1e9) return (val / 1e9).toFixed(2) + 'B'
-    if (val >= 1e7) return (val / 1e7).toFixed(2) + 'Cr'
-    if (val >= 1e5) return (val / 1e5).toFixed(2) + 'L'
-    return val.toLocaleString()
-  }
-
   if (!mounted) return null
 
-  return (
-    <div className="min-h-screen bg-transparent text-white font-sans selection:bg-emerald-500/30 pt-[120px] pb-20 px-8 max-w-[1600px] mx-auto">
-      {/* Header Section */}
-      <motion.div 
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="mb-12"
-      >
-        <div className="flex items-center gap-3 mb-4">
-          <div className="p-2 rounded-xl bg-emerald-500/10 border border-emerald-500/20">
-            <Globe className="w-5 h-5 text-emerald-500" />
-          </div>
-          <h2 className="font-headline font-black text-xs uppercase tracking-[0.3em] text-emerald-500/60">Global Market Explorer</h2>
-        </div>
-        <h1 className="font-headline font-black text-6xl md:text-7xl tracking-tighter text-white uppercase leading-none mb-6">
-          Institutional <br /><span className="text-zinc-600">Intelligence</span>
-        </h1>
-        <p className="text-zinc-400 max-w-2xl text-lg font-medium leading-relaxed">
-          Real-time access to the world's most critical assets. Cross-market data synchronized with institutional-grade precision.
-        </p>
-      </motion.div>
+  const containerVariants = {
+    hidden: { opacity: 0 },
+    visible: {
+      opacity: 1,
+      transition: {
+        staggerChildren: 0.1,
+        delayChildren: 0.2
+      }
+    }
+  }
 
-      {/* Control Bar */}
-      <motion.div 
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.1 }}
-        className="flex flex-col md:flex-row gap-6 mb-10 items-center justify-between"
-      >
-        <div className="flex gap-2 p-1 bg-white/[0.03] border border-white/5 rounded-2xl">
-          {['ALL', 'IN', 'US'].map((m) => (
-            <button
-              key={m}
-              onClick={() => setActiveMarket(m as any)}
-              className={cn(
-                "px-6 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all",
-                activeMarket === m 
-                  ? "bg-white text-black shadow-[0_4px_15px_rgba(255,255,255,0.2)]" 
-                  : "text-zinc-500 hover:text-white hover:bg-white/5"
-              )}
+  const itemVariants = {
+    hidden: { opacity: 0, y: 20 },
+    visible: {
+      opacity: 1,
+      y: 0,
+      transition: {
+        duration: 0.8,
+        ease: [0.16, 1, 0.3, 1]
+      }
+    }
+  }
+
+  return (
+    <motion.div 
+      initial="hidden"
+      animate="visible"
+      variants={containerVariants}
+      className="min-h-screen bg-transparent text-white font-sans selection:bg-emerald-500/30 pt-[100px] pb-20 px-8 max-w-[1400px] mx-auto"
+    >
+      {/* Header */}
+      <motion.div variants={itemVariants} className="mb-10">
+        <h1 className="font-headline font-black text-4xl tracking-tighter text-white uppercase mb-8">Explore <span className="text-emerald-500">Markets</span></h1>
+
+        {/* Indices Bar */}
+        <div className="flex gap-4 overflow-x-auto no-scrollbar pb-4 -mx-4 px-4">
+          {indices.map((idx, i) => (
+            <motion.div 
+              key={idx.symbol}
+              variants={{
+                hidden: { opacity: 0, scale: 0.9, x: -20 },
+                visible: { 
+                  opacity: 1, 
+                  scale: 1, 
+                  x: 0,
+                  transition: { delay: 0.3 + (i * 0.1), duration: 0.8, ease: "circOut" }
+                }
+              }}
+              whileHover={{ y: -4, border: '1px solid rgba(16,185,129,0.3)' }}
+              className="min-w-[240px] p-5 rounded-2xl border border-white/10 bg-[#0d1117] flex flex-col gap-2 cursor-pointer transition-all group shadow-xl"
             >
-              {m === 'ALL' ? 'Global' : m === 'IN' ? 'NSE/BSE' : 'NASDAQ/NYSE'}
-            </button>
+              <div className="flex justify-between items-center">
+                <span className="font-terminal-label text-[10px] font-black uppercase tracking-widest text-zinc-500 group-hover:text-zinc-300">{idx.symbol}</span>
+                <div className={cn("size-2 rounded-full", idx.isUp ? "bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.5)]" : "bg-red-500")} />
+              </div>
+              <div className="flex items-baseline gap-2">
+                <span className="font-mono font-black text-xl tracking-tighter text-white">
+                  {idx.market === 'US' ? '$' : '₹'}{idx.price.toLocaleString(idx.market === 'US' ? 'en-US' : 'en-IN')}
+                </span>
+                <span className={cn("text-[10px] font-bold", idx.isUp ? "text-emerald-500" : "text-red-500")}>
+                  {idx.isUp ? '+' : ''}{idx.change}%
+                </span>
+              </div>
+            </motion.div>
           ))}
         </div>
-
-        <div className="relative w-full md:w-96 group">
-          <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500 group-focus-within:text-emerald-500 transition-colors" />
-          <input 
-            type="text" 
-            placeholder="Search Symbols or Companies..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full bg-white/[0.03] border border-white/5 rounded-2xl py-4 pl-12 pr-6 text-sm font-bold placeholder:text-zinc-600 focus:outline-none focus:border-emerald-500/50 focus:bg-white/[0.05] transition-all"
-          />
-        </div>
       </motion.div>
 
-      {/* Main Grid */}
-      <div className="grid grid-cols-1 gap-6">
-        {loading ? (
-          <div className="h-[60vh] flex flex-col items-center justify-center gap-6 opacity-20">
-            <Sparkles className="w-12 h-12 animate-pulse text-emerald-500" />
-            <span className="font-headline font-black text-[10px] uppercase tracking-[0.5em]">Synchronizing Universal Assets...</span>
-          </div>
-        ) : (
-          <motion.div 
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ delay: 0.2 }}
-            className="glass-panel border border-white/5 rounded-3xl overflow-hidden bg-white/[0.02] backdrop-blur-3xl"
-          >
-            <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse">
-                <thead>
-                  <tr className="border-b border-white/5 bg-white/[0.02]">
-                    <th className="px-8 py-5 text-[10px] font-black uppercase tracking-widest text-zinc-500">Asset</th>
-                    <th className="px-8 py-5 text-[10px] font-black uppercase tracking-widest text-zinc-500">Market</th>
-                    <th className="px-8 py-5 text-[10px] font-black uppercase tracking-widest text-zinc-500">Price</th>
-                    <th className="px-8 py-5 text-[10px] font-black uppercase tracking-widest text-zinc-500">24H Change</th>
-                    <th className="px-8 py-5 text-[10px] font-black uppercase tracking-widest text-zinc-500">Market Cap</th>
-                    <th className="px-8 py-5 text-[10px] font-black uppercase tracking-widest text-zinc-500">Action</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <AnimatePresence mode="popLayout">
-                    {filteredStocks.map((stock, idx) => (
-                      <motion.tr 
-                        key={stock.symbol}
-                        initial={{ opacity: 0, y: 10 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ delay: idx * 0.02 }}
-                        className="group border-b border-white/[0.02] hover:bg-white/[0.04] transition-colors cursor-pointer"
-                        onClick={() => {
-                          const route = stock.market === 'US' ? `/us-stocks/${stock.symbol}` : `/stocks/${stock.symbol}`
-                          router.push(route)
-                        }}
-                      >
-                        <td className="px-8 py-6">
-                          <div className="flex items-center gap-4">
-                            <div className="size-12 rounded-2xl bg-white/[0.03] border border-white/5 flex items-center justify-center font-black text-zinc-500 group-hover:border-white/10 group-hover:text-white transition-all">
-                              {stock.symbol[0]}
-                            </div>
-                            <div>
-                              <div className="flex items-center gap-2">
-                                <span className="font-headline font-black text-lg tracking-tight text-white">{stock.symbol}</span>
-                                {idx < 3 && !searchQuery && (
-                                  <span className="px-2 py-0.5 rounded-md bg-emerald-500/10 text-emerald-500 text-[8px] font-black uppercase tracking-widest">Top Asset</span>
-                                )}
-                              </div>
-                              <p className="text-[11px] font-bold text-zinc-500 uppercase tracking-widest opacity-60 truncate w-48">{stock.name}</p>
-                            </div>
-                          </div>
-                        </td>
-                        <td className="px-8 py-6">
-                          <span className={cn(
-                            "px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-tighter border",
-                            stock.market === 'US' ? "bg-blue-500/10 text-blue-400 border-blue-500/20" : "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
-                          )}>
-                            {stock.market === 'US' ? 'NASDAQ/NYSE' : 'NSE/BSE'}
-                          </span>
-                        </td>
-                        <td className="px-8 py-6">
-                          <span className="font-headline font-bold text-lg tabular-nums text-white">
-                            {formatCurrency(stock.current_price, stock.market)}
-                          </span>
-                        </td>
-                        <td className="px-8 py-6">
-                          <div className={cn(
-                            "flex items-center gap-1.5 font-headline font-bold text-base tabular-nums",
-                            stock.day_change_percentage >= 0 ? "text-emerald-500" : "text-red-500"
-                          )}>
-                            {stock.day_change_percentage >= 0 ? <ArrowUpRight className="w-4 h-4" /> : <ArrowDownRight className="w-4 h-4" />}
-                            {stock.day_change_percentage >= 0 ? "+" : ""}{stock.day_change_percentage?.toFixed(2)}%
-                          </div>
-                        </td>
-                        <td className="px-8 py-6">
-                          <span className="font-headline font-medium text-zinc-400 tabular-nums">
-                            {stock.market === 'US' ? '$' : '₹'}{formatCompact(stock.market_cap || 0)}
-                          </span>
-                        </td>
-                        <td className="px-8 py-6">
-                          <button className="p-3 rounded-xl bg-white/[0.03] border border-white/5 hover:bg-white text-zinc-400 hover:text-black transition-all">
-                            <ChevronRight className="w-4 h-4" />
-                          </button>
-                        </td>
-                      </motion.tr>
-                    ))}
-                  </AnimatePresence>
-                </tbody>
-              </table>
+      <div className="grid grid-cols-1 lg:grid-cols-[1fr_350px] gap-12">
+        <div className="space-y-12">
+          {/* Most Bought Section */}
+          <motion.section variants={itemVariants}>
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="font-headline font-black text-xs uppercase tracking-[0.4em] text-emerald-500/60 font-bold">Most Bought on StockOS</h2>
+              <button className="text-[10px] font-black uppercase tracking-widest text-zinc-500 hover:text-white transition-colors">View All</button>
             </div>
-          </motion.div>
-        )}
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
+              {mostBought.slice(0, 4).map((stock, i) => (
+                <motion.div
+                  key={stock.symbol}
+                  variants={{
+                    hidden: { opacity: 0, y: 20 },
+                    visible: { 
+                      opacity: 1, 
+                      y: 0,
+                      transition: { delay: 0.5 + (i * 0.1), duration: 0.8, ease: [0.16, 1, 0.3, 1] }
+                    }
+                  }}
+                  whileHover={{ y: -4, scale: 1.02 }}
+                  onClick={() => router.push(stock.region === 'US' ? `/us-stocks/${stock.symbol}` : `/stocks/${stock.symbol}`)}
+                  className="p-5 rounded-2xl border border-white/10 bg-[#0d1117] hover:bg-emerald-500/[0.05] hover:border-emerald-500/30 transition-all cursor-pointer group shadow-xl"
+                >
+                  <div className="size-10 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center font-black text-zinc-500 group-hover:text-white mb-4">
+                    {stock.symbol[0]}
+                  </div>
+                  <div className="font-headline font-black text-base text-white mb-1 group-hover:text-emerald-400 transition-colors">{stock.symbol}</div>
+                  <div className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-4 truncate">{stock.name}</div>
+                  <div className="flex justify-between items-end">
+                    <span className="font-mono font-black text-sm text-white">
+                      {stock.region === 'US' ? '$' : '₹'}{stock.current_price?.toLocaleString()}
+                    </span>
+                    <span className={cn("text-[10px] font-black tabular-nums", stock.day_change_percentage >= 0 ? "text-emerald-500" : "text-red-500")}>
+                      {stock.day_change_percentage >= 0 ? '+' : ''}{stock.day_change_percentage?.toFixed(2)}%
+                    </span>
+                  </div>
+                </motion.div>
+              ))}
+            </div>
+          </motion.section>
+
+          {/* Market Movers: Gainers & Losers */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+            <motion.section variants={itemVariants}>
+              <h2 className="font-headline font-black text-xs uppercase tracking-[0.4em] text-emerald-500/60 mb-6 flex items-center gap-3 font-bold">
+                <TrendingUp className="w-4 h-4" /> Top Gainers
+              </h2>
+              <div className="space-y-3">
+                {topGainers.map((stock, i) => (
+                  <motion.div 
+                    key={stock.symbol}
+                    variants={{
+                      hidden: { opacity: 0, x: -20 },
+                      visible: { 
+                        opacity: 1, 
+                        x: 0,
+                        transition: { delay: 0.6 + (i * 0.1), duration: 0.5 }
+                      }
+                    }}
+                    onClick={() => router.push(stock.region === 'US' ? `/us-stocks/${stock.symbol}` : `/stocks/${stock.symbol}`)}
+                    className="flex items-center justify-between p-4 rounded-xl bg-[#0d1117] border border-white/10 hover:bg-emerald-500/[0.05] hover:border-emerald-500/20 transition-all cursor-pointer group shadow-lg"
+                  >
+                    <div className="flex items-center gap-4">
+                      <div className="size-10 rounded-lg bg-white/5 flex items-center justify-center font-black text-zinc-600 group-hover:text-emerald-500 transition-colors">{stock.symbol[0]}</div>
+                      <div>
+                        <div className="font-headline font-black text-sm text-white">{stock.symbol}</div>
+                        <div className="text-[9px] font-bold text-zinc-600 uppercase tracking-widest">NSE:EQUITY</div>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <div className="font-mono font-black text-sm text-white">
+                        {stock.market === 'US' ? '$' : '₹'}{stock.current_price?.toLocaleString(stock.market === 'US' ? 'en-US' : 'en-IN')}
+                      </div>
+                      <div className="text-[10px] font-black text-emerald-500">+{stock.day_change_percentage?.toFixed(2)}%</div>
+                    </div>
+                  </motion.div>
+                ))}
+              </div>
+            </motion.section>
+
+            <motion.section variants={itemVariants}>
+              <h2 className="font-headline font-black text-xs uppercase tracking-[0.4em] text-rose-500/60 mb-6 flex items-center gap-3 font-bold">
+                <TrendingDown className="w-4 h-4" /> Top Losers
+              </h2>
+              <div className="space-y-3">
+                {topLosers.map((stock, i) => (
+                  <motion.div 
+                    key={stock.symbol}
+                    variants={{
+                      hidden: { opacity: 0, x: 20 },
+                      visible: { 
+                        opacity: 1, 
+                        x: 0,
+                        transition: { delay: 0.6 + (i * 0.1), duration: 0.5 }
+                      }
+                    }}
+                    onClick={() => router.push(stock.region === 'US' ? `/us-stocks/${stock.symbol}` : `/stocks/${stock.symbol}`)}
+                    className="flex items-center justify-between p-4 rounded-xl bg-[#0d1117] border border-white/10 hover:bg-rose-500/[0.05] hover:border-rose-500/20 transition-all cursor-pointer group shadow-lg"
+                  >
+                    <div className="flex items-center gap-4">
+                      <div className="size-10 rounded-lg bg-white/5 flex items-center justify-center font-black text-zinc-600 group-hover:text-rose-500 transition-colors">{stock.symbol[0]}</div>
+                      <div>
+                        <div className="font-headline font-black text-sm text-white">{stock.symbol}</div>
+                        <div className="text-[9px] font-bold text-zinc-600 uppercase tracking-widest">NSE:EQUITY</div>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <div className="font-mono font-black text-sm text-white">
+                        {stock.market === 'US' ? '$' : '₹'}{stock.current_price?.toLocaleString(stock.market === 'US' ? 'en-US' : 'en-IN')}
+                      </div>
+                      <div className="text-[10px] font-black text-rose-500">{stock.day_change_percentage?.toFixed(2)}%</div>
+                    </div>
+                  </motion.div>
+                ))}
+              </div>
+            </motion.section>
+          </div>
+        </div>
+
+        {/* Sidebar: Categories & Tools */}
+        <aside className="space-y-12">
+          <motion.section variants={itemVariants}>
+            <h2 className="font-headline font-black text-xs uppercase tracking-[0.4em] text-zinc-500 mb-6 font-bold">Stocks by Sector</h2>
+            <div className="grid grid-cols-2 gap-3">
+              {[
+                { name: 'Energy', icon: Activity, color: 'text-amber-500' },
+                { name: 'Banking', icon: Database, color: 'text-blue-500' },
+                { name: 'Tech', icon: Cpu, color: 'text-purple-500' },
+                { name: 'Auto', icon: Car, color: 'text-rose-500' },
+                { name: 'Pharma', icon: Activity, color: 'text-emerald-500' },
+                { name: 'FMCG', icon: Filter, color: 'text-orange-500' },
+              ].map((sector, i) => (
+                <motion.button
+                  key={sector.name}
+                  variants={{
+                    hidden: { opacity: 0, scale: 0.9 },
+                    visible: { 
+                      opacity: 1, 
+                      scale: 1,
+                      transition: { delay: 0.8 + (i * 0.05) }
+                    }
+                  }}
+                  className="flex flex-col items-center justify-center gap-3 p-6 rounded-2xl bg-[#0d1117] border border-white/10 hover:bg-white/[0.05] hover:border-white/20 transition-all group shadow-lg"
+                >
+                  <sector.icon className={cn("w-6 h-6 opacity-40 group-hover:opacity-100 transition-all", sector.color)} />
+                  <span className="font-terminal-label text-[10px] font-black uppercase tracking-widest text-zinc-500 group-hover:text-white">{sector.name}</span>
+                </motion.button>
+              ))}
+            </div>
+          </motion.section>
+
+          <motion.section variants={itemVariants}>
+            <h2 className="font-headline font-black text-xs uppercase tracking-[0.4em] text-zinc-500 mb-6 font-bold">Market Tools</h2>
+            <div className="space-y-3">
+              {[
+                { name: 'F&O Trading', desc: 'Future & Options', icon: BarChart3 },
+                { name: 'IPO Center', desc: 'New Listings', icon: Sparkles },
+                { name: 'Screener', desc: 'Custom Filters', icon: Filter },
+              ].map((tool, i) => (
+                <motion.button
+                  key={tool.name}
+                  variants={{
+                    hidden: { opacity: 0, x: 20 },
+                    visible: { 
+                      opacity: 1, 
+                      x: 0,
+                      transition: { delay: 1 + (i * 0.1) }
+                    }
+                  }}
+                  className="w-full flex items-center gap-4 p-4 rounded-2xl bg-[#0d1117] border border-white/10 hover:border-emerald-500/20 transition-all group shadow-lg"
+                >
+                  <div className="size-10 rounded-xl bg-emerald-500/10 flex items-center justify-center group-hover:scale-110 transition-transform">
+                    <tool.icon className="w-5 h-5 text-emerald-500" />
+                  </div>
+                  <div className="text-left">
+                    <div className="font-headline font-black text-xs text-white uppercase tracking-wider">{tool.name}</div>
+                    <div className="text-[9px] font-bold text-zinc-600 uppercase tracking-[0.2em]">{tool.desc}</div>
+                  </div>
+                </motion.button>
+              ))}
+            </div>
+          </motion.section>
+        </aside>
       </div>
-    </div>
+    </motion.div>
   )
 }

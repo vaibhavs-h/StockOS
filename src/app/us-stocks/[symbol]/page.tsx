@@ -23,6 +23,7 @@ import {
   Dna,
   Link
 } from "lucide-react";
+import { RollingNumber } from "@/components/shared/RollingNumber";
 import { getMarketStatus } from "@/constants/market-constants";
 import { WealthPerformanceChart as WealthChart } from "@/components/dashboard/WealthPerformanceChart";
 import { supabase } from "@/services/DatabaseClient";
@@ -135,18 +136,37 @@ export default function USStockPage() {
   useEffect(() => {
     setStatus(getMarketStatus('US') as any);
     const interval = setInterval(() => setStatus(getMarketStatus('US') as any), 60000);
-    return () => clearInterval(interval);
-  }, []);
+
+    // Heartbeat Neural Link: Activates Ephemeral Sync on demand
+    const sendHeartbeat = async () => {
+      if (!symbol || document.hidden) return;
+      try {
+        await fetch('/api/market/heartbeat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ symbol: (symbol as string).toUpperCase(), market: 'US' })
+        });
+      } catch (e) { }
+    };
+
+    sendHeartbeat();
+    const heartbeatInterval = setInterval(sendHeartbeat, 30000);
+
+    return () => {
+      clearInterval(interval);
+      clearInterval(heartbeatInterval);
+    };
+  }, [symbol]);
 
   useEffect(() => {
     async function fetchStock() {
       if (!symbol) return;
       const upperSymbol = (symbol as string).toUpperCase();
-      
+
       // 1. Initial Fetch
       const { data: stocks, error: stockError } = await supabase.from("us_market_assets").select("*").ilike("symbol", upperSymbol);
       const { data: holdings, error: holdingError } = await supabase.from("holdings").select("*").ilike("trading_symbol", upperSymbol);
-      
+
       if (!stockError && stocks && stocks.length > 0) setData(stocks[0]);
       if (!holdingError && holdings && holdings.length > 0) setHolding(holdings[0]);
       setIsLoading(false);
@@ -249,7 +269,7 @@ export default function USStockPage() {
 
               <div className="text-right flex flex-col items-end gap-2">
                 <div className="text-6xl font-mono font-black tracking-tighter text-white drop-shadow-[0_0_20px_rgba(255,255,255,0.1)]">
-                  {safeFormat(data.current_price, 'currency')}
+                  <RollingNumber value={data.current_price} currency prefix="$" />
                 </div>
                 <div className={cn("flex items-center gap-2 font-black text-2xl", isPositive ? 'text-emerald-400' : 'text-rose-400')}>
                   {isPositive ? <TrendingUp className="w-7 h-7" /> : <TrendingDown className="w-7 h-7" />}
@@ -258,7 +278,7 @@ export default function USStockPage() {
                     ({data.day_change >= 0 ? '+' : '-'}${Math.abs(data.day_change || 0).toFixed(2)})
                   </span>
                 </div>
-                
+
                 {/* SESSION OVERLAY (PRE/AFTER) */}
                 <AnimatePresence>
                   {(data.premarket_price || data.after_hours_price) && (
@@ -315,8 +335,8 @@ export default function USStockPage() {
                   </div>
                   <div className="w-full h-[380px]">
                     {history.length > 0 ? (
-                      <WealthChart 
-                        data={history} 
+                      <WealthChart
+                        data={history}
                         currency="USD"
                         locale="en-US"
                         timezoneLabel="EST"
