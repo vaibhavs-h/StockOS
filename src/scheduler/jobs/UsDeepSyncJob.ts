@@ -51,11 +51,17 @@ export class UsDeepSyncJob extends BaseJob {
         const modules = ['financialData', 'defaultKeyStatistics', 'summaryProfile', 'calendarEvents', 'summaryDetail'];
         const summary = await YahooProvider.fetchQuoteSummary(item.s, modules, 'US');
 
+        if (!summary) {
+          console.warn(`[UsDeepSyncJob] No summary found for ${item.s}. Skipping.`);
+          continue;
+        }
+
         const fd = (summary.financialData || {}) as any;
         const ks = (summary.defaultKeyStatistics || {}) as any;
         const sp = (summary.summaryProfile || {}) as any;
         const ce = (summary.calendarEvents || {}) as any;
         const sd = (summary.summaryDetail || {}) as any;
+
 
         const fullPayload = {
           symbol,

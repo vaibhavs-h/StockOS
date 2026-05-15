@@ -48,12 +48,18 @@ export class IndianDeepSyncJob extends BaseJob {
 
         const summary = await YahooProvider.fetchQuoteSummary(item.s, modules, 'IN');
 
+        if (!summary) {
+          console.warn(`[IndianDeepSyncJob] No summary found for ${item.s}. Skipping.`);
+          continue;
+        }
+
         const sp = (summary.summaryProfile || {}) as any;
         const sd = (summary.summaryDetail || {}) as any;
         const ks = (summary.defaultKeyStatistics || {}) as any;
         const fd = (summary.financialData || {}) as any;
         const earnings = (summary.earnings || {}) as any;
         const ce = (summary.calendarEvents || {}) as any;
+
 
         // Extract Earnings Chart data safely
         const quarterlyEarnings = earnings.earningsChart?.quarterly || [];
