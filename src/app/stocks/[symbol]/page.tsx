@@ -18,6 +18,7 @@ import {
   Plus
 } from "lucide-react";
 import { RollingNumber } from "@/components/shared/RollingNumber";
+import { AssetLogo } from "@/components/shared/AssetLogo";
 import { getMarketStatus, normalizeStorageSymbol } from "@/constants/market-constants";
 import { WatchlistSelectorModal } from "@/components/dashboard/WatchlistSelectorModal";
 import { useSession } from "next-auth/react";
@@ -133,7 +134,7 @@ export default function StockPage() {
   // Database Heartbeat to register symbol as Active
   useEffect(() => {
     if (!symbol) return;
-    
+
     const sendHeartbeat = () => {
       fetch('/api/market/heartbeat', {
         method: 'POST',
@@ -313,12 +314,19 @@ export default function StockPage() {
                     {status === 'OPEN' ? 'MARKET LIVE' : status === 'PRE' ? 'PRE-MARKET' : status === 'AFTER' ? 'AFTER-HOURS' : 'MARKET CLOSED'}
                   </div>
                 </div>
-                <h1 className="text-7xl font-black tracking-tighter mb-4 flex items-baseline gap-6 group/symbol">
-                  <span className="bg-clip-text text-transparent bg-gradient-to-b from-white to-white/60 drop-shadow-[0_0_30px_rgba(255,255,255,0.15)] group-hover/symbol:drop-shadow-[0_0_40px_rgba(255,255,255,0.25)] transition-all duration-700">
-                    {data.name}
-                  </span>
-                  <span className="text-2xl font-medium text-zinc-500 tracking-tight">{data.symbol}</span>
-                </h1>
+                <div className="flex items-center gap-4 mb-4">
+                  <AssetLogo
+                    symbol={data.symbol}
+                    name={data.name}
+                    size="xl"
+                  />
+                  <h1 className="text-7xl font-black tracking-tighter flex items-baseline gap-6 group/symbol">
+                    <span className="bg-clip-text text-transparent bg-gradient-to-b from-white to-white/60 drop-shadow-[0_0_30px_rgba(255,255,255,0.15)] group-hover/symbol:drop-shadow-[0_0_40px_rgba(255,255,255,0.25)] transition-all duration-700">
+                      {data.name}
+                    </span>
+                    <span className="text-2xl font-medium text-zinc-500 tracking-tight">{data.symbol}</span>
+                  </h1>
+                </div>
                 <div className="flex items-center gap-8 text-zinc-400">
                   <div className="flex items-center gap-3">
                     <Globe className="w-5 h-5 text-emerald-500/60" />
@@ -534,12 +542,12 @@ export default function StockPage() {
                       <BellRing className="size-3.5 text-zinc-500 group-hover:text-amber-400 transition-colors" />
                       Set Alert
                     </button>
-                    <button 
+                    <button
                       onClick={() => setIsWatchlistModalOpen(true)}
                       className={cn(
                         "w-full py-4 font-black uppercase tracking-[0.2em] text-[10px] rounded-2xl border transition-all flex items-center justify-center gap-3 active:scale-95 group",
-                        watchlistInfo 
-                          ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-400" 
+                        watchlistInfo
+                          ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-400"
                           : "bg-white/5 border-white/10 text-white hover:bg-white/10"
                       )}
                     >
@@ -559,7 +567,7 @@ export default function StockPage() {
                   </div>
                 </div>
 
-                <WatchlistSelectorModal 
+                <WatchlistSelectorModal
                   isOpen={isWatchlistModalOpen}
                   onClose={() => {
                     setIsWatchlistModalOpen(false);

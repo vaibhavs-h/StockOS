@@ -25,6 +25,7 @@ import {
   Plus
 } from "lucide-react";
 import { RollingNumber } from "@/components/shared/RollingNumber";
+import { AssetLogo } from "@/components/shared/AssetLogo";
 import { getMarketStatus, normalizeStorageSymbol } from "@/constants/market-constants";
 import { WatchlistSelectorModal } from "@/components/dashboard/WatchlistSelectorModal";
 import { useSession } from "next-auth/react";
@@ -144,7 +145,7 @@ export default function USStockPage() {
   // Database Heartbeat to register symbol as Active
   useEffect(() => {
     if (!symbol) return;
-    
+
     const sendHeartbeat = () => {
       fetch('/api/market/heartbeat', {
         method: 'POST',
@@ -162,15 +163,15 @@ export default function USStockPage() {
   // 1-Minute Live Burst Sync Logic
   useEffect(() => {
     if (!symbol) return;
-    
+
     let burstCount = 0;
     const maxBursts = 6; // 60 seconds / 10 seconds = 6
-    
+
     const triggerBurst = async () => {
       try {
         const isLocal = typeof window !== 'undefined' && window.location.hostname === 'localhost';
         const baseUrl = isLocal ? 'http://localhost:3003' : (process.env.NEXT_PUBLIC_ENGINE_URL || 'http://localhost:3003');
-        const region = 'US'; 
+        const region = 'US';
         await fetch(`${baseUrl}/api/sync/burst?symbol=${symbol}&region=${region}`);
       } catch (err) {
         console.error("[BURST] Sync failed:", err);
@@ -179,7 +180,7 @@ export default function USStockPage() {
 
     // Initial burst
     triggerBurst();
-    
+
     // Set interval for every 10 seconds
     const interval = setInterval(() => {
       burstCount++;
@@ -327,12 +328,19 @@ export default function USStockPage() {
                   {data.is_sp500 && <span className="px-3 py-1 bg-blue-500/10 border border-blue-500/20 rounded-full text-[9px] font-black tracking-widest text-blue-400 uppercase">S&P 500</span>}
                   {data.is_nasdaq100 && <span className="px-3 py-1 bg-purple-500/10 border border-purple-500/20 rounded-full text-[9px] font-black tracking-widest text-purple-400 uppercase">NASDAQ 100</span>}
                 </div>
-                <h1 className="text-7xl font-black tracking-tighter mb-4 flex items-baseline gap-6 group/symbol">
-                  <span className="bg-clip-text text-transparent bg-gradient-to-b from-white to-white/60 drop-shadow-[0_0_30px_rgba(255,255,255,0.15)] group-hover/symbol:drop-shadow-[0_0_40px_rgba(255,255,255,0.25)] transition-all duration-700">
-                    {data.symbol}
-                  </span>
-                  <span className="text-2xl font-medium text-zinc-500 tracking-tight">{data.name}</span>
-                </h1>
+                <div className="flex items-center gap-4 mb-4">
+                  <AssetLogo
+                    symbol={data.symbol}
+                    name={data.name}
+                    size="xl"
+                  />
+                  <h1 className="text-7xl font-black tracking-tighter flex items-baseline gap-6 group/symbol">
+                    <span className="bg-clip-text text-transparent bg-gradient-to-b from-white to-white/60 drop-shadow-[0_0_30px_rgba(255,255,255,0.15)] group-hover/symbol:drop-shadow-[0_0_40px_rgba(255,255,255,0.25)] transition-all duration-700">
+                      {data.symbol}
+                    </span>
+                    <span className="text-2xl font-medium text-zinc-500 tracking-tight">{data.name}</span>
+                  </h1>
+                </div>
                 <div className="flex items-center gap-8 text-zinc-400">
                   <div className="flex items-center gap-3">
                     <Globe className="w-5 h-5 text-emerald-500/60" />
@@ -563,37 +571,37 @@ export default function USStockPage() {
                     <ShoppingCart className="size-4 transition-transform group-hover:scale-110" />
                     Buy {data.symbol}
                   </button>
-                <div className="grid grid-cols-2 gap-3">
-                  <button className="w-full py-4 bg-white/5 hover:bg-white/10 text-white font-black uppercase tracking-[0.2em] text-[10px] rounded-2xl border border-white/10 transition-all flex items-center justify-center gap-3 active:scale-95 group">
-                    <BellRing className="size-3.5 text-zinc-500 group-hover:text-amber-400 transition-colors" />
-                    Set Alert
-                  </button>
-                  <button 
-                    onClick={() => setIsWatchlistModalOpen(true)}
-                    className={cn(
-                      "w-full py-4 font-black uppercase tracking-[0.2em] text-[10px] rounded-2xl border transition-all flex items-center justify-center gap-3 active:scale-95 group",
-                      watchlistInfo 
-                        ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-400" 
-                        : "bg-white/5 border-white/10 text-white hover:bg-white/10"
-                    )}
-                  >
-                    {watchlistInfo ? (
-                      <>
-                        <div className="size-1.5 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)] animate-pulse" />
-                        <span className="truncate max-w-[100px]">{watchlistInfo.name}</span>
-                        {watchlistInfo.count > 1 && <span className="opacity-50 shrink-0">+{watchlistInfo.count - 1}</span>}
-                      </>
-                    ) : (
-                      <>
-                        <Plus className="size-3.5 text-zinc-500 group-hover:text-emerald-400 transition-colors" />
-                        Watchlist
-                      </>
-                    )}
-                  </button>
-                </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <button className="w-full py-4 bg-white/5 hover:bg-white/10 text-white font-black uppercase tracking-[0.2em] text-[10px] rounded-2xl border border-white/10 transition-all flex items-center justify-center gap-3 active:scale-95 group">
+                      <BellRing className="size-3.5 text-zinc-500 group-hover:text-amber-400 transition-colors" />
+                      Set Alert
+                    </button>
+                    <button
+                      onClick={() => setIsWatchlistModalOpen(true)}
+                      className={cn(
+                        "w-full py-4 font-black uppercase tracking-[0.2em] text-[10px] rounded-2xl border transition-all flex items-center justify-center gap-3 active:scale-95 group",
+                        watchlistInfo
+                          ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-400"
+                          : "bg-white/5 border-white/10 text-white hover:bg-white/10"
+                      )}
+                    >
+                      {watchlistInfo ? (
+                        <>
+                          <div className="size-1.5 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)] animate-pulse" />
+                          <span className="truncate max-w-[100px]">{watchlistInfo.name}</span>
+                          {watchlistInfo.count > 1 && <span className="opacity-50 shrink-0">+{watchlistInfo.count - 1}</span>}
+                        </>
+                      ) : (
+                        <>
+                          <Plus className="size-3.5 text-zinc-500 group-hover:text-emerald-400 transition-colors" />
+                          Watchlist
+                        </>
+                      )}
+                    </button>
+                  </div>
                 </div>
 
-                <WatchlistSelectorModal 
+                <WatchlistSelectorModal
                   isOpen={isWatchlistModalOpen}
                   onClose={() => {
                     setIsWatchlistModalOpen(false);

@@ -7,6 +7,7 @@ import { SearchIcon, XIcon, ArrowRight, Loader2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/services/DatabaseClient";
 import { cn } from "@/lib/utils";
+import { AssetLogo } from "@/components/shared/AssetLogo";
 
 export function MarketSearch({ children }: { children: React.ReactNode }) {
   const [isOpen, setIsOpen] = useState(false);
@@ -183,9 +184,12 @@ export function MarketSearch({ children }: { children: React.ReactNode }) {
                           )}
                         >
                           <div className="flex items-center gap-4">
-                            <div className="size-10 rounded-xl bg-white/[0.03] flex items-center justify-center border border-white/5 font-black text-white/40 font-headline group-hover:border-white/10 transition-colors">
-                              {stock.symbol[0]}
-                            </div>
+                            <AssetLogo
+                              symbol={stock.symbol}
+                              name={stock.name}
+                              size="md"
+                              className="shrink-0"
+                            />
                             <div className="text-left">
                               <div className="flex items-center gap-2">
                                 <p className={cn(

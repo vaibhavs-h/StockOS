@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" width="100%" height="100%">
+  <clipPath id="logo-clip">
+    <rect width="120" height="120" rx="26"/>
+  </clipPath>
+  <g clip-path="url(#logo-clip)">
+    <image href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAABF0lEQVQ4jdWToUoEURSGv+NuWIOMgxo0mMRmGgSLLKaFQQzTbjSYFDXIvoBBEKM+wjrNIOhDKLctCLIgKKxBFrlB1OIxeJIz4sBavOnc//znuz8HrrR2VxnmjAw1/ReA+k8NH1wbSO16mUT5YeUEPrhtG+4AZ0BqwGoAoAUsA6NAw+pmmbE2tzRfEGca3dPH94U3VTkHuRGhn0T5ZqUEPrjMB9dGuQYQ0Qzo+eA2ygDFJSrPCE2EVFCArnW2fHDx92UWAB9wJSo7Ra6eCDL9a4LF8fwF6JXFLdPrPrgL4A5YA46APeAYOEiivOaD2wdi4BaYshrgHpiVyfVOBkyYGANjwBPwin69qMiDiK6YZ2D+AYD8/8/0CQivTXbu9uJoAAAAAElFTkSuQmCC" x="0" y="0" width="120" height="120" preserveAspectRatio="xMidYMid meet"/>
+  </g>
+</svg>

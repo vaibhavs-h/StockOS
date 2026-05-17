@@ -1,18 +1,21 @@
 import { SupabaseProvider } from '../providers/SupabaseProvider';
 
-export type FreshnessStatus = 'LIVE' | 'RECENT' | 'STALE' | 'DELAYED' | 'FAILED';
-
 /**
  * SymbolSyncStateService: The Health Ledger of StockOS.
- * Tracks freshness, failures, and cooldowns for every symbol.
+ * Tracks freshness, failures, and cooldowns for every active symbol completely in-memory,
+ * purging the database dependency on a separate health ledger table.
  */
 export class SymbolSyncStateService {
   
-  private static lastRecordCache = new Map<string, number>();
+  // In-memory ledger mapping: symbol -> { failureCount, cooldownUntil (timestamp) }
+  private static memoryLedger = new Map<string, {
+    failureCount: number;
+    cooldownUntil: number | null;
+  }>();
 
   /**
-   * Updates the sync health for a symbol in Supabase.
-   * SMART LOGGING: Prevents excessive DB writes by throtteling success records.
+   * Updates the sync health for a symbol.
+   * Tracks telemetry in active_market_symbols, and maintains the cooldown ledger in-memory.
    */
   public static async recordSyncResult(
     symbol: string, 
@@ -23,7 +26,7 @@ export class SymbolSyncStateService {
     const supabase = SupabaseProvider.getClient();
     const now = new Date().toISOString();
 
-    // 1. Instant Active Market Symbols update (ALWAYS up-to-date)
+    // 1. Telemetry Persistence: Keep active_market_symbols registry in sync
     try {
       if (success) {
         await supabase
@@ -52,78 +55,36 @@ export class SymbolSyncStateService {
       console.error(`[HEALTH] ❌ Failed to update active_market_symbols for ${symbol}:`, err.message);
     }
 
-    const nowTs = Date.now();
-    const lastRecord = this.lastRecordCache.get(symbol) || 0;
-    
-    // Only record historical ledger if:
-    // 1. It's a failure
-    // 2. It's a success after a failure (recovery)
-    // 3. 30 minutes have passed since last record
-    const shouldRecord = !success || (nowTs - lastRecord > 30 * 60 * 1000);
-
-    if (!shouldRecord) return;
-
-    // 1. If failure, we need to know the CURRENT failure count to increment it
-    let currentFailureCount = 0;
-    if (!success) {
-      const { data: existing } = await supabase
-        .from('symbol_sync_state')
-        .select('failure_count')
-        .eq('symbol', symbol)
-        .single();
-      currentFailureCount = (existing?.failure_count || 0) + 1;
-    }
-
-    const update: any = {
-      symbol,
-      market,
-      last_attempted_sync_at: now,
-      updated_at: now,
-      inflight_status: 'idle'
-    };
+    // 2. In-Memory Cooldown Tracking: Lightweight & lightning-fast
+    const record = this.memoryLedger.get(symbol) || { failureCount: 0, cooldownUntil: null };
 
     if (success) {
-      update.last_success_at = now;
-      update.failure_count = 0;
-      update.freshness_status = 'LIVE';
-      update.cooldown_until = null;
+      record.failureCount = 0;
+      record.cooldownUntil = null;
     } else {
-      update.last_failure_at = now;
-      update.failure_count = currentFailureCount;
-      update.freshness_status = 'FAILED';
+      record.failureCount += 1;
       
-      // Smart Cooldown: Increase cooldown duration based on failure count
-      const cooldown = new Date();
-      const minutes = Math.min(60 * currentFailureCount, 24 * 60); // Max 24h cooldown
-      cooldown.setMinutes(cooldown.getMinutes() + minutes);
-      update.cooldown_until = cooldown.toISOString();
+      // Exponential Smart Cooldown: increases by 60 mins per failure (max 24h)
+      const cooldownMinutes = Math.min(60 * record.failureCount, 24 * 60);
+      record.cooldownUntil = Date.now() + cooldownMinutes * 60 * 1000;
     }
 
-    const { error: dbError } = await supabase
-      .from('symbol_sync_state')
-      .upsert(update, { onConflict: 'symbol' });
-
-    if (!dbError) {
-      this.lastRecordCache.set(symbol, nowTs);
-    } else {
-      console.error(`[HEALTH] ❌ Failed to record sync result for ${symbol}:`, dbError.message);
-    }
+    this.memoryLedger.set(symbol, record);
   }
 
-
   /**
-   * Identifies symbols that are in 'Cooldown' and should be skipped.
+   * Identifies symbols that are actively in Cooldown and should be skipped during pulses.
    */
   public static async getCooldownSymbols(): Promise<Set<string>> {
-    const supabase = SupabaseProvider.getClient();
-    const now = new Date().toISOString();
+    const now = Date.now();
+    const cooldowns = new Set<string>();
 
-    const { data, error } = await supabase
-      .from('symbol_sync_state')
-      .select('symbol')
-      .gt('cooldown_until', now);
+    for (const [symbol, record] of this.memoryLedger.entries()) {
+      if (record.cooldownUntil && record.cooldownUntil > now) {
+        cooldowns.add(symbol);
+      }
+    }
 
-    if (error) return new Set();
-    return new Set(data.map(d => d.symbol));
+    return cooldowns;
   }
 }

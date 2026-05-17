@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" width="100%" height="100%">
+  <clipPath id="logo-clip">
+    <rect width="120" height="120" rx="26"/>
+  </clipPath>
+  <g clip-path="url(#logo-clip)">
+    <image href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAACdklEQVRYhcWXO0xTURzGf/fYNrFBHqGtpk2MLCSm5haXDg66FEgIJgYDXdTG+JgIadIERuNEo2nEhE07MDHBBEYIoxOD1fpoQtQGhyqtRkDApG3uZQArDdB7runjm87jf77/d8/jO/coveF+ACITLzp0oT0A/MB5aoMUsKxo4mEs3JcGEACRybkBXWhJIFTD5Oxzh3ShJSOTcwMAyiKiYz95Uw0TH4UtRRPqiRtCn2Bv2usNG4reKhqU/C/8yoJAb6AALDJBTYpiGLOl/993GAo4191D58sFQ6Lixib51TS/pqdZffxIWpCQipKApaUZu+rDMx7F/3Mdl9MhN85solw8fpiktZlTgV4sLc0lMZ2LS2QvdlVXgJYvkLh/99j+ridPcY2MAGBXfbicDrK5HxU5q7YEALnnz8rqVtcZwzFVFVDIfi+rb3z8UF8Bztt3SuWd5Fupk2B6E3q8Fw61Wd1u2gaHaL95q5R8pScgxWdKgLBZ8SbfVYwprmVZ6QkYbr4SpxkBMrCcdqF+zeAdHZOLN0Ou5Qskz7qP7Gu6fIX2YJC264MImxXPeJQ/nz/xZWamIqfhZXTQirV8gaWTtoqE3tExPONRYG8vvDIwo6ovwfr8fKlsV32GF1nVBVjd5Utkd7TXV4Dz3j+rLm5sGp4G0z5w3JQ6At20DQ7RcvVaqe33kvE1btoHLhU1qdjiWpZUMGjMaUaALHLxOO993upYcSGTOfIf4CD07W0K3zJsJxLsvHkt7YIg4QO1hmDvudQopASw3EAByw1/molYuC+tCELAVl2TC0KxcF9aAMSG+2cVTajAFLXdEylgStGEGhvunwXYBUvEym+UWNFKAAAAAElFTkSuQmCC" x="0" y="0" width="120" height="120" preserveAspectRatio="xMidYMid meet"/>
+  </g>
+</svg>

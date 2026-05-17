@@ -36,6 +36,7 @@ import { useSession } from "next-auth/react"
 import { GrowwImportGuide } from "@/components/dashboard/GrowwImportGuide"
 import { ZerodhaImportGuide } from "@/components/dashboard/ZerodhaImportGuide"
 import { RollingNumber } from "@/components/shared/RollingNumber"
+import { AssetLogo } from "@/components/shared/AssetLogo"
 import { PortfolioAnalyzer } from "@/components/dashboard/PortfolioAnalyzer"
 import { WatchlistTerminal } from "@/components/dashboard/WatchlistTerminal"
 import { InstitutionalNews } from "@/components/dashboard/InstitutionalNews"
@@ -1520,9 +1521,15 @@ export default function DashboardPage() {
                               <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-700 pointer-events-none bg-[radial-gradient(circle_at_var(--mouse-x,50%)_var(--mouse-y,50%),rgba(16,185,129,0.05)_0%,transparent_70%)]" />
                               <div className="flex items-center gap-4 relative z-10">
                                 <div className={cn(
-                                  "w-1 h-8 rounded-full transition-all duration-500",
+                                  "w-1 h-8 rounded-full transition-all duration-500 shrink-0",
                                   Number(asset.p_l) >= 0 ? "bg-emerald-500/40" : "bg-red-500/40"
                                 )} />
+                                <AssetLogo
+                                  symbol={asset.trading_symbol}
+                                  name={asset.trading_symbol}
+                                  size="sm"
+                                  className="shrink-0"
+                                />
                                 <div className="flex flex-col">
                                   <span className="font-headline font-bold text-[14px] text-white tracking-tight group-hover:text-emerald-400 transition-colors">
                                     {asset.trading_symbol.replace('.NS', '').replace('.BO', '')}
@@ -1688,7 +1695,7 @@ export default function DashboardPage() {
               </div>
             </motion.section>
           </motion.div>
-          
+
           {/* BOTTOM SECTION: 3/5 Terminal & 2/5 News Split */}
           <div className="grid grid-cols-1 lg:grid-cols-5 gap-6 w-full mt-0">
             {/* LEFT: Market Intelligence (3/5) */}

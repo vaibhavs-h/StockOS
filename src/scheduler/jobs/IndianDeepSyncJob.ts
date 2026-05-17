@@ -24,11 +24,11 @@ export class IndianDeepSyncJob extends BaseJob {
   protected async process(): Promise<number> {
     const supabase = SupabaseProvider.getClient();
     const assets = SymbolUniverseManager.getUniqueIndianEquities();
-    
+
     // Split universe into 5 buckets for rotation (Mon-Fri)
     const bucketSize = Math.ceil(assets.length / 5);
     const bucketIndex = RotationManager.getNextSectorIndex('IN', 5);
-    
+
     const start = bucketIndex * bucketSize;
     const end = Math.min(start + bucketSize, assets.length);
     const bucket = assets.slice(start, end);
@@ -92,7 +92,7 @@ export class IndianDeepSyncJob extends BaseJob {
           target_high: fd.targetHighPrice || null,
           target_low: fd.targetLowPrice || null,
           target_mean: fd.targetMeanPrice || null,
-          
+
           // Earnings & Dividends (New)
           next_earnings_date: ce.earnings?.earningsDate?.[0] || null,
           last_earnings_surprise_pct: earnings.earningsChart?.earningsSurprise?.[earnings.earningsChart?.earningsSurprise?.length - 1]?.pct || null,
@@ -110,7 +110,7 @@ export class IndianDeepSyncJob extends BaseJob {
         };
 
         const diffPayload = this.getDiff(symbol, fullPayload);
-        
+
         if (!diffPayload) {
           syncOrchestrator.recordWriteSkip();
         } else {
@@ -119,7 +119,7 @@ export class IndianDeepSyncJob extends BaseJob {
           this.commitSnapshot(symbol, fullPayload);
           processedCount++;
         }
-        
+
       } catch (error: any) {
         console.warn(`[IndianDeepSyncJob] Failed for ${symbol}: ${error.message}`);
       }

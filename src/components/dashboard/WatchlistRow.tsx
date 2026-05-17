@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { ExternalLink, Trash2, TrendingUp, TrendingDown, Activity } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import Link from 'next/link';
+import { AssetLogo } from '../shared/AssetLogo';
 
 interface WatchlistRowProps {
   asset: any;
@@ -52,18 +53,12 @@ export const WatchlistRow: React.FC<WatchlistRowProps> = ({ asset, onRemove }) =
           {/* Top Section: Identity & Action HUD */}
           <div className="flex justify-between items-start z-10 relative">
             <div className="flex items-center gap-4">
-              <motion.div
-                animate={isHovered ? { scale: 1.05 } : { scale: 1 }}
-                className={cn(
-                  "size-10 rounded-xl flex items-center justify-center bg-white/[0.02] border border-white/5 transition-all duration-500 shadow-inner",
-                  isHovered && (isUp ? "border-emerald-500/40 bg-emerald-500/5" : "border-rose-500/40 bg-rose-500/5")
-                )}
-              >
-                <span className={cn(
-                  "text-[16px] font-black uppercase leading-none transition-colors duration-500",
-                  isHovered ? "text-white opacity-100" : "text-zinc-600 opacity-40"
-                )}>{displayChar}</span>
-              </motion.div>
+              <AssetLogo
+                symbol={asset.symbol}
+                name={asset.name}
+                size="md"
+                className="shrink-0"
+              />
               <div className="flex flex-col">
                 <div className="flex items-center gap-2">
                   <h3 className="text-[18px] font-black text-white tracking-tighter uppercase leading-none drop-shadow-2xl">

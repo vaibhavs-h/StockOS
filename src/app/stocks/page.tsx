@@ -2,15 +2,15 @@
 
 import React, { useState, useEffect, useMemo } from "react"
 import { motion, AnimatePresence } from "framer-motion"
-import { 
-  Search, 
-  TrendingUp, 
-  Activity, 
-  Globe, 
-  ArrowUpRight, 
-  ArrowDownRight, 
-  Database, 
-  SearchIcon, 
+import {
+  Search,
+  TrendingUp,
+  Activity,
+  Globe,
+  ArrowUpRight,
+  ArrowDownRight,
+  Database,
+  SearchIcon,
   Filter,
   BarChart3,
   TrendingDown,
@@ -53,7 +53,7 @@ export default function StocksPage() {
 
       setIndianStocks(indianWithMarket)
       setUsStocks(usWithMarket)
-      
+
       // Filter for indices if they exist, or just use top stocks as placeholders for now
       setIndices([
         { symbol: 'NIFTY 50', name: 'NSE Index', price: 23532.70, change: 0.45, isUp: true, market: 'IN' },
@@ -96,7 +96,7 @@ export default function StocksPage() {
     }
 
     if (searchQuery) {
-      combined = combined.filter(s => 
+      combined = combined.filter(s =>
         s.symbol.toLowerCase().includes(searchQuery.toLowerCase()) ||
         s.name.toLowerCase().includes(searchQuery.toLowerCase())
       )
@@ -131,7 +131,7 @@ export default function StocksPage() {
   }
 
   return (
-    <motion.div 
+    <motion.div
       initial="hidden"
       animate="visible"
       variants={containerVariants}
@@ -144,13 +144,13 @@ export default function StocksPage() {
         {/* Indices Bar */}
         <div className="flex gap-4 overflow-x-auto no-scrollbar pb-4 -mx-4 px-4">
           {indices.map((idx, i) => (
-            <motion.div 
+            <motion.div
               key={idx.symbol}
               variants={{
                 hidden: { opacity: 0, scale: 0.9, x: -20 },
-                visible: { 
-                  opacity: 1, 
-                  scale: 1, 
+                visible: {
+                  opacity: 1,
+                  scale: 1,
                   x: 0,
                   transition: { delay: 0.3 + (i * 0.1), duration: 0.8, ease: "circOut" }
                 }
@@ -189,8 +189,8 @@ export default function StocksPage() {
                   key={stock.symbol}
                   variants={{
                     hidden: { opacity: 0, y: 20 },
-                    visible: { 
-                      opacity: 1, 
+                    visible: {
+                      opacity: 1,
                       y: 0,
                       transition: { delay: 0.5 + (i * 0.1), duration: 0.8, ease: [0.16, 1, 0.3, 1] }
                     }
@@ -225,12 +225,12 @@ export default function StocksPage() {
               </h2>
               <div className="space-y-4">
                 {topGainers.map((stock, i) => (
-                  <motion.div 
+                  <motion.div
                     key={stock.symbol}
                     variants={{
                       hidden: { opacity: 0, x: -20 },
-                      visible: { 
-                        opacity: 1, 
+                      visible: {
+                        opacity: 1,
                         x: 0,
                         transition: { delay: 0.6 + (i * 0.1), duration: 0.5 }
                       }
@@ -240,7 +240,7 @@ export default function StocksPage() {
                     className="flex items-center justify-between p-5 rounded-2xl border border-white/5 bg-gradient-to-br from-emerald-500/[0.03] to-emerald-500/[0.01] hover:from-emerald-500/[0.07] hover:to-emerald-500/[0.02] hover:border-emerald-500/30 hover:shadow-[0_8px_32px_rgba(16,185,129,0.12)] transition-all duration-300 cursor-pointer group relative overflow-hidden"
                   >
                     <div className="absolute inset-0 bg-gradient-to-r from-emerald-500/[0.01] to-transparent pointer-events-none" />
-                    
+
                     <div className="flex items-center gap-4 relative z-10">
                       <div className="size-11 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 flex items-center justify-center font-headline font-black text-lg group-hover:scale-110 group-hover:bg-emerald-500/20 group-hover:border-emerald-500/30 transition-all duration-300">
                         {stock.symbol[0]}
@@ -286,12 +286,12 @@ export default function StocksPage() {
               </h2>
               <div className="space-y-4">
                 {topLosers.map((stock, i) => (
-                  <motion.div 
+                  <motion.div
                     key={stock.symbol}
                     variants={{
                       hidden: { opacity: 0, x: 20 },
-                      visible: { 
-                        opacity: 1, 
+                      visible: {
+                        opacity: 1,
                         x: 0,
                         transition: { delay: 0.6 + (i * 0.1), duration: 0.5 }
                       }
@@ -360,8 +360,8 @@ export default function StocksPage() {
                   key={sector.name}
                   variants={{
                     hidden: { opacity: 0, scale: 0.9 },
-                    visible: { 
-                      opacity: 1, 
+                    visible: {
+                      opacity: 1,
                       scale: 1,
                       transition: { delay: 0.8 + (i * 0.05) }
                     }
@@ -387,8 +387,8 @@ export default function StocksPage() {
                   key={tool.name}
                   variants={{
                     hidden: { opacity: 0, x: 20 },
-                    visible: { 
-                      opacity: 1, 
+                    visible: {
+                      opacity: 1,
                       x: 0,
                       transition: { delay: 1 + (i * 0.1) }
                     }
