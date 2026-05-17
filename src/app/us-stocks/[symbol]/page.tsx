@@ -21,10 +21,14 @@ import {
   Clock,
   BarChart3,
   Dna,
-  Link
+  Link,
+  Plus
 } from "lucide-react";
 import { RollingNumber } from "@/components/shared/RollingNumber";
-import { getMarketStatus } from "@/constants/market-constants";
+import { getMarketStatus, normalizeStorageSymbol } from "@/constants/market-constants";
+import { WatchlistSelectorModal } from "@/components/dashboard/WatchlistSelectorModal";
+import { useSession } from "next-auth/react";
+
 import { WealthPerformanceChart as WealthChart } from "@/components/dashboard/WealthPerformanceChart";
 import { supabase } from "@/services/DatabaseClient";
 import { cn } from "@/lib/utils";
@@ -125,38 +129,109 @@ function StatRow({ label, value, highlight = false, isNegative = false, type = '
 // --- MAIN COMPONENT ---
 export default function USStockPage() {
   const { symbol } = useParams();
+  const { data: session } = useSession();
+  const portfolioId = (session?.user as any)?.id || "guest";
   const [data, setData] = useState<any>(null);
   const [holding, setHolding] = useState<any>(null);
   const [history, setHistory] = useState<any[]>([]);
   const [timeRange, setTimeRange] = useState('1Y');
   const [isLoading, setIsLoading] = useState(true);
   const [status, setStatus] = useState<'OPEN' | 'CLOSED' | 'PRE' | 'AFTER'>('CLOSED');
+  const [isWatchlistModalOpen, setIsWatchlistModalOpen] = useState(false);
+  const [watchlistInfo, setWatchlistInfo] = useState<{ name: string; count: number } | null>(null);
   const isPositive = data?.day_change_percentage >= 0;
+
+  // Database Heartbeat to register symbol as Active
+  useEffect(() => {
+    if (!symbol) return;
+    
+    const sendHeartbeat = () => {
+      fetch('/api/market/heartbeat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ symbol, market: 'US' })
+      }).catch(err => console.error("[HEARTBEAT] Error:", err));
+    };
+
+    sendHeartbeat();
+    const interval = setInterval(sendHeartbeat, 30000); // Pulse every 30 seconds
+
+    return () => clearInterval(interval);
+  }, [symbol]);
+
+  // 1-Minute Live Burst Sync Logic
+  useEffect(() => {
+    if (!symbol) return;
+    
+    let burstCount = 0;
+    const maxBursts = 6; // 60 seconds / 10 seconds = 6
+    
+    const triggerBurst = async () => {
+      try {
+        const isLocal = typeof window !== 'undefined' && window.location.hostname === 'localhost';
+        const baseUrl = isLocal ? 'http://localhost:3003' : (process.env.NEXT_PUBLIC_ENGINE_URL || 'http://localhost:3003');
+        const region = 'US'; 
+        await fetch(`${baseUrl}/api/sync/burst?symbol=${symbol}&region=${region}`);
+      } catch (err) {
+        console.error("[BURST] Sync failed:", err);
+      }
+    };
+
+    // Initial burst
+    triggerBurst();
+    
+    // Set interval for every 10 seconds
+    const interval = setInterval(() => {
+      burstCount++;
+      if (burstCount >= maxBursts) {
+        clearInterval(interval);
+        return;
+      }
+      triggerBurst();
+    }, 10000);
+
+    return () => clearInterval(interval);
+  }, [symbol]); // Restart burst when data is first loaded or symbol changes
+
+  const fetchWatchlistInfo = async () => {
+    const userId = (session?.user as any)?.id;
+    if (!userId || !symbol) return;
+    try {
+      const { data: assets } = await supabase
+        .from('watchlist_assets')
+        .select(`
+          watchlist_id,
+          user_watchlists!inner (
+            name
+          )
+        `)
+        .eq('symbol', (symbol as string).toUpperCase())
+        .eq('user_watchlists.user_id', userId);
+
+      if (assets && assets.length > 0) {
+        const listData = assets[0].user_watchlists as any;
+        setWatchlistInfo({
+          name: Array.isArray(listData) ? listData[0]?.name : listData?.name,
+          count: assets.length
+        });
+      } else {
+        setWatchlistInfo(null);
+      }
+    } catch (err) {
+      console.error('Watchlist fetch failed:', err);
+    }
+  };
+
+  useEffect(() => {
+    if ((session?.user as any)?.id) fetchWatchlistInfo();
+  }, [symbol, (session?.user as any)?.id]);
 
   useEffect(() => {
     setStatus(getMarketStatus('US') as any);
     const interval = setInterval(() => setStatus(getMarketStatus('US') as any), 60000);
-
-    // Heartbeat Neural Link: Activates Ephemeral Sync on demand
-    const sendHeartbeat = async () => {
-      if (!symbol || document.hidden) return;
-      try {
-        await fetch('/api/market/heartbeat', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ symbol: (symbol as string).toUpperCase(), market: 'US' })
-        });
-      } catch (e) { }
-    };
-
-    sendHeartbeat();
-    const heartbeatInterval = setInterval(sendHeartbeat, 30000);
-
-    return () => {
-      clearInterval(interval);
-      clearInterval(heartbeatInterval);
-    };
+    return () => clearInterval(interval);
   }, [symbol]);
+
 
   useEffect(() => {
     async function fetchStock() {
@@ -171,8 +246,10 @@ export default function USStockPage() {
       if (!holdingError && holdings && holdings.length > 0) setHolding(holdings[0]);
       setIsLoading(false);
 
+      const storageSymbol = normalizeStorageSymbol(upperSymbol);
+
       // 2. Realtime Subscription
-      const channelId = `us-stock-pulse-${upperSymbol}-${Date.now()}`;
+      const channelId = `us-stock-pulse-${storageSymbol}-${Date.now()}`;
       const channel = supabase
         .channel(channelId)
         .on(
@@ -181,12 +258,13 @@ export default function USStockPage() {
             event: 'UPDATE',
             schema: 'public',
             table: 'us_market_assets',
-            filter: `symbol=eq.${upperSymbol}`
+            filter: `symbol=eq.${storageSymbol}`
           },
           (payload) => {
             setData((prev: any) => ({ ...prev, ...payload.new }));
           }
         )
+
         .subscribe((status) => {
           if (status === 'SUBSCRIBED') {
             console.log(`[REALTIME] US Pulse Active: ${upperSymbol}`);
@@ -485,11 +563,45 @@ export default function USStockPage() {
                     <ShoppingCart className="size-4 transition-transform group-hover:scale-110" />
                     Buy {data.symbol}
                   </button>
+                <div className="grid grid-cols-2 gap-3">
                   <button className="w-full py-4 bg-white/5 hover:bg-white/10 text-white font-black uppercase tracking-[0.2em] text-[10px] rounded-2xl border border-white/10 transition-all flex items-center justify-center gap-3 active:scale-95 group">
                     <BellRing className="size-3.5 text-zinc-500 group-hover:text-amber-400 transition-colors" />
                     Set Alert
                   </button>
+                  <button 
+                    onClick={() => setIsWatchlistModalOpen(true)}
+                    className={cn(
+                      "w-full py-4 font-black uppercase tracking-[0.2em] text-[10px] rounded-2xl border transition-all flex items-center justify-center gap-3 active:scale-95 group",
+                      watchlistInfo 
+                        ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-400" 
+                        : "bg-white/5 border-white/10 text-white hover:bg-white/10"
+                    )}
+                  >
+                    {watchlistInfo ? (
+                      <>
+                        <div className="size-1.5 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)] animate-pulse" />
+                        <span className="truncate max-w-[100px]">{watchlistInfo.name}</span>
+                        {watchlistInfo.count > 1 && <span className="opacity-50 shrink-0">+{watchlistInfo.count - 1}</span>}
+                      </>
+                    ) : (
+                      <>
+                        <Plus className="size-3.5 text-zinc-500 group-hover:text-emerald-400 transition-colors" />
+                        Watchlist
+                      </>
+                    )}
+                  </button>
                 </div>
+                </div>
+
+                <WatchlistSelectorModal 
+                  isOpen={isWatchlistModalOpen}
+                  onClose={() => {
+                    setIsWatchlistModalOpen(false);
+                    fetchWatchlistInfo();
+                  }}
+                  symbol={symbol as string}
+                  userId={portfolioId}
+                />
 
                 <motion.div variants={{ hidden: { opacity: 0, y: 20 }, visible: { opacity: 1, y: 0 } }} className="glass-panel rounded-2xl pt-4 px-5 pb-5 bg-gradient-to-b from-white/[0.03] to-transparent border-white/5 backdrop-blur-xl">
                   <h3 className="text-sm font-black uppercase tracking-[0.4em] text-zinc-500 mb-2">Valuation Hub</h3>

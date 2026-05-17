@@ -18,36 +18,56 @@ export async function POST(req: NextRequest) {
     // INSTITUTIONAL SILENCE: If market is closed, we DO NOT wake up the symbol.
     // This prevents stale API data from overwriting high-fidelity Zerodha imports.
     // We import getMarketStatus dynamically to avoid circular dependencies if any
-    const { getMarketStatus } = require('@/constants/market-constants');
-    const marketStatus = getMarketStatus(market || (symbol.endsWith('.NS') ? 'IN' : 'US'));
-    if (marketStatus === 'CLOSED') {
-      return NextResponse.json({ success: true, symbol, state: 'SILENT_DUE_TO_OFF_HOURS' });
+    const { getMarketStatus, SymbolUniverseManager } = require('@/constants/market-constants');
+    
+    // Determine the market region dynamically and robustly (completely server-authoritative with client-hints)
+    let resolvedMarket = market || 'US';
+    const upperSymbol = symbol.toUpperCase().trim();
+    if (upperSymbol.endsWith('.NS') || upperSymbol.endsWith('.BO')) {
+      resolvedMarket = 'IN';
+    } else if (upperSymbol.startsWith('^') || upperSymbol === 'VIX') {
+      const isIndIndex = ['^NSEI', '^BSESN', '^NSEBANK', '^CNXIT'].includes(upperSymbol);
+      resolvedMarket = isIndIndex ? 'IN' : 'US';
+    } else {
+      // Fallback for raw tickers without exchange suffix
+      const rawTicker = upperSymbol.split('.')[0];
+      const isIndian = SymbolUniverseManager.getUniqueIndianEquities().some((a: any) => {
+        const normAsset = a.s.toUpperCase();
+        return normAsset.split('.')[0] === rawTicker;
+      });
+      if (!market) {
+        resolvedMarket = isIndian ? 'IN' : 'US';
+      }
     }
 
-    // 1. Instant RAM Activation (The Ephemeral Pulse)
-    marketStateCache.updateHeartbeat(symbol);
+    // Resolve the symbol canonically using the correctly resolved market region
+    const resolvedSymbol = SymbolUniverseManager.resolveSymbol(symbol, resolvedMarket);
 
-    // 2. Throttled DB Persistence (The Metadata Pulse)
-    // We only touch the DB if the last view was > 1 min ago to prevent spam
+    // 1. Database Persistence (Register symbol in DB Active Symbols Table)
     const supabase = SupabaseProvider.getClient();
-    
-    // Note: In a production serverless environment, we'd use a background worker
-    // or a specialized service for this, but here we can do a 'lazy' upsert.
     const { error } = await supabase
       .from('active_market_symbols')
       .upsert({
-        symbol,
-        market: market || (symbol.endsWith('.NS') ? 'IN' : 'US'),
+        symbol: resolvedSymbol,
+        market: resolvedMarket,
         last_viewed_at: new Date().toISOString(),
         state: 'EPHEMERAL'
       }, { onConflict: 'symbol' });
 
     if (error) {
-       // Log but don't block the response
-       console.error(`[HEARTBEAT] ❌ DB Upsert failed for ${symbol}:`, error.message);
+       console.error(`[HEARTBEAT] ❌ DB Upsert failed for ${resolvedSymbol}:`, error.message);
     }
 
-    return NextResponse.json({ success: true, symbol, state: 'EPHEMERAL' });
+    // 2. Off-Hours Check: If the market is closed, register in DB but return early
+    const marketStatus = getMarketStatus(resolvedMarket);
+    if (marketStatus === 'CLOSED') {
+      return NextResponse.json({ success: true, symbol: resolvedSymbol, state: 'SILENT_DUE_TO_OFF_HOURS' });
+    }
+
+    // 3. Hot RAM Activation (Only for open market hours)
+    marketStateCache.updateHeartbeat(resolvedSymbol);
+
+    return NextResponse.json({ success: true, symbol: resolvedSymbol, state: 'EPHEMERAL' });
   } catch (error) {
     return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
   }

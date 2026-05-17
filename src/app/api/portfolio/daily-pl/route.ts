@@ -17,15 +17,24 @@ const supabase = createClient(
  */
 export async function GET(req: NextRequest) {
   const portfolioId = req.nextUrl.searchParams.get('portfolio_id');
+  const userId = req.nextUrl.searchParams.get('user_id');
+
   if (!portfolioId) {
     return NextResponse.json({ error: 'portfolio_id is required' }, { status: 400 });
   }
 
-  // Step 1: Get all holdings for this portfolio (trading_symbol + quantity)
-  const { data: holdings, error: hErr } = await supabase
-    .from('holdings')
-    .select('trading_symbol, quantity, invested_value, market_value, day_change, last_price')
-    .eq('portfolio_id', portfolioId);
+  // Step 1: Get holdings (either for a specific portfolio or all portfolios for a user)
+  let query = supabase.from('holdings').select('trading_symbol, quantity, invested_value, market_value, day_change, last_price');
+
+  if (portfolioId === 'overall') {
+    if (!userId) return NextResponse.json({ error: 'user_id is required for overall view' }, { status: 400 });
+    query = query.eq('user_id', userId);
+  } else {
+    query = query.eq('portfolio_id', portfolioId);
+  }
+
+  const { data: holdings, error: hErr } = await query;
+
 
   if (hErr || !holdings?.length) {
     return NextResponse.json({ total_day_change: 0, day_change_percentage: 0, count: 0 });

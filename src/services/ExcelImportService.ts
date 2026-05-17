@@ -1,6 +1,6 @@
 import * as XLSX from 'xlsx';
 import { supabase } from '../lib/supabase';
-import { getISTTimestamp } from '../server';
+import { getISTTimestamp, getNormalizedNoonTimestamp } from '../server';
 import crypto from 'crypto';
 
 export class ExcelImportService {
@@ -28,12 +28,12 @@ export class ExcelImportService {
     let statementDateTs: string;
     if (statementDateStr) {
       const [dd, mm, yyyy] = statementDateStr.split('-');
-      statementDateTs = `${yyyy}-${mm}-${dd}T15:30:00+05:30`;
+      statementDateTs = `${yyyy}-${mm}-${dd}T12:00:00.000Z`;
     } else {
       const now = new Date();
       const istOffset = 5.5 * 60 * 60 * 1000;
       const istYesterday = new Date(now.getTime() + istOffset - 24 * 60 * 60 * 1000);
-      statementDateTs = istYesterday.toISOString().split('T')[0] + "T15:30:00+05:30";
+      statementDateTs = getNormalizedNoonTimestamp(istYesterday);
     }
 
     const headerRowIndex = rawData.findIndex(row =>
@@ -60,7 +60,7 @@ export class ExcelImportService {
     while (true) {
       const { data } = await supabase
         .from('market_assets')
-        .select('symbol, isin, current_price, day_change, day_change_percentage')
+        .select('symbol, name, isin, current_price, day_change, day_change_percentage')
         .range(from, from + 999);
       if (!data || data.length === 0) break;
       allMarketAssets = allMarketAssets.concat(data);
@@ -68,10 +68,18 @@ export class ExcelImportService {
     }
 
     const isinMap = new Map();
+    const nameMap = new Map();
     const marketMap = new Map();
     allMarketAssets.forEach((a: any) => {
       const cleanSymbol = a.symbol.trim().toUpperCase();
-      if (a.isin) isinMap.set(a.isin, cleanSymbol);
+      if (a.isin) isinMap.set(a.isin.trim().toUpperCase(), cleanSymbol);
+      
+      if (a.name) {
+        const cleanName = a.name.replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
+        if (cleanSymbol.endsWith('.NS') || !nameMap.has(cleanName)) {
+          nameMap.set(cleanName, cleanSymbol);
+        }
+      }
       marketMap.set(cleanSymbol, a);
     });
 
@@ -82,10 +90,24 @@ export class ExcelImportService {
 
     const finalHoldings = holdingsData.map((data) => {
       const isin = data.ISIN;
-      // GROWW SPECIAL: Always anchor to .NS
-      let rawSymbol = isinMap.get(isin) || data['Stock Name'].replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
-      if (rawSymbol.includes('.')) rawSymbol = rawSymbol.split('.')[0];
-      const symbol = `${rawSymbol}.NS`;
+      const cleanExcelName = data['Stock Name'].replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
+      
+      // Dynamic resolution: Match by ISIN first, then fallback to Alphanumeric Name matching
+      let matchedSymbol = isinMap.get(isin?.trim().toUpperCase()) || nameMap.get(cleanExcelName);
+      
+      let symbol: string;
+      if (matchedSymbol) {
+        if (!matchedSymbol.includes('.')) {
+          symbol = `${matchedSymbol}.NS`;
+        } else {
+          symbol = matchedSymbol;
+        }
+      } else {
+        // Fallback: Cleaned name + .NS
+        let rawSymbol = cleanExcelName;
+        if (rawSymbol.includes('.')) rawSymbol = rawSymbol.split('.')[0];
+        symbol = `${rawSymbol}.NS`;
+      }
       
       const asset = marketMap.get(symbol);
 
@@ -132,7 +154,7 @@ export class ExcelImportService {
       await supabase.from('holdings').upsert(finalHoldings.slice(i, i + chunkSize));
     }
 
-    const currentTs = getISTTimestamp();
+    const normalizedTodayTs = getNormalizedNoonTimestamp();
 
     const snapshots = [
       {
@@ -148,7 +170,7 @@ export class ExcelImportService {
       {
         user_id: uId,
         portfolio_id: pId,
-        timestamp: currentTs,
+        timestamp: normalizedTodayTs,
         total_investment: totalInvestment,
         total_market_value: totalLiveMkt,
         total_p_l: totalLiveMkt - totalInvestment,
@@ -299,11 +321,10 @@ export class ExcelImportService {
     const istOffset = 5.5 * 60 * 60 * 1000;
     const istNow = new Date(now.getTime() + istOffset);
     const istYesterday = new Date(istNow.getTime() - 24 * 60 * 60 * 1000);
-    const yyyy = istYesterday.getUTCFullYear();
-    const mm = String(istYesterday.getUTCMonth() + 1).padStart(2, '0');
-    const dd = String(istYesterday.getUTCDate()).padStart(2, '0');
-    const tsYesterday = `${yyyy}-${mm}-${dd}T15:30:00+05:30`;
-    const tsToday = new Date(istNow.getTime()).toISOString();
+    
+    const tsYesterday = getNormalizedNoonTimestamp(istYesterday);
+    const tsToday = getNormalizedNoonTimestamp(istNow);
+
 
     const snapshots = [
       {

@@ -1,52 +1,56 @@
-# Dependencies
+# 1. Dependencies
 node_modules/
+/jspm_packages/
+/web_modules/
 
-# Next.js Build
+# 2. Next.js & Build Outputs
 .next/
 out/
+dist/
+build/
+*.tsbuildinfo
+next-env.d.ts
 
-# StockOS Audit & Temp Files
-*.csv
-*.xlsx
-scratch/
-.tempmediaStorage/
-
-# Environment Variables
+# 3. Environment Secrets (CRITICAL SECURITY)
 .env
-.env*.local
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+*.env
 
-# Debug logs
+# 4. OS & IDE System Files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# 5. Debugging & Verification Logs
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
-*.log
 .pnpm-debug.log*
+*.log
 
-# OS Files
-.DS_Store
-Thumbs.db
-
-# IDE Files
-.vscode/
-.idea/
-
-# Misc
-.vercel
-*.tsbuildinfo
-next-env.d.ts
-.turbo/
-
-
-# Local Scratch & Artifacts
+# 6. StockOS Custodian & Temporary Files
 scratch/
-*.txt
 .tempmediaStorage/
 .gemini/
-
-# Ingestion Engine Data
 data/
+*.csv
 *.xlsx
-
-# Debug & Verification Scripts
+*.txt
 check_*.js
 count_assets.js
+.vercel
+.turbo/

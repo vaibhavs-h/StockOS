@@ -220,10 +220,10 @@ export default function StocksPage() {
           {/* Market Movers: Gainers & Losers */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
             <motion.section variants={itemVariants}>
-              <h2 className="font-headline font-black text-xs uppercase tracking-[0.4em] text-emerald-500/60 mb-6 flex items-center gap-3 font-bold">
-                <TrendingUp className="w-4 h-4" /> Top Gainers
+              <h2 className="font-headline font-black text-xs uppercase tracking-[0.4em] text-emerald-400 mb-6 flex items-center gap-3 font-bold drop-shadow-[0_0_10px_rgba(52,211,153,0.3)]">
+                <TrendingUp className="w-4 h-4 text-emerald-400" /> Top Gainers
               </h2>
-              <div className="space-y-3">
+              <div className="space-y-4">
                 {topGainers.map((stock, i) => (
                   <motion.div 
                     key={stock.symbol}
@@ -235,21 +235,45 @@ export default function StocksPage() {
                         transition: { delay: 0.6 + (i * 0.1), duration: 0.5 }
                       }
                     }}
+                    whileHover={{ scale: 1.02, y: -2 }}
                     onClick={() => router.push(stock.region === 'US' ? `/us-stocks/${stock.symbol}` : `/stocks/${stock.symbol}`)}
-                    className="flex items-center justify-between p-4 rounded-xl bg-[#0d1117] border border-white/10 hover:bg-emerald-500/[0.05] hover:border-emerald-500/20 transition-all cursor-pointer group shadow-lg"
+                    className="flex items-center justify-between p-5 rounded-2xl border border-white/5 bg-gradient-to-br from-emerald-500/[0.03] to-emerald-500/[0.01] hover:from-emerald-500/[0.07] hover:to-emerald-500/[0.02] hover:border-emerald-500/30 hover:shadow-[0_8px_32px_rgba(16,185,129,0.12)] transition-all duration-300 cursor-pointer group relative overflow-hidden"
                   >
-                    <div className="flex items-center gap-4">
-                      <div className="size-10 rounded-lg bg-white/5 flex items-center justify-center font-black text-zinc-600 group-hover:text-emerald-500 transition-colors">{stock.symbol[0]}</div>
+                    <div className="absolute inset-0 bg-gradient-to-r from-emerald-500/[0.01] to-transparent pointer-events-none" />
+                    
+                    <div className="flex items-center gap-4 relative z-10">
+                      <div className="size-11 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 flex items-center justify-center font-headline font-black text-lg group-hover:scale-110 group-hover:bg-emerald-500/20 group-hover:border-emerald-500/30 transition-all duration-300">
+                        {stock.symbol[0]}
+                      </div>
                       <div>
-                        <div className="font-headline font-black text-sm text-white">{stock.symbol}</div>
-                        <div className="text-[9px] font-bold text-zinc-600 uppercase tracking-widest">NSE:EQUITY</div>
+                        <div className="font-headline font-black text-sm text-white group-hover:text-emerald-400 transition-colors duration-300 flex items-center gap-2">
+                          {stock.symbol}
+                          <span className="text-[7px] font-terminal-label font-bold uppercase tracking-wider px-1 py-0.5 rounded bg-white/5 border border-white/5 text-zinc-500 group-hover:text-emerald-400/70 group-hover:border-emerald-500/20 transition-colors">
+                            {stock.region === 'US' ? 'US' : 'IN'}
+                          </span>
+                        </div>
+                        <div className="text-[9px] font-bold text-zinc-500 uppercase tracking-widest truncate max-w-[150px]">{stock.name}</div>
                       </div>
                     </div>
-                    <div className="text-right">
-                      <div className="font-mono font-black text-sm text-white">
-                        {stock.market === 'US' ? '$' : '₹'}{stock.current_price?.toLocaleString(stock.market === 'US' ? 'en-US' : 'en-IN')}
+
+                    <div className="flex items-center gap-6 relative z-10">
+                      {/* Animated SVG Sparkline */}
+                      <div className="hidden sm:block">
+                        <svg className="w-14 h-6 text-emerald-500/40 group-hover:text-emerald-400 transition-colors duration-300" viewBox="0 0 50 20">
+                          <path d="M0,16 Q15,4 25,12 T50,2" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
+                          <circle cx="50" cy="2" r="2" fill="currentColor" className="animate-pulse" />
+                        </svg>
                       </div>
-                      <div className="text-[10px] font-black text-emerald-500">+{stock.day_change_percentage?.toFixed(2)}%</div>
+
+                      <div className="text-right">
+                        <div className="font-mono font-black text-sm text-white group-hover:scale-105 transition-transform duration-300 origin-right">
+                          {stock.market === 'US' ? '$' : '₹'}{stock.current_price?.toLocaleString(stock.market === 'US' ? 'en-US' : 'en-IN')}
+                        </div>
+                        <div className="text-[11px] font-black text-emerald-400 drop-shadow-[0_0_8px_rgba(52,211,153,0.4)] flex items-center gap-0.5 justify-end">
+                          <ArrowUpRight className="size-3" />
+                          +{stock.day_change_percentage?.toFixed(2)}%
+                        </div>
+                      </div>
                     </div>
                   </motion.div>
                 ))}
@@ -257,10 +281,10 @@ export default function StocksPage() {
             </motion.section>
 
             <motion.section variants={itemVariants}>
-              <h2 className="font-headline font-black text-xs uppercase tracking-[0.4em] text-rose-500/60 mb-6 flex items-center gap-3 font-bold">
-                <TrendingDown className="w-4 h-4" /> Top Losers
+              <h2 className="font-headline font-black text-xs uppercase tracking-[0.4em] text-rose-400 mb-6 flex items-center gap-3 font-bold drop-shadow-[0_0_10px_rgba(244,63,94,0.3)]">
+                <TrendingDown className="w-4 h-4 text-rose-400" /> Top Losers
               </h2>
-              <div className="space-y-3">
+              <div className="space-y-4">
                 {topLosers.map((stock, i) => (
                   <motion.div 
                     key={stock.symbol}
@@ -272,21 +296,45 @@ export default function StocksPage() {
                         transition: { delay: 0.6 + (i * 0.1), duration: 0.5 }
                       }
                     }}
+                    whileHover={{ scale: 1.02, y: -2 }}
                     onClick={() => router.push(stock.region === 'US' ? `/us-stocks/${stock.symbol}` : `/stocks/${stock.symbol}`)}
-                    className="flex items-center justify-between p-4 rounded-xl bg-[#0d1117] border border-white/10 hover:bg-rose-500/[0.05] hover:border-rose-500/20 transition-all cursor-pointer group shadow-lg"
+                    className="flex items-center justify-between p-5 rounded-2xl border border-white/5 bg-gradient-to-br from-rose-500/[0.03] to-rose-500/[0.01] hover:from-rose-500/[0.07] hover:to-rose-500/[0.02] hover:border-rose-500/30 hover:shadow-[0_8px_32px_rgba(244,63,94,0.12)] transition-all duration-300 cursor-pointer group relative overflow-hidden"
                   >
-                    <div className="flex items-center gap-4">
-                      <div className="size-10 rounded-lg bg-white/5 flex items-center justify-center font-black text-zinc-600 group-hover:text-rose-500 transition-colors">{stock.symbol[0]}</div>
+                    <div className="absolute inset-0 bg-gradient-to-r from-rose-500/[0.01] to-transparent pointer-events-none" />
+
+                    <div className="flex items-center gap-4 relative z-10">
+                      <div className="size-11 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-400 flex items-center justify-center font-headline font-black text-lg group-hover:scale-110 group-hover:bg-rose-500/20 group-hover:border-rose-500/30 transition-all duration-300">
+                        {stock.symbol[0]}
+                      </div>
                       <div>
-                        <div className="font-headline font-black text-sm text-white">{stock.symbol}</div>
-                        <div className="text-[9px] font-bold text-zinc-600 uppercase tracking-widest">NSE:EQUITY</div>
+                        <div className="font-headline font-black text-sm text-white group-hover:text-rose-400 transition-colors duration-300 flex items-center gap-2">
+                          {stock.symbol}
+                          <span className="text-[7px] font-terminal-label font-bold uppercase tracking-wider px-1 py-0.5 rounded bg-white/5 border border-white/5 text-zinc-500 group-hover:text-rose-400/70 group-hover:border-rose-500/20 transition-colors">
+                            {stock.region === 'US' ? 'US' : 'IN'}
+                          </span>
+                        </div>
+                        <div className="text-[9px] font-bold text-zinc-500 uppercase tracking-widest truncate max-w-[150px]">{stock.name}</div>
                       </div>
                     </div>
-                    <div className="text-right">
-                      <div className="font-mono font-black text-sm text-white">
-                        {stock.market === 'US' ? '$' : '₹'}{stock.current_price?.toLocaleString(stock.market === 'US' ? 'en-US' : 'en-IN')}
+
+                    <div className="flex items-center gap-6 relative z-10">
+                      {/* Animated SVG Sparkline */}
+                      <div className="hidden sm:block">
+                        <svg className="w-14 h-6 text-rose-500/40 group-hover:text-rose-400 transition-colors duration-300" viewBox="0 0 50 20">
+                          <path d="M0,4 Q15,16 25,8 T50,18" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
+                          <circle cx="50" cy="18" r="2" fill="currentColor" className="animate-pulse" />
+                        </svg>
                       </div>
-                      <div className="text-[10px] font-black text-rose-500">{stock.day_change_percentage?.toFixed(2)}%</div>
+
+                      <div className="text-right">
+                        <div className="font-mono font-black text-sm text-white group-hover:scale-105 transition-transform duration-300 origin-right">
+                          {stock.market === 'US' ? '$' : '₹'}{stock.current_price?.toLocaleString(stock.market === 'US' ? 'en-US' : 'en-IN')}
+                        </div>
+                        <div className="text-[11px] font-black text-rose-400 drop-shadow-[0_0_8px_rgba(244,63,94,0.4)] flex items-center gap-0.5 justify-end">
+                          <ArrowDownRight className="size-3" />
+                          {stock.day_change_percentage?.toFixed(2)}%
+                        </div>
+                      </div>
                     </div>
                   </motion.div>
                 ))}

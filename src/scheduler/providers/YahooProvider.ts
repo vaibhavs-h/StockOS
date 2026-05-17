@@ -28,6 +28,30 @@ export class YahooProvider {
   }
 
   /**
+   * Fetches a single quote and normalizes the data structure.
+   * Useful for targeted syncs and pulse updates.
+   */
+  static async fetchQuote(symbol: string, region: 'IN' | 'US' = 'IN') {
+    const results = await this.fetchQuotes([symbol], region);
+    if (!results || results.length === 0) return null;
+
+    const q = results[0];
+    return {
+      price: q.regularMarketPrice,
+      change: q.regularMarketChange,
+      changePercent: q.regularMarketChangePercent,
+      prevClose: q.regularMarketPreviousClose,
+      symbol: q.symbol,
+      // Extended Hours
+      preMarketPrice: q.preMarketPrice,
+      preMarketChangePercent: q.preMarketChangePercent,
+      postMarketPrice: q.postMarketPrice,
+      postMarketChangePercent: q.postMarketChangePercent
+    };
+
+  }
+
+  /**
    * Fetches heavy quote summary modules (Deep Sync / Fundamentals)
    * Priority: P4 (Low)
    */

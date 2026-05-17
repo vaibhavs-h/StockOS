@@ -47,9 +47,18 @@ export class SyncCoordinator {
       }
 
       // Adaptive Pacing: 
-      // 10s if any market is open, 15m if all closed
+      // 1. 10s if any market is open
+      // 2. 60s if market is closed BUT we have active views (Weekend Research mode)
+      // 3. 15m if all closed and no active demand
       const isAnyOpen = MarketSessionService.isIndianMarketOpen() || MarketSessionService.isUsMarketOpen();
-      const delay = isAnyOpen ? 10000 : 15 * 60 * 1000; // 15 minutes off-market
+      const hasActiveViews = marketStateCache.getActiveViews(10 * 60 * 1000).length > 0;
+      
+      let delay = 15 * 60 * 1000; // 15m default
+      if (isAnyOpen) {
+        delay = 10000; // 10s high cadence
+      } else if (hasActiveViews) {
+        delay = 60000; // 60s weekend research mode
+      }
       
       await new Promise(resolve => setTimeout(resolve, delay));
     }

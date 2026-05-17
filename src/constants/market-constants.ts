@@ -120,19 +120,6 @@ export class SymbolUniverseManager {
     if (region === 'US') return upper;
     if (upper.includes('.') || upper.startsWith('^')) return upper;
 
-    // 0. Manual Portfolio Overrides (High-Fidelity Mappings)
-    const overrides: Record<string, string> = {
-      'DELTACORPLIMITED': 'DELTACORP.NS',
-      'RAJESHEXPORTSLTD': 'RAJESHEXPO.NS',
-      'PRINCEPIPESFITTINGSLTD': 'PRINCEPIPE.NS',
-      'KWALITYWALLSINDIAL': 'KWIL.NS',
-      'UTKARSHSMALLFINBANKL': 'UTKARSHBNK.NS',
-      'AXISBANK': 'AXISBANK.NS',
-      'HDFCLIFE': 'HDFCLIFE.NS',
-      'WIPRO': 'WIPRO.NS'
-    };
-    if (overrides[upper]) return overrides[upper];
-
     const inAssets = this.getUniqueIndianEquities();
     
     // 1. Direct Universe Match (Standard)

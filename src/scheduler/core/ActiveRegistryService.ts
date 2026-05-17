@@ -18,12 +18,17 @@ export class ActiveRegistryService {
     const table = region === 'IN' ? 'holdings' : 'holdings'; // Same table for both, filtered by symbol suffix or region if we added it
 
     // 1. Get unique holdings from DB
-    const { data: holdings, error } = await supabase
+    const { data: holdings, error: hError } = await supabase
       .from('holdings')
       .select('trading_symbol');
 
-    if (error) {
-      console.error(`[REGISTRY] ❌ Failed to fetch holdings:`, error.message);
+    // 2. Get unique watchlist assets from DB
+    const { data: watchAssets, error: wError } = await supabase
+      .from('watchlist_assets')
+      .select('symbol');
+
+    if (hError || wError) {
+      console.error(`[REGISTRY] ❌ DB Fetch Error:`, hError?.message || wError?.message);
     }
 
     // Filter holdings locally by universe and suffix for region
@@ -59,10 +64,21 @@ export class ActiveRegistryService {
       return region === 'IN';
     });
 
-    const holdingSymbols = new Set(regionalHoldings.map(h => {
-      const s = (h.trading_symbol || '').trim().toUpperCase();
-      return SymbolUniverseManager.resolveSymbol(s, region);
-    }));
+    // Process Watchlist Assets
+    const regionalWatchlist = (watchAssets || []).filter(wa => {
+      const s = (wa.symbol || '').trim().toUpperCase();
+      const ticker = s.includes(':') ? s.split(':')[1] : s;
+      const rawTicker = ticker.split('.')[0];
+      if (s.endsWith('.NS') || s.endsWith('.BO')) return region === 'IN';
+      if (indianTickers.has(rawTicker) || indianTickers.has(ticker)) return region === 'IN';
+      if (usTickers.has(rawTicker) || usTickers.has(ticker)) return region === 'US';
+      return region === 'IN';
+    });
+
+    const hotSymbols = new Set([
+      ...regionalHoldings.map(h => SymbolUniverseManager.resolveSymbol(h.trading_symbol.toUpperCase(), region)),
+      ...regionalWatchlist.map(wa => SymbolUniverseManager.resolveSymbol(wa.symbol.toUpperCase(), region))
+    ]);
 
     // 2. Get active views from MarketStateCache
     // Ephemeral views only stay active for 5 mins after last heartbeat
@@ -86,7 +102,7 @@ export class ActiveRegistryService {
       .filter((a: any) => region === 'IN' ? a.region === 'IN' : a.region === 'US')
       .map((a: any) => a.s);
 
-    const universeArray = [...Array.from(holdingSymbols), ...regionalViews, ...globalIndices];
+    const universeArray = [...Array.from(hotSymbols), ...regionalViews, ...globalIndices];
     const universe = new Set(universeArray);
     const currentList = Array.from(universe);
 
@@ -105,8 +121,8 @@ export class ActiveRegistryService {
     this.lastUniverse.set(region, universe);
 
     return {
-      hot: Array.from(holdingSymbols),
-      ephemeral: regionalViews.filter(s => !holdingSymbols.has(s)),
+      hot: Array.from(hotSymbols),
+      ephemeral: regionalViews.filter(s => !hotSymbols.has(s)),
       total: currentList
     };
   }
@@ -135,14 +151,46 @@ export class ActiveRegistryService {
       };
     });
 
-    if (snapshots.length === 0) return;
+    if (snapshots.length > 0) {
+      const { error } = await supabase
+        .from('active_market_symbols')
+        .upsert(snapshots, { onConflict: 'symbol' });
 
-    const { error } = await supabase
-      .from('active_market_symbols')
-      .upsert(snapshots, { onConflict: 'symbol' });
+      if (error) {
+        console.error(`[REGISTRY] ❌ Failed to persist active registry:`, error.message);
+      }
+    }
 
-    if (error) {
-      console.error(`[REGISTRY] ❌ Failed to persist active registry:`, error.message);
+    // --- SELF-CLEANING PRUNING ENGINE ---
+    // Automatically delete obsolete symbols that are no longer present in the active universe (holdings, watchlists, indices, active views)
+    try {
+      const activeSet = new Set(universe.total);
+      
+      const { data: dbSymbols, error: fetchErr } = await supabase
+        .from('active_market_symbols')
+        .select('symbol')
+        .eq('market', region);
+
+      if (!fetchErr && dbSymbols) {
+        const obsoleteSymbols = dbSymbols
+          .map(d => d.symbol)
+          .filter(s => !activeSet.has(s));
+
+        if (obsoleteSymbols.length > 0) {
+          console.log(`[REGISTRY] 🧹 Pruning ${obsoleteSymbols.length} obsolete ${region} symbols from registry: ${obsoleteSymbols.join(', ')}`);
+          
+          const { error: deleteErr } = await supabase
+            .from('active_market_symbols')
+            .delete()
+            .in('symbol', obsoleteSymbols);
+
+          if (deleteErr) {
+            console.error(`[REGISTRY] ❌ Failed to prune obsolete symbols:`, deleteErr.message);
+          }
+        }
+      }
+    } catch (err: any) {
+      console.error(`[REGISTRY] ❌ Pruning engine error:`, err.message);
     }
   }
 }

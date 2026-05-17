@@ -1,7 +1,7 @@
 import { BaseJob } from '../core/BaseJob';
 import { SupabaseProvider } from '../providers/SupabaseProvider';
 import { JobMetadata, RefreshTier, MarketRegion, QueuePriority } from '../core/types';
-import { getISTTimestamp } from '../../server';
+import { getISTTimestamp, getNormalizedNoonTimestamp } from '../../server';
 import { getMarketStatus } from '../../constants/market-constants';
 import { MarketSessionService } from '../core/MarketSessionService';
 
@@ -46,6 +46,18 @@ export class PortfolioRevaluationJob extends BaseJob {
     if (hError || !currentHoldings || currentHoldings.length === 0) {
       return 0;
     }
+
+    // Fetch portfolios to preserve original broker names in history snapshots
+    const { data: portfolios } = await supabase
+      .from('user_portfolios')
+      .select('id, broker_name');
+
+    const brokerMap = new Map<string, string>();
+    portfolios?.forEach(p => {
+      if (p.id && p.broker_name) {
+        brokerMap.set(p.id, p.broker_name);
+      }
+    });
 
     // 2. Identify unique symbols for targeted market fetch
     const { SymbolUniverseManager } = require('../../constants/market-constants');
@@ -161,10 +173,10 @@ export class PortfolioRevaluationJob extends BaseJob {
       // 5. Update Database - Atomic Holdings Batch
       await supabase.from('holdings').upsert(updatedHoldings);
 
-      const istTimestamp = getISTTimestamp();
-      const logicalDay = istTimestamp.split('T')[0];
+      const normalizedTimestamp = getNormalizedNoonTimestamp();
+      const brokerName = brokerMap.get(pid) || 'INSTITUTIONAL';
 
-      // INSTITUTIONAL SNAPSHOT: Zero-gap Upsert
+      // INSTITUTIONAL SNAPSHOT: Zero-gap Upsert (Normalized Daily EOD Snapshot)
       await supabase.from('portfolio_history').upsert({
         user_id: userId,
         portfolio_id: pid,
@@ -172,11 +184,10 @@ export class PortfolioRevaluationJob extends BaseJob {
         total_market_value: totalMkt,
         total_p_l: totalMkt - totalInv,
         p_l_percentage: totalInv > 0 ? ((totalMkt - totalInv) / totalInv) * 100 : 0,
-        total_day_change: totalDayChg,
-        total_day_change_percentage: (totalMkt - totalDayChg) > 0 ? (totalDayChg / (totalMkt - totalDayChg)) * 100 : 0,
-        timestamp: istTimestamp,
-        broker_name: 'INSTITUTIONAL'
+        timestamp: normalizedTimestamp,
+        broker_name: brokerName
       }, { onConflict: 'portfolio_id,timestamp' });
+
 
       totalProcessed += updatedHoldings.length;
     }

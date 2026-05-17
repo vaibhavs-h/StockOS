@@ -6,50 +6,22 @@ import React, { useState, useEffect, useMemo, useRef } from "react"
 import { createPortal } from "react-dom"
 import { motion, AnimatePresence } from "framer-motion"
 import {
-  Terminal,
   Search,
   FileUp,
-  User as UserIcon,
-  Key,
-  ShieldCheck,
-  Newspaper,
   Cpu,
   Wallet,
-  ArrowUpRight,
-  ArrowDownRight,
-  TrendingUp,
-  TrendingDown,
-  Activity,
-  PieChart,
-  Target,
-  Zap,
-  LayoutGrid,
-  Filter,
-  RefreshCcw,
+  Globe,
   Plus,
   Trash2,
-  AlertCircle,
-  Clock,
-  History,
-  Download,
-  Share2,
-  Calendar,
-  Globe,
-  Settings,
-  MoreHorizontal,
-  ChevronRight,
-  ShieldAlert,
-  Lightbulb,
   Database,
-  ThumbsUp,
-  ThumbsDown,
-  Send,
-  Sparkles,
-  Menu,
   ChevronDown,
-  Percent,
+  ChevronUp,
+  ArrowUpDown,
+  RefreshCcw,
+  ChevronRight,
+  Clock,
+  ShieldAlert,
   X,
-  Moon,
   Info
 } from "lucide-react"
 
@@ -65,7 +37,12 @@ import { GrowwImportGuide } from "@/components/dashboard/GrowwImportGuide"
 import { ZerodhaImportGuide } from "@/components/dashboard/ZerodhaImportGuide"
 import { RollingNumber } from "@/components/shared/RollingNumber"
 import { PortfolioAnalyzer } from "@/components/dashboard/PortfolioAnalyzer"
-import { FloatingAssistant } from "@/components/dashboard/FloatingAssistant"
+import { WatchlistTerminal } from "@/components/dashboard/WatchlistTerminal"
+import { InstitutionalNews } from "@/components/dashboard/InstitutionalNews"
+
+
+const OVERALL_PORTFOLIO = { id: 'overall', name: 'Overall View', broker_name: 'GLOBAL' };
+
 
 export default function DashboardPage() {
   const router = useRouter()
@@ -123,8 +100,10 @@ export default function DashboardPage() {
 
   // Portfolio Linking State
   const [addPortfolioModalOpen, setAddPortfolioModalOpen] = useState(false)
+  const [isResyncMode, setIsResyncMode] = useState(false)
   const [newPortfolioType, setNewPortfolioType] = useState<'GROWW' | 'ZERODHA' | ''>('')
   const [newPortfolioName, setNewPortfolioName] = useState('')
+  const [resyncPortfolioId, setResyncPortfolioId] = useState<string | null>(null)
   const [showGrowwGuide, setShowGrowwGuide] = useState(false)
   const [showZerodhaGuide, setShowZerodhaGuide] = useState(false)
 
@@ -132,14 +111,19 @@ export default function DashboardPage() {
   // Debounce ref: prevents partial-read flicker when revaluation job batch-upserts holdings
   const holdingsFetchTimer = useRef<NodeJS.Timeout | null>(null);
 
+
   const fetchHoldings = async () => {
     if (!activePortfolio) return;
     try {
-      const { data, error } = await supabase
-        .from('holdings')
-        .select('*')
-        .eq('portfolio_id', activePortfolio.id)
-        .order('market_value', { ascending: false });
+      let query = supabase.from('holdings').select('*, user_portfolios(name)');
+
+      if (activePortfolio.id === 'overall') {
+        query = query.eq('user_id', portfolioId);
+      } else {
+        query = query.eq('portfolio_id', activePortfolio.id);
+      }
+
+      const { data, error } = await query.order('market_value', { ascending: false });
 
       if (error) throw error;
       setHoldings(data || []);
@@ -161,23 +145,102 @@ export default function DashboardPage() {
   };
 
 
-
+  const fetchDailyPL = async (pId: string) => {
+    try {
+      const res = await axios.get(`/api/portfolio/daily-pl?portfolio_id=${pId}&user_id=${portfolioId}`);
+      setDailyPLData(res.data);
+    } catch (err) {
+      console.error("[DASHBOARD] Daily P/L fetch failed:", err);
+    }
+  };
 
   const fetchHistory = async () => {
     if (!activePortfolio) return;
     try {
-      const { data, error } = await supabase
-        .from('portfolio_history')
-        .select('*')
-        .eq('portfolio_id', activePortfolio.id)
-        .order('timestamp', { ascending: true });
+      let query = supabase.from('portfolio_history').select('*');
+
+      if (activePortfolio.id === 'overall') {
+        query = query.eq('user_id', portfolioId);
+      } else {
+        query = query.eq('portfolio_id', activePortfolio.id);
+      }
+
+      const { data, error } = await query.order('timestamp', { ascending: true });
 
       if (error) throw error;
-      setHistory(data || []);
+
+      if (activePortfolio.id === 'overall' && data) {
+        // Aggregate multi-portfolio history by financial day
+        // Group by DateKey (YYYY-MM-DD) and PortfolioId
+        const dayPortMap = new Map<string, Map<string, any>>();
+
+        data.forEach(h => {
+          const dateObj = new Date(h.timestamp);
+          // Financial day starts at 6 AM IST
+          const financialDayDate = new Date(dateObj.getTime() - (6 * 60 * 60 * 1000));
+          const dateKey = new Intl.DateTimeFormat('en-CA', {
+            timeZone: 'Asia/Kolkata',
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit'
+          }).format(financialDayDate);
+
+          if (!dayPortMap.has(dateKey)) {
+            dayPortMap.set(dateKey, new Map<string, any>());
+          }
+
+          const portMap = dayPortMap.get(dateKey)!;
+          const existing = portMap.get(h.portfolio_id);
+
+          // Keep the latest snapshot for each portfolio on that day
+          if (!existing || new Date(h.timestamp).getTime() > new Date(existing.timestamp).getTime()) {
+            portMap.set(h.portfolio_id, h);
+          }
+        });
+
+        // Now sum up all portfolios for each day
+        const aggregatedHistory = Array.from(dayPortMap.entries()).map(([dateKey, portMap]) => {
+          const snapshots = Array.from(portMap.values());
+          const firstSnapshot = snapshots[0];
+          const total_market_value = snapshots.reduce((sum, s) => sum + (Number(s.total_market_value) || 0), 0);
+          const total_investment = snapshots.reduce((sum, s) => sum + (Number(s.total_investment) || 0), 0);
+
+          return {
+            ...firstSnapshot,
+            timestamp: dateKey + "T12:00:00Z", // Use noon UTC for the day's record
+            total_market_value,
+            total_investment
+          };
+        }).sort((a, b) => a.timestamp.localeCompare(b.timestamp));
+
+        setHistory(aggregatedHistory);
+      } else {
+        // Keep only the latest snapshot per calendar day (financial day basis) for individual portfolios
+        const dayMap = new Map<string, any>();
+        (data || []).forEach(h => {
+          const dateObj = new Date(h.timestamp);
+          const financialDayDate = new Date(dateObj.getTime() - (6 * 60 * 60 * 1000));
+          const dateKey = new Intl.DateTimeFormat('en-CA', {
+            timeZone: 'Asia/Kolkata',
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit'
+          }).format(financialDayDate);
+
+          const existing = dayMap.get(dateKey);
+          if (!existing || new Date(h.timestamp).getTime() > new Date(existing.timestamp).getTime()) {
+            dayMap.set(dateKey, h);
+          }
+        });
+
+        const deduplicatedHistory = Array.from(dayMap.values()).sort((a, b) => a.timestamp.localeCompare(b.timestamp));
+        setHistory(deduplicatedHistory);
+      }
     } catch (err) {
       console.error("[DASHBOARD] Fetch history failed:", err);
     }
-  }
+  };
+
 
 
   const fetchPortfolios = async () => {
@@ -192,14 +255,26 @@ export default function DashboardPage() {
       if (error) throw error;
       setPortfolios(data || []);
       if (data && data.length > 0 && !activePortfolio) {
-        setActivePortfolio(data.find(p => p.is_primary) || data[0]);
+        if (data.length > 1) {
+          setActivePortfolio(OVERALL_PORTFOLIO);
+        } else {
+          setActivePortfolio(data.find(p => p.is_primary) || data[0]);
+        }
       }
+
     } catch (err) {
       console.error("[DASHBOARD] Fetch portfolios failed:", err);
     }
   }
 
+  const portfolioMap = useMemo(() => {
+    const map = new Map<string, string>();
+    portfolios.forEach(p => map.set(p.id, p.name));
+    return map;
+  }, [portfolios]);
+
   const fetchIndices = async () => {
+
     try {
       const res = await axios.get(`${engineUrl}/api/indices`);
       setIndices(res.data);
@@ -236,6 +311,31 @@ export default function DashboardPage() {
       ]);
     } catch (err) {
       console.error("Refresh failed", err);
+    } finally {
+      setTimeout(() => {
+        setIsRefreshing(false);
+      }, 1000);
+    }
+  };
+
+  const handleAnalyzerRefresh = async () => {
+    setIsRefreshing(true);
+    setShowSyncConsole(true);
+    setSyncLogs([{ timestamp: new Date().toISOString(), message: ">>> INITIALIZING PORTFOLIO REVALUATION PROTOCOL", type: 'info' }]);
+
+    try {
+      // 1. Post to backend revaluation to ensure live asset values are fresh
+      await axios.post(`${engineUrl}/api/revalue`);
+    } catch (e) {
+      console.warn("[ANALYZER-REFRESH] Revaluation dispatch failed:", e);
+      setSyncLogs(prev => [...prev, { timestamp: new Date().toISOString(), message: "!!! REVALUATION DISPATCH FAILED: ENGINE UNREACHABLE", type: 'error' }]);
+    }
+
+    try {
+      // 2. Fetch the latest holdings from Supabase
+      await fetchHoldings();
+    } catch (err) {
+      console.error("Fetch holdings failed", err);
     } finally {
       setTimeout(() => {
         setIsRefreshing(false);
@@ -369,8 +469,8 @@ export default function DashboardPage() {
       try {
         const uniqueSymbols = Array.from(new Set(holdings.map(h => h.trading_symbol.toUpperCase())));
         for (const symbol of uniqueSymbols) {
-          // Heuristic for market: .NS means Indian market
-          const market = symbol.endsWith('.NS') ? 'IN' : 'US';
+          // Heuristic for market: .NS or .BO means Indian market
+          const market = (symbol.endsWith('.NS') || symbol.endsWith('.BO')) ? 'IN' : 'US';
           fetch('/api/market/heartbeat', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -406,13 +506,13 @@ export default function DashboardPage() {
 
   const latestSnapshot = useMemo(() => {
     if (!history || history.length === 0) return lastGoodSnapshot.current;
-    
+
     // 1. PRIMARY: Filter by active portfolio ID for absolute symmetry
-    const portfolioHistory = activePortfolio 
+    const portfolioHistory = activePortfolio
       ? history.filter(h => h.portfolio_id === activePortfolio.id)
       : [];
-      
-    let latest = portfolioHistory.length > 0 
+
+    let latest = portfolioHistory.length > 0
       ? portfolioHistory.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())[portfolioHistory.length - 1]
       : null;
 
@@ -420,25 +520,16 @@ export default function DashboardPage() {
     if (!latest && history.length > 0) {
       latest = history.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())[history.length - 1];
     }
-    
+
     if (latest) {
       lastGoodSnapshot.current = latest;
     }
-    
+
     return latest || lastGoodSnapshot.current;
   }, [history, activePortfolio]);
 
-  // SERVER-SIDE AGGREGATE: Single atomic SUM query avoids frontend partial-read race conditions
-  const fetchDailyPL = async (portfolioId: string) => {
-    try {
-      const res = await fetch(`/api/portfolio/daily-pl?portfolio_id=${portfolioId}`);
-      if (!res.ok) return;
-      const data = await res.json();
-      setDailyPLData(data);
-    } catch (e) {
-      console.error('[DASHBOARD] fetchDailyPL failed:', e);
-    }
-  };
+
+
 
   const totalDayChange = dailyPLData?.total_day_change ?? holdings.reduce((sum, h) => sum + (Number(h.day_change) || 0), 0);
 
@@ -451,9 +542,55 @@ export default function DashboardPage() {
   const totalPL = totalNetWorth - totalInvested;
   const totalPLPerc = totalInvested > 0 ? (totalPL / totalInvested) * 100 : 0;
 
+  const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' | null }>({
+    key: 'market_value',
+    direction: 'desc'
+  });
+
   const filteredHoldings = holdings.filter(h =>
     h.trading_symbol.toLowerCase().includes(searchQuery.toLowerCase())
   );
+
+  const sortedHoldings = useMemo(() => {
+    let sortableItems = [...filteredHoldings];
+    if (sortConfig.key && sortConfig.direction) {
+      sortableItems.sort((a, b) => {
+        let aValue: any = a[sortConfig.key];
+        let bValue: any = b[sortConfig.key];
+
+        // Special handling for Stock Details (trading_symbol)
+        if (sortConfig.key === 'trading_symbol') {
+          aValue = a.trading_symbol.toLowerCase();
+          bValue = b.trading_symbol.toLowerCase();
+        } else if (sortConfig.key === 'weight') {
+          aValue = Number(a.market_value) || 0;
+          bValue = Number(b.market_value) || 0;
+        } else {
+          aValue = Number(aValue) || 0;
+          bValue = Number(bValue) || 0;
+        }
+
+        if (aValue < bValue) {
+          return sortConfig.direction === 'asc' ? -1 : 1;
+        }
+        if (aValue > bValue) {
+          return sortConfig.direction === 'asc' ? 1 : -1;
+        }
+        return 0;
+      });
+    }
+    return sortableItems;
+  }, [filteredHoldings, sortConfig]);
+
+  const requestSort = (key: string) => {
+    let direction: 'asc' | 'desc' | null = 'desc';
+    if (sortConfig.key === key && sortConfig.direction === 'desc') {
+      direction = 'asc';
+    } else if (sortConfig.key === key && sortConfig.direction === 'asc') {
+      direction = null;
+    }
+    setSortConfig({ key, direction });
+  };
 
   const filteredHistory = useMemo(() => {
     if (!history.length) return [];
@@ -555,664 +692,1036 @@ export default function DashboardPage() {
       !mounted ? "opacity-0" : "opacity-100"
     )}>
 
-      {/* Main Dashboard Grid */}
-      <section
-        className="pt-[130px] pb-12 px-12 max-w-full mx-auto w-full grid grid-cols-1 lg:grid-cols-[1fr_520px] gap-x-6 gap-y-6 relative items-stretch"
-      >
-        {/* TOP ROW LEFT: Header + Metrics + Chart */}
-        <motion.div
-          initial="hidden"
-          animate="visible"
-          variants={{
-            hidden: { opacity: 0 },
-            visible: {
-              opacity: 1,
-              transition: {
-                staggerChildren: 0.1,
-                delayChildren: 0.6
-              }
-            }
-          }}
-          className="flex flex-col gap-6"
-        >
-          {/* Header Section */}
+      {/* Main Dashboard Layout Stack */}
+      <div className="pt-[130px] pb-24 px-12 max-w-full mx-auto w-full flex flex-col gap-6">
+
+        {/* ROW 1: Header + Metrics */}
+        <div className="grid grid-cols-1 lg:grid-cols-[1fr_520px] gap-6">
           <motion.div
+
+            initial="hidden"
+            animate="visible"
             variants={{
-              hidden: { opacity: 0, y: 20 },
-              visible: { opacity: 1, y: 0 }
+              hidden: { opacity: 0 },
+              visible: {
+                opacity: 1,
+                transition: {
+                  staggerChildren: 0.1,
+                  delayChildren: 0.6
+                }
+              }
             }}
-            transition={{ duration: 0.8, ease: [0.16, 1, 0.3, 1] }}
-            className={cn(
-              "relative group -mt-8 -mb-4 transition-all duration-300",
-              isPortfolioDropdownOpen ? "z-[200]" : "z-10"
-            )}
+            className="flex flex-col gap-6"
           >
-            <div className="flex items-end gap-4">
-              <h2 className={cn(
-                "font-headline font-black tracking-tighter text-white uppercase leading-none transition-all duration-300",
-                formattedName.length > 15 ? "text-4xl" :
-                  formattedName.length > 12 ? "text-5xl" :
-                    formattedName.length > 10 ? "text-6xl" : "text-7xl"
-              )}>
-                {formattedName}
-              </h2>
+            {/* Header Section */}
+            <motion.div
+              variants={{
+                hidden: { opacity: 0, y: 20 },
+                visible: { opacity: 1, y: 0 }
+              }}
+              transition={{ duration: 0.8, ease: [0.16, 1, 0.3, 1] }}
+              className={cn(
+                "relative group -mt-8 -mb-4 transition-all duration-300",
+                isPortfolioDropdownOpen ? "z-[200]" : "z-10"
+              )}
+            >
+              <div className="flex items-end gap-4">
+                <h2 className={cn(
+                  "font-headline font-black tracking-tighter text-white uppercase leading-none transition-all duration-300",
+                  formattedName.length > 15 ? "text-4xl" :
+                    formattedName.length > 12 ? "text-5xl" :
+                      formattedName.length > 10 ? "text-6xl" : "text-7xl"
+                )}>
+                  {formattedName}
+                </h2>
 
-              <div className="relative">
-                <motion.div
-                  whileHover={{ y: -1, scale: 1.02 }}
-                  onClick={() => setIsPortfolioDropdownOpen(!isPortfolioDropdownOpen)}
-                  className="flex items-center gap-2 group/portfolio cursor-pointer px-2.5 py-1 rounded-xl bg-white/[0.03] hover:bg-emerald-500/10 transition-all duration-300 border border-white/5 hover:border-emerald-500/20"
-                >
-                  <div className="flex flex-col">
-                    <span className="text-[8px] font-terminal-label uppercase tracking-widest text-emerald-500/70 font-bold">
-                      {activePortfolio ? "Active Entity" : "Quick Start"}
-                    </span>
-                    <span className="font-headline font-medium text-lg text-white tracking-tight">
-                      {activePortfolio ? activePortfolio.name : "Link Portfolio"}
-                    </span>
-                  </div>
-                  <ChevronDown className={cn(
-                    "w-4 h-4 text-emerald-500 transition-all duration-500 ml-1",
-                    isPortfolioDropdownOpen ? "rotate-180" : "rotate-0"
-                  )} />
-                </motion.div>
+                <div className="relative">
+                  <motion.div
+                    whileHover={{ y: -1, scale: 1.02 }}
+                    onClick={() => setIsPortfolioDropdownOpen(!isPortfolioDropdownOpen)}
+                    className={cn(
+                      "flex items-center gap-2 group/portfolio cursor-pointer px-2.5 py-1 rounded-xl bg-white/[0.03] transition-all duration-300 border border-white/5",
+                      activePortfolio?.id === 'overall'
+                        ? "hover:bg-blue-500/10 hover:border-blue-500/20"
+                        : "hover:bg-emerald-500/10 hover:border-emerald-500/20"
+                    )}
+                  >
+                    <div className="flex flex-col">
+                      <span className={cn(
+                        "text-[8px] font-terminal-label uppercase tracking-widest font-bold",
+                        activePortfolio?.id === 'overall' ? "text-blue-500/70" : "text-emerald-500/70"
+                      )}>
+                        {activePortfolio ? "Active Entity" : "Quick Start"}
+                      </span>
+                      <span className="font-headline font-medium text-lg text-white tracking-tight">
+                        {activePortfolio ? activePortfolio.name : "Link Portfolio"}
+                      </span>
+                    </div>
+                    <ChevronDown className={cn(
+                      "w-4 h-4 transition-all duration-500 ml-1",
+                      activePortfolio?.id === 'overall' ? "text-blue-500" : "text-emerald-500",
+                      isPortfolioDropdownOpen ? "rotate-180" : "rotate-0"
+                    )} />
+                  </motion.div>
 
-                <AnimatePresence>
-                  {isPortfolioDropdownOpen && (
-                    <>
-                      <motion.div
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        exit={{ opacity: 0 }}
-                        onClick={() => setIsPortfolioDropdownOpen(false)}
-                        className="fixed inset-0 bg-black/20 z-[90]"
-                      />
-                      <motion.div
-                        initial={{ opacity: 0, y: 10, scale: 0.95 }}
-                        animate={{ opacity: 1, y: 0, scale: 1 }}
-                        exit={{ opacity: 0, y: 10, scale: 0.95 }}
-                        transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
-                        className="absolute top-full left-0 mt-3 w-72 bg-zinc-950 border border-white/10 rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.5)] overflow-hidden z-[100] backdrop-blur-xl"
-                      >
-                        <div className="p-2 space-y-1">
-                          <div className="px-3 pt-2 pb-3 flex items-center justify-between">
-                            <span className="text-[10px] font-terminal-label uppercase tracking-[0.2em] text-zinc-500 font-black">Account Selection</span>
-                            <div className="flex gap-1">
-                              <div className="w-1 h-1 rounded-full bg-emerald-500/20" />
-                              <div className="w-1 h-1 rounded-full bg-emerald-500/20" />
+
+                  <AnimatePresence>
+                    {isPortfolioDropdownOpen && (
+                      <>
+                        <motion.div
+                          initial={{ opacity: 0 }}
+                          animate={{ opacity: 1 }}
+                          exit={{ opacity: 0 }}
+                          onClick={() => setIsPortfolioDropdownOpen(false)}
+                          className="fixed inset-0 bg-black/20 z-[90]"
+                        />
+                        <motion.div
+                          initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                          animate={{ opacity: 1, y: 0, scale: 1 }}
+                          exit={{ opacity: 0, y: 10, scale: 0.95 }}
+                          transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
+                          className="absolute top-full left-0 mt-3 w-72 bg-zinc-950 border border-white/10 rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.5)] overflow-hidden z-[100] backdrop-blur-xl"
+                        >
+                          <div className="p-2 space-y-1">
+                            <div className="px-3 pt-2 pb-3 flex items-center justify-between">
+                              <span className="text-[10px] font-terminal-label uppercase tracking-[0.2em] text-zinc-500 font-black">Account Selection</span>
+                              <div className="flex gap-1">
+                                <div className="w-1 h-1 rounded-full bg-emerald-500/20" />
+                                <div className="w-1 h-1 rounded-full bg-emerald-500/20" />
+                              </div>
                             </div>
-                          </div>
 
-                          {portfolios.length > 0 ? (
-                            <div className="space-y-1.5">
-                              {portfolios.map((p) => (
+                            {portfolios.length > 0 ? (
+                              <div className="space-y-1.5">
+                                {/* OVERALL OPTION */}
                                 <div
-                                  key={p.id}
                                   onClick={() => {
-                                    setActivePortfolio(p);
+                                    setActivePortfolio(OVERALL_PORTFOLIO);
                                     setIsPortfolioDropdownOpen(false);
                                   }}
                                   className={cn(
                                     "w-full flex items-center justify-between gap-3 px-3 py-3 rounded-xl transition-all duration-500 group/item cursor-pointer relative overflow-hidden",
-                                    activePortfolio?.id === p.id
-                                      ? "bg-emerald-500/10 border border-emerald-500/20 shadow-[inset_0_1px_1px_rgba(255,255,255,0.05),0_10px_20px_rgba(0,0,0,0.2)]"
+                                    activePortfolio?.id === 'overall'
+                                      ? "bg-blue-500/10 border border-blue-500/20 shadow-[inset_0_1px_1px_rgba(255,255,255,0.05),0_10px_20px_rgba(0,0,0,0.2)]"
                                       : "bg-white/[0.02] border border-white/[0.03] hover:border-white/10 hover:bg-white/[0.05]"
                                   )}
                                 >
-                                  {/* Gloss Effect */}
-                                  {activePortfolio?.id === p.id && (
-                                    <div className="absolute inset-0 bg-gradient-to-tr from-emerald-500/5 to-transparent pointer-events-none" />
-                                  )}
-
                                   <div className="flex items-center gap-3 relative z-10">
                                     <div className={cn(
                                       "size-10 rounded-xl flex items-center justify-center p-2 border transition-all duration-500",
-                                      activePortfolio?.id === p.id
-                                        ? "bg-zinc-950 border-emerald-500/30 shadow-[0_0_15px_rgba(16,185,129,0.1)]"
+                                      activePortfolio?.id === 'overall'
+                                        ? "bg-zinc-950 border-blue-500/30 shadow-[0_0_15px_rgba(59,130,246,0.1)]"
                                         : "bg-white/5 border-white/10 group-hover/item:border-white/20"
                                     )}>
-                                      <img src={p.broker_name === 'GROWW' ? "/Icons/groww.svg" : "/Icons/zerodha.svg"} alt="Broker" className="w-full h-full object-contain" />
+                                      <Globe className="w-5 h-5 text-blue-500" />
                                     </div>
                                     <div className="flex flex-col items-start">
                                       <div className="flex items-center gap-2">
                                         <span className={cn(
                                           "text-[15px] font-headline font-black tracking-tight transition-colors",
-                                          activePortfolio?.id === p.id ? "text-white" : "text-zinc-400 group-hover/item:text-zinc-200"
-                                        )}>{p.name}</span>
-                                        {activePortfolio?.id === p.id && (
-                                          <div className="size-1.5 rounded-full bg-emerald-500 animate-pulse shadow-[0_0_8px_rgba(16,185,129,0.6)]" />
+                                          activePortfolio?.id === 'overall' ? "text-white" : "text-zinc-400 group-hover/item:text-zinc-200"
+                                        )}>Overall View</span>
+                                        {activePortfolio?.id === 'overall' && (
+                                          <div className="size-1.5 rounded-full bg-blue-500 animate-pulse shadow-[0_0_8px_rgba(59,130,246,0.6)]" />
                                         )}
                                       </div>
                                       <span className={cn(
                                         "text-[10px] font-bold uppercase tracking-wider",
-                                        activePortfolio?.id === p.id ? "text-emerald-500/60" : "text-zinc-600"
-                                      )}>
-                                        {p.is_primary ? "Main Account" : "Connected"}
-                                      </span>
+                                        activePortfolio?.id === 'overall' ? "text-blue-500/60" : "text-zinc-600"
+                                      )}>Global Aggregate</span>
                                     </div>
                                   </div>
+                                </div>
 
-                                  <div className="flex items-center gap-2 relative z-10">
-                                    <button
-                                      onClick={async (e) => {
-                                        e.stopPropagation();
-                                        if (confirm(`Delete "${p.name}"? All holdings and history for this specific portfolio will be lost.`)) {
-                                          try {
-                                            await supabase.from('holdings').delete().eq('portfolio_id', p.id);
-                                            await supabase.from('portfolio_history').delete().eq('portfolio_id', p.id);
-                                            await supabase.from('user_portfolios').delete().eq('id', p.id);
+                                <div className="h-px bg-white/5 mx-2 my-1" />
 
-                                            const remaining = portfolios.filter(x => x.id !== p.id);
-                                            setPortfolios(remaining);
-                                            if (remaining.length > 0) {
-                                              setActivePortfolio(remaining.find(r => r.is_primary) || remaining[0]);
-                                            } else {
-                                              setActivePortfolio(null);
-                                              setHoldings([]);
-                                              setHistory([]);
+                                {portfolios.map((p) => (
+
+                                  <div
+                                    key={p.id}
+                                    onClick={() => {
+                                      setActivePortfolio(p);
+                                      setIsPortfolioDropdownOpen(false);
+                                    }}
+                                    className={cn(
+                                      "w-full flex items-center justify-between gap-3 px-3 py-3 rounded-xl transition-all duration-500 group/item cursor-pointer relative overflow-hidden",
+                                      activePortfolio?.id === p.id
+                                        ? "bg-emerald-500/10 border border-emerald-500/20 shadow-[inset_0_1px_1px_rgba(255,255,255,0.05),0_10px_20px_rgba(0,0,0,0.2)]"
+                                        : "bg-white/[0.02] border border-white/[0.03] hover:border-white/10 hover:bg-white/[0.05]"
+                                    )}
+                                  >
+                                    {/* Gloss Effect */}
+                                    {activePortfolio?.id === p.id && (
+                                      <div className="absolute inset-0 bg-gradient-to-tr from-emerald-500/5 to-transparent pointer-events-none" />
+                                    )}
+
+                                    <div className="flex items-center gap-3 relative z-10">
+                                      <div className={cn(
+                                        "size-10 rounded-xl flex items-center justify-center p-2 border transition-all duration-500",
+                                        activePortfolio?.id === p.id
+                                          ? "bg-zinc-950 border-emerald-500/30 shadow-[0_0_15px_rgba(16,185,129,0.1)]"
+                                          : "bg-white/5 border-white/10 group-hover/item:border-white/20"
+                                      )}>
+                                        <img src={p.broker_name === 'GROWW' ? "/Icons/groww.svg" : "/Icons/zerodha.svg"} alt="Broker" className="w-full h-full object-contain" />
+                                      </div>
+                                      <div className="flex flex-col items-start">
+                                        <div className="flex items-center gap-2">
+                                          <span className={cn(
+                                            "text-[15px] font-headline font-black tracking-tight transition-colors",
+                                            activePortfolio?.id === p.id ? "text-white" : "text-zinc-400 group-hover/item:text-zinc-200"
+                                          )}>{p.name}</span>
+                                          {activePortfolio?.id === p.id && (
+                                            <div className="size-1.5 rounded-full bg-emerald-500 animate-pulse shadow-[0_0_8px_rgba(16,185,129,0.6)]" />
+                                          )}
+                                        </div>
+                                        <span className={cn(
+                                          "text-[10px] font-bold uppercase tracking-wider",
+                                          activePortfolio?.id === p.id ? "text-emerald-500/60" : "text-zinc-600"
+                                        )}>
+                                          {p.is_primary ? "Main Account" : "Connected"}
+                                        </span>
+                                      </div>
+                                    </div>
+
+                                    <div className="flex items-center gap-2 relative z-10">
+                                      <button
+                                        onClick={async (e) => {
+                                          e.stopPropagation();
+                                          if (confirm(`Delete "${p.name}"? All holdings and history for this specific portfolio will be lost.`)) {
+                                            try {
+                                              await supabase.from('holdings').delete().eq('portfolio_id', p.id);
+                                              await supabase.from('portfolio_history').delete().eq('portfolio_id', p.id);
+                                              await supabase.from('user_portfolios').delete().eq('id', p.id);
+
+                                              const remaining = portfolios.filter(x => x.id !== p.id);
+                                              setPortfolios(remaining);
+                                              if (remaining.length > 0) {
+                                                setActivePortfolio(remaining.find(r => r.is_primary) || remaining[0]);
+                                              } else {
+                                                setActivePortfolio(null);
+                                                setHoldings([]);
+                                                setHistory([]);
+                                              }
+                                            } catch (err) {
+                                              console.error("Delete error:", err);
                                             }
-                                          } catch (err) {
-                                            console.error("Delete error:", err);
                                           }
-                                        }
-                                      }}
-                                      className="size-8 rounded-lg bg-red-500/5 border border-red-500/10 flex items-center justify-center hover:bg-red-500/20 hover:border-red-500/30 transition-all"
-                                      title="Delete Portfolio"
-                                    >
-                                      <Trash2 className="w-3.5 h-3.5 text-red-500/60 group-hover/item:text-red-500 transition-colors" />
-                                    </button>
+                                        }}
+                                        className="size-8 rounded-lg bg-red-500/5 border border-red-500/10 flex items-center justify-center hover:bg-red-500/20 hover:border-red-500/30 transition-all"
+                                        title="Delete Portfolio"
+                                      >
+                                        <Trash2 className="w-3.5 h-3.5 text-red-500/60 group-hover/item:text-red-500 transition-colors" />
+                                      </button>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            ) : (
+                              <div className="w-full flex items-center justify-between gap-3 px-3 py-3 rounded-xl bg-white/[0.02] border border-white/5 opacity-60">
+                                <div className="flex items-center gap-3">
+                                  <div className="size-10 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center p-2">
+                                    <Wallet className="w-5 h-5 text-zinc-600" />
+                                  </div>
+                                  <div className="flex flex-col items-start">
+                                    <span className="text-[15px] font-headline font-black text-zinc-500">No Portfolio</span>
+                                    <span className="text-[10px] text-zinc-600 font-bold uppercase tracking-wider">Import Required</span>
                                   </div>
                                 </div>
-                              ))}
-                            </div>
-                          ) : (
-                            <div className="w-full flex items-center justify-between gap-3 px-3 py-3 rounded-xl bg-white/[0.02] border border-white/5 opacity-60">
-                              <div className="flex items-center gap-3">
-                                <div className="size-10 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center p-2">
-                                  <Wallet className="w-5 h-5 text-zinc-600" />
-                                </div>
-                                <div className="flex flex-col items-start">
-                                  <span className="text-[15px] font-headline font-black text-zinc-500">No Portfolio</span>
-                                  <span className="text-[10px] text-zinc-600 font-bold uppercase tracking-wider">Import Required</span>
-                                </div>
                               </div>
-                            </div>
-                          )}
+                            )}
 
-                          <div className="h-[1px] bg-white/5 mx-2 my-2" />
+                            <div className="h-[1px] bg-white/5 mx-2 my-2" />
 
-                          <button
-                            onClick={() => {
-                              setNewPortfolioName(`Portfolio ${portfolios.length + 1}`);
-                              setIsPortfolioDropdownOpen(false);
-                              setAddPortfolioModalOpen(true);
-                            }}
-                            className="w-full flex items-center gap-4 px-3 py-3 rounded-xl hover:bg-white/5 group/add transition-all text-zinc-400 hover:text-white"
-                          >
-                            <div className="size-10 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center group-hover/add:border-emerald-500/40 group-hover/add:bg-emerald-500/10 transition-all shadow-sm">
-                              <Plus className="w-5 h-5 transition-transform duration-500 group-hover/add:rotate-90 group-hover/add:text-emerald-400" />
-                            </div>
-                            <span className="text-[12px] font-headline font-black uppercase tracking-[0.2em]">Link Another</span>
-                          </button>
-                        </div>
-                      </motion.div>
-                    </>
+                            <button
+                              onClick={() => {
+                                setNewPortfolioName(`Portfolio ${portfolios.length + 1}`);
+                                setIsPortfolioDropdownOpen(false);
+                                setAddPortfolioModalOpen(true);
+                              }}
+                              className="w-full flex items-center gap-4 px-3 py-3 rounded-xl hover:bg-white/5 group/add transition-all text-zinc-400 hover:text-white"
+                            >
+                              <div className="size-10 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center group-hover/add:border-emerald-500/40 group-hover/add:bg-emerald-500/10 transition-all shadow-sm">
+                                <Plus className="w-5 h-5 transition-transform duration-500 group-hover/add:rotate-90 group-hover/add:text-emerald-400" />
+                              </div>
+                              <span className="text-[12px] font-headline font-black uppercase tracking-[0.2em]">Link Another</span>
+                            </button>
+                          </div>
+                        </motion.div>
+                      </>
+                    )}
+                  </AnimatePresence>
+                </div>
+              </div>
+            </motion.div>
+
+            {/* Metrics Section */}
+            <div className="relative transition-all duration-500">
+              <AnimatePresence>
+                {isPortfolioDropdownOpen && (
+                  <motion.div
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    className="absolute -inset-4 backdrop-blur-[4px] bg-black/10 z-50 pointer-events-none rounded-3xl"
+                  />
+                )}
+              </AnimatePresence>
+              <div className="grid grid-cols-1 md:grid-cols-[2fr_1.2fr_1.2fr] gap-6 lg:gap-10 mb-0 items-end">
+                {/* Metric 1: Total Net Worth */}
+                <div className="relative group min-w-[240px]">
+                  <div className="absolute -inset-4 bg-emerald-500/5 blur-3xl rounded-full opacity-0 group-hover:opacity-100 transition-opacity duration-1000" />
+                  <span className="font-terminal-label uppercase tracking-wider text-[12px] text-emerald-400 block mb-1 font-bold relative z-10">Total Net Worth</span>
+                  <h1 className="font-headline font-bold text-4xl md:text-5xl tracking-tighter text-white tabular-nums leading-none relative z-10 whitespace-nowrap">
+                    <RollingNumber value={totalNetWorth} currency prefix="₹" decimals={0} />
+                  </h1>
+                </div>
+
+                {/* Metric 2: Daily P/L */}
+                <div className="flex flex-col gap-1 border-l border-white/5 pl-6 min-w-[210px]">
+                  <span className="font-terminal-label uppercase tracking-wider text-[12px] text-zinc-300 block mb-1 font-bold">Daily P/L</span>
+                  <div className="flex items-center gap-4 flex-nowrap">
+                    <span className={`font-headline font-bold text-2xl md:text-3xl tabular-nums whitespace-nowrap flex items-center ${((timeRange === '1D' && getMarketStatus('IN') === 'CLOSED') || totalDayChange === 0) ? 'text-zinc-500' : (totalDayChange > 0 ? 'text-emerald-500' : 'text-red-500')
+                      }`}>
+                      {((timeRange === '1D' && getMarketStatus('IN') === 'CLOSED') || totalDayChange === 0) ? (
+                        <RollingNumber value={0} currency prefix="₹" decimals={0} />
+                      ) : (
+                        <RollingNumber value={totalDayChange} currency prefix="₹" showSign decimals={0} />
+                      )}
+                    </span>
+                    <span className={`font-terminal-label border px-2 py-0.5 rounded-[4px] text-[10px] font-bold ${((timeRange === '1D' && getMarketStatus('IN') === 'CLOSED') || totalDayChange === 0)
+                      ? 'bg-zinc-500/10 text-zinc-500 border-zinc-500/20'
+                      : (totalDayChange > 0 ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-red-500/10 text-red-400 border-red-500/20')
+                      }`}>
+                      {((timeRange === '1D' && getMarketStatus('IN') === 'CLOSED') || totalDayChange === 0) ? (
+                        <RollingNumber value={0} suffix="%" decimals={2} />
+                      ) : (
+                        <RollingNumber value={dayChangePerc} suffix="%" decimals={2} showSign />
+                      )}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Metric 3: Aggregate P/L */}
+                <div className="flex flex-col gap-1 border-l border-white/5 pl-6 min-w-[210px]">
+                  <span className="font-terminal-label uppercase tracking-wider text-[11px] text-zinc-400 block font-bold">Aggregate P/L</span>
+                  <div className="flex items-center gap-4 flex-nowrap">
+                    <span className={`font-headline font-bold text-xl md:text-2xl tabular-nums whitespace-nowrap flex items-center ${totalPL === 0 ? 'text-zinc-500' : (totalPL > 0 ? 'text-emerald-500' : 'text-red-500')
+                      }`}>
+                      <RollingNumber value={totalPL} currency prefix="₹" showSign decimals={0} />
+                    </span>
+                    <span className={`font-terminal-label px-2 py-0.5 rounded-[4px] text-[10px] font-bold border transition-all duration-500 ${totalPL === 0 ? 'bg-zinc-500/10 text-zinc-500 border-zinc-500/20' : (totalPL > 0 ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-red-500/10 text-red-400 border-red-500/20')
+                      }`}>
+                      <RollingNumber value={totalPLPerc} suffix="%" decimals={2} prefix={totalPLPerc >= 0 ? "+" : ""} />
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Performance Chart Box - Now part of the Left Column stack */}
+            <motion.div
+              variants={{
+                hidden: { opacity: 0, y: 20 },
+                visible: { opacity: 1, y: 0 }
+              }}
+              transition={{ duration: 0.8, ease: [0.16, 1, 0.3, 1] }}
+              className="h-full"
+            >
+              <motion.section
+                className="glass-panel rounded-3xl pt-4 px-6 pb-4 relative group border border-white/10 shadow-[0_20px_50px_rgba(0,0,0,0.5)] bg-gradient-to-b from-white/[0.04] to-transparent transition-all duration-500"
+              >
+                <AnimatePresence>
+                  {isPortfolioDropdownOpen && (
+                    <motion.div
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      exit={{ opacity: 0 }}
+                      className="absolute inset-0 backdrop-blur-[4px] bg-black/10 z-50 pointer-events-none rounded-3xl"
+                    />
                   )}
                 </AnimatePresence>
-              </div>
-            </div>
-          </motion.div>
 
-          {/* Metrics Section */}
-          <div className="relative transition-all duration-500">
-            <AnimatePresence>
-              {isPortfolioDropdownOpen && (
-                <motion.div
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  exit={{ opacity: 0 }}
-                  className="absolute -inset-4 backdrop-blur-[4px] bg-black/10 z-50 pointer-events-none rounded-3xl"
-                />
-              )}
-            </AnimatePresence>
-            <div className="grid grid-cols-1 md:grid-cols-[2fr_1.2fr_1.2fr] gap-6 lg:gap-10 mb-0 items-end">
-              {/* Metric 1: Total Net Worth */}
-              <div className="relative group min-w-[240px]">
-                <div className="absolute -inset-4 bg-emerald-500/5 blur-3xl rounded-full opacity-0 group-hover:opacity-100 transition-opacity duration-1000" />
-                <span className="font-terminal-label uppercase tracking-wider text-[12px] text-emerald-400 block mb-1 font-bold relative z-10">Total Net Worth</span>
-                <h1 className="font-headline font-bold text-4xl md:text-5xl tracking-tighter text-white tabular-nums leading-none relative z-10 whitespace-nowrap">
-                  <RollingNumber value={totalNetWorth} currency prefix="₹" decimals={0} />
-                </h1>
-              </div>
-
-              {/* Metric 2: Daily P/L */}
-              <div className="flex flex-col gap-1 border-l border-white/5 pl-6 min-w-[210px]">
-                <span className="font-terminal-label uppercase tracking-wider text-[12px] text-zinc-300 block mb-1 font-bold">Daily P/L</span>
-                <div className="flex items-center gap-4 flex-nowrap">
-                  <span className={`font-headline font-bold text-2xl md:text-3xl tabular-nums whitespace-nowrap flex items-center ${((timeRange === '1D' && getMarketStatus('IN') === 'CLOSED') || totalDayChange === 0) ? 'text-zinc-500' : (totalDayChange > 0 ? 'text-emerald-500' : 'text-red-500')
-                    }`}>
-                    {((timeRange === '1D' && getMarketStatus('IN') === 'CLOSED') || totalDayChange === 0) ? (
-                      <RollingNumber value={0} currency prefix="₹" decimals={0} />
-                    ) : (
-                      <RollingNumber value={totalDayChange} currency prefix="₹" showSign decimals={0} />
-                    )}
-                  </span>
-                  <span className={`font-terminal-label border px-2 py-0.5 rounded-[4px] text-[10px] font-bold ${((timeRange === '1D' && getMarketStatus('IN') === 'CLOSED') || totalDayChange === 0)
-                    ? 'bg-zinc-500/10 text-zinc-500 border-zinc-500/20'
-                    : (totalDayChange > 0 ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-red-500/10 text-red-400 border-red-500/20')
-                    }`}>
-                    {((timeRange === '1D' && getMarketStatus('IN') === 'CLOSED') || totalDayChange === 0) ? (
-                      <RollingNumber value={0} suffix="%" decimals={2} />
-                    ) : (
-                      <RollingNumber value={dayChangePerc} suffix="%" decimals={2} showSign />
-                    )}
-                  </span>
-                </div>
-              </div>
-
-              {/* Metric 3: Aggregate P/L */}
-              <div className="flex flex-col gap-1 border-l border-white/5 pl-6 min-w-[210px]">
-                <span className="font-terminal-label uppercase tracking-wider text-[11px] text-zinc-400 block font-bold">Aggregate P/L</span>
-                <div className="flex items-center gap-4 flex-nowrap">
-                  <span className={`font-headline font-bold text-xl md:text-2xl tabular-nums whitespace-nowrap flex items-center ${totalPL === 0 ? 'text-zinc-500' : (totalPL > 0 ? 'text-emerald-500' : 'text-red-500')
-                    }`}>
-                    <RollingNumber value={totalPL} currency prefix="₹" showSign decimals={0} />
-                  </span>
-                  <span className={`font-terminal-label px-2 py-0.5 rounded-[4px] text-[10px] font-bold border transition-all duration-500 ${totalPL === 0 ? 'bg-zinc-500/10 text-zinc-500 border-zinc-500/20' : (totalPL > 0 ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-red-500/10 text-red-400 border-red-500/20')
-                    }`}>
-                    <RollingNumber value={totalPLPerc} suffix="%" decimals={2} prefix={totalPLPerc >= 0 ? "+" : ""} />
-                  </span>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Performance Chart */}
-          <motion.section
-            className="glass-panel rounded-3xl pt-4 px-6 pb-4 relative group border border-white/10 shadow-[0_20px_50px_rgba(0,0,0,0.5)] bg-gradient-to-b from-white/[0.04] to-transparent relative transition-all duration-500"
-          >
-            <AnimatePresence>
-              {isPortfolioDropdownOpen && (
-                <motion.div
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  exit={{ opacity: 0 }}
-                  className="absolute inset-0 backdrop-blur-[4px] bg-black/10 z-50 pointer-events-none rounded-3xl"
-                />
-              )}
-            </AnimatePresence>
-
-            <div className="flex justify-between items-center mb-4 relative z-10">
-              <div>
-                <h3 className="font-terminal-label text-[12px] uppercase tracking-wider text-zinc-300 mb-1 font-bold">Historical Performance</h3>
-                <div className="flex items-baseline gap-4">
-                  <span className="font-headline font-bold text-4xl tracking-tighter text-white tabular-nums"><RollingNumber value={totalNetWorth} currency prefix="₹" decimals={0} /></span>
-                  <span className={`font-terminal-label text-[10px] border px-2 py-0.5 rounded-[4px] uppercase tracking-widest font-bold ${totalPLPerc >= 0 ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-red-500/10 text-red-500 border-red-500/20'
-                    }`}>
-                    <RollingNumber value={totalPLPerc} suffix="%" decimals={2} prefix={totalPLPerc >= 0 ? "+" : ""} />
-                  </span>
-                </div>
-              </div>
-              <div className="flex gap-2 relative z-20">
-                {['1W', '1M', '1Y', 'ALL'].map((range) => (
-                  <button
-                    key={range}
-                    onClick={() => setTimeRange(range as any)}
-                    className={`px-4 py-1.5 rounded-lg font-terminal-label text-[11px] font-bold tracking-widest border transition-all duration-300 ${timeRange === range
-                      ? (range === '1D' && getMarketStatus('IN') === 'CLOSED'
-                        ? 'bg-zinc-500/20 border-zinc-500/60 text-zinc-400 shadow-[0_0_25px_rgba(113,113,122,0.15)]'
-                        : (rangeIsPositive ? 'bg-emerald-500/20 border-emerald-500/60 text-emerald-400 shadow-[0_0_25px_rgba(16,185,129,0.15)]' : 'bg-red-500/20 border-red-500/60 text-red-400 shadow-[0_0_25px_rgba(239,68,68,0.15)]')
-                      )
-                      : 'border-white/10 text-white/60 hover:text-white hover:border-white/20 hover:bg-white/5'
-                      }`}
-                  >
-                    {range}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div className="h-[340px] w-full pt-0 transition-all duration-500">
-              {filteredHistory.length > 0 ? (
-                <WealthChart data={(() => {
-                  const _ = heartbeat; // Depend on heartbeat for live updates
-
-                  const map = new Map<string | number, { time: string | number; value: number; ts: number }>();
-                  filteredHistory.forEach((h: { timestamp: string; total_market_value: number }) => {
-                    if (!h.timestamp) return;
-
-                    const dateObj = new Date(h.timestamp);
-                    const financialDayDate = new Date(dateObj.getTime() - (6 * 60 * 60 * 1000));
-
-                    const dateKey = new Intl.DateTimeFormat('en-CA', {
-                      timeZone: 'Asia/Kolkata',
-                      year: 'numeric',
-                      month: '2-digit',
-                      day: '2-digit'
-                    }).format(financialDayDate);
-
-                    const ts = Math.floor(dateObj.getTime() / 1000);
-                    const key = timeRange === '1D' ? ts : dateKey;
-
-                    const existing = map.get(key);
-                    if (!existing || ts > existing.ts) {
-                      map.set(key, {
-                        time: timeRange === '1D' ? (ts as UTCTimestamp) : dateKey,
-                        value: Number(h.total_market_value) || 0,
-                        ts: ts
-                      });
-                    }
-                  });
-
-                  const results = Array.from(map.values()).sort((a, b) => a.ts - b.ts);
-
-                  const now = new Date();
-                  const nowTs = Math.floor(now.getTime() / 1000);
-                  const financialDayNow = new Date(now.getTime() - (6 * 60 * 60 * 1000));
-
-                  const nowKey = new Intl.DateTimeFormat('en-CA', {
-                    timeZone: 'Asia/Kolkata',
-                    year: 'numeric',
-                    month: '2-digit',
-                    day: '2-digit'
-                  }).format(financialDayNow);
-
-                  const currentChartKey = timeRange === '1D' ? (nowTs as UTCTimestamp) : nowKey;
-
-                  if (results.length > 0) {
-                    const lastResult = results[results.length - 1];
-                    if (lastResult.time === currentChartKey) {
-                      lastResult.value = Number(totalNetWorth) || 0;
-                      lastResult.ts = nowTs;
-                    } else if (nowTs > lastResult.ts) {
-                      results.push({
-                        time: currentChartKey,
-                        value: Number(totalNetWorth) || 0,
-                        ts: nowTs
-                      });
-                    }
-                  } else {
-                    results.push({
-                      time: currentChartKey,
-                      value: Number(totalNetWorth) || 0,
-                      ts: nowTs
-                    });
-                  }
-
-                  return results.map(item => ({
-                    time: item.time as any,
-                    value: item.value
-                  }));
-                })()} 
-                isProfitOverride={totalPL >= 0}
-                />
-
-              ) : (
-                <div className="h-full flex flex-col items-center justify-center gap-6">
-                  {holdings.length > 0 ? (
-                    <div className="flex flex-col items-center gap-3 opacity-30">
-                      <Cpu className="w-12 h-12 animate-pulse" />
-                      <span className="font-terminal-label text-[10px] uppercase tracking-[0.4em]">Initializing Performance Map...</span>
-                    </div>
-                  ) : (
-                    <>
-                      <div className="flex flex-col items-center gap-3 opacity-30">
-                        <Cpu className="w-12 h-12 animate-pulse" />
-                        <span className="font-terminal-label text-[10px] uppercase tracking-[0.4em]">No Data Found</span>
-                      </div>
-                      <button
-                        onClick={() => setAddPortfolioModalOpen(true)}
-                        className="px-6 py-2 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 font-terminal-label text-[10px] uppercase tracking-widest hover:bg-emerald-500/20 transition-all hover:scale-105"
-                      >
-                        Add Portfolio
-                      </button>
-                    </>
-                  )}
-                </div>
-              )}
-            </div>
-          </motion.section>
-        </motion.div>
-
-        {/* TOP ROW RIGHT: Portfolio Analyzer */}
-        <motion.aside
-          animate={{
-            opacity: isPortfolioDropdownOpen ? 0.8 : 1,
-            scale: isPortfolioDropdownOpen ? 0.995 : 1
-          }}
-          transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
-          className="glass-panel rounded-3xl border border-white/10 bg-[#0a0d14]/80 backdrop-blur-3xl shadow-[0_40px_100px_rgba(0,0,0,0.4)] group/sidebar overflow-hidden transition-all duration-500 relative flex flex-col h-full"
-        >
-          <AnimatePresence>
-            {isPortfolioDropdownOpen && (
-              <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                className="absolute inset-0 backdrop-blur-[4px] bg-black/10 z-50 pointer-events-none rounded-3xl"
-              />
-            )}
-          </AnimatePresence>
-
-          <PortfolioAnalyzer holdings={holdings} />
-        </motion.aside>
-
-        {/* BOTTOM ROW: Asset Allocation Console */}
-        <motion.div
-          className="lg:col-span-1"
-        >
-          <motion.section
-            variants={{
-              hidden: { opacity: 0, y: 20, filter: 'blur(10px)' },
-              visible: { opacity: 1, y: 0, filter: 'blur(0px)' }
-            }}
-            transition={{ duration: 0.8, ease: [0.16, 1, 0.3, 1] }}
-            className="glass-panel rounded-3xl overflow-hidden flex flex-col border border-white/10 shadow-2xl bg-gradient-to-b from-white/[0.02] to-transparent relative"
-          >
-            <AnimatePresence>
-              {isPortfolioDropdownOpen && (
-                <motion.div
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  exit={{ opacity: 0 }}
-                  className="absolute inset-0 backdrop-blur-[4px] bg-black/10 z-50 pointer-events-none rounded-3xl"
-                />
-              )}
-            </AnimatePresence>
-            <div className="px-6 py-4 border-b border-white/5 flex justify-between items-center bg-white/[0.01]">
-              <h3 className="font-terminal-label text-[11px] uppercase tracking-wider text-zinc-300 font-bold">Current Holdings</h3>
-              <div className="relative group">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-emerald-500/30 group-focus-within:text-emerald-500 transition-colors w-3 h-3" />
-                <input
-                  type="text"
-                  placeholder="FILTER HOLDINGS..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="bg-black/60 border border-white/5 text-[9px] tracking-wider font-terminal-label pl-8 pr-4 py-2 w-64 rounded-full focus:ring-1 focus:ring-emerald-500/40 focus:outline-none placeholder:text-white/10 transition-all"
-                />
-              </div>
-            </div>
-
-            <div className="overflow-x-auto overflow-y-auto max-h-[440px] custom-scrollbar">
-              <table className="w-full text-left">
-                <thead>
-                  <tr className="bg-white/[0.02]">
-                    <th className="px-6 py-3 font-terminal-label text-[9px] uppercase tracking-wider text-zinc-500 font-bold">Stock Details</th>
-                    <th className="px-5 py-3 font-terminal-label text-[9px] uppercase tracking-wider text-zinc-500 text-right font-bold">Quantity</th>
-                    <th className="px-5 py-3 font-terminal-label text-[9px] uppercase tracking-wider text-zinc-500 text-right font-bold">Avg. Cost</th>
-                    <th className="px-5 py-3 font-terminal-label text-[9px] uppercase tracking-wider text-zinc-500 text-right font-bold">Invested</th>
-                    <th className="px-5 py-3 font-terminal-label text-[9px] uppercase tracking-wider text-zinc-500 text-right font-bold">Market Value</th>
-                    <th className="px-6 py-3 font-terminal-label text-[9px] uppercase tracking-wider text-zinc-500 text-right font-bold">Returns (%)</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-white/[0.03]">
-
-                  {filteredHoldings.length === 0 ? (
-                    <tr>
-                      <td colSpan={5} className="py-24 text-center">
-                        <div className="flex flex-col items-center gap-4 opacity-40">
-                          <div className="w-12 h-12 rounded-full border border-emerald-500/20 flex items-center justify-center animate-pulse">
-                            <Database className="w-5 h-5 text-emerald-500/50" />
-                          </div>
-                          <div className="flex flex-col gap-1">
-                            <span className="font-terminal-label text-[10px] uppercase tracking-[0.4em] text-emerald-500">
-                              {searchQuery ? "No Matching Stocks" : "Portfolio Not Found"}
-                            </span>
-                            <span className="font-data-sm text-[11px] text-zinc-500 uppercase tracking-widest">
-                              {searchQuery ? "Try a different search term" : "Upload your Excel statement to start"}
-                            </span>
-                            {!searchQuery && (
-                              <button
-                                onClick={() => setAddPortfolioModalOpen(true)}
-                                className="mt-4 px-6 py-2 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 font-terminal-label text-[10px] uppercase tracking-widest hover:bg-emerald-500/20 transition-all"
-                              >
-                                Import Excel
-                              </button>
-                            )}
-                          </div>
-                        </div>
-                      </td>
-                    </tr>
-                  ) : (
-                    <AnimatePresence>
-                      {filteredHoldings.map((asset, idx) => (
-                        <motion.tr
-                          key={asset.id || asset.trading_symbol}
-                          initial={{ opacity: 0 }}
-                          animate={{ opacity: 1 }}
-                          exit={{ opacity: 0 }}
-                          transition={{ duration: 0.5, delay: idx * 0.05, ease: "easeInOut" }}
-                          onClick={() => router.push(`/stocks/${asset.trading_symbol}`)}
-                          className="hover:bg-emerald-500/[0.05] transition-all group cursor-pointer border-b border-white/[0.03]"
-                        >
-                          <td className="px-8 py-5">
-                            <div className="flex flex-col">
-                              <span className="font-headline font-bold text-sm text-white tracking-tight group-hover:text-emerald-400 transition-colors">
-                                {asset.trading_symbol.replace('.NS', '')}
-                              </span>
-                              <span className="font-terminal-label text-[9px] text-zinc-600 uppercase tracking-widest mt-1">NSE:EQUITY</span>
-                            </div>
-                          </td>
-                          <td className="px-6 py-5 text-right font-data-md text-xs text-white/50 tabular-nums"><RollingNumber value={asset.quantity || 0} decimals={0} /></td>
-                          <td className="px-6 py-5 text-right font-data-md text-xs text-white/50 tabular-nums"><RollingNumber value={Number(asset.average_price) || 0} currency prefix="₹" decimals={2} /></td>
-                          <td className="px-6 py-5 text-right font-data-md text-xs text-white/50 tabular-nums"><RollingNumber value={Number(asset.invested_value) || 0} currency prefix="₹" decimals={0} /></td>
-                          <td className="px-6 py-5 text-right font-data-md text-xs text-white tabular-nums"><RollingNumber value={Number(asset.market_value) || 0} currency prefix="₹" decimals={0} /></td>
-                          <td className="px-8 py-5 text-right">
-                            <div className="flex flex-col items-end">
-                              <span className={`font-data-md text-sm font-bold tabular-nums ${Number(asset.p_l) >= 0 ? 'text-emerald-500' : 'text-red-500'}`}>
-                                <RollingNumber value={Math.abs(Number(asset.p_l)) || 0} currency prefix={Number(asset.p_l) >= 0 ? "+₹" : "-₹"} decimals={0} />
-                              </span>
-                              <span className={`font-terminal-label text-[10px] font-bold tabular-nums mt-1 ${Number(asset.p_l) >= 0 ? 'text-emerald-500/40' : 'text-red-500/40'}`}>
-                                <RollingNumber value={Number(asset.p_l_percentage) || 0} suffix="%" decimals={2} />
-                              </span>
-                            </div>
-                          </td>
-                        </motion.tr>
-                      ))}
-                    </AnimatePresence>
-                  )}
-
-                </tbody>
-              </table>
-            </div>
-
-            <div className="px-8 py-5 bg-black/40 flex justify-between items-center border-t border-white/5">
-              <span className="font-terminal-label text-[10px] text-white/30 uppercase tracking-[0.2em]">Showing {filteredHoldings.length} of {holdings.length} holdings</span>
-              <button
-                onClick={() => { console.log("ADD_NEW_HOLDING_TRIGGERED") }}
-                className="font-terminal-label text-[10px] uppercase tracking-[0.25em] font-bold flex items-center gap-2 transition-all text-emerald-500/60 hover:text-emerald-500"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                Add New Holding
-              </button>
-            </div>
-          </motion.section>
-        </motion.div>
-        {/* BOTTOM ROW RIGHT: Market Watchlist */}
-        <motion.div
-          variants={{
-            hidden: { opacity: 0, x: 20 },
-            visible: { opacity: 1, x: 0 }
-          }}
-          transition={{ duration: 0.8, ease: [0.16, 1, 0.3, 1], delay: 0.2 }}
-          className="glass-panel rounded-3xl border border-white/10 bg-[#0a0d14]/80 backdrop-blur-3xl shadow-2xl overflow-hidden flex flex-col relative"
-        >
-          <AnimatePresence>
-            {isPortfolioDropdownOpen && (
-              <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                className="absolute inset-0 backdrop-blur-[4px] bg-black/10 z-50 pointer-events-none rounded-3xl"
-              />
-            )}
-          </AnimatePresence>
-          <div className="px-8 py-6 border-b border-white/5 flex items-center justify-between shrink-0">
-            <div className="flex items-center gap-4">
-              <div className="w-2.5 h-2.5 rounded-full bg-blue-500 shadow-[0_0_15px_rgba(59,130,246,0.5)]" />
-              <span className="font-headline text-[13px] uppercase tracking-[0.2em] text-white font-bold">
-                Market Watchlist
-              </span>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="text-[10px] font-black text-zinc-500 uppercase tracking-widest px-2 py-1 bg-white/5 rounded-md">3 Assets</span>
-            </div>
-          </div>
-
-          <div className="flex-grow overflow-y-auto no-scrollbar p-6">
-            <div className="space-y-4">
-              {[
-                { symbol: 'RELIANCE', price: '2,942.10', change: '+1.2%', isUp: true, sentiment: 'BULLISH' },
-                { symbol: 'TCS', price: '4,102.45', change: '-0.4%', isUp: false, sentiment: 'NEUTRAL' },
-                { symbol: 'ZOMATO', price: '194.20', change: '+4.8%', isUp: true, sentiment: 'EXTREME BULL' },
-              ].map((item, idx) => (
-                <motion.div
-                  key={item.symbol}
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: 0.4 + (idx * 0.1) }}
-                  className="group cursor-pointer"
-                >
-                  <div className="glass-panel p-4 rounded-2xl border border-white/[0.03] group-hover:border-white/10 group-hover:bg-white/[0.02] transition-all duration-300 flex items-center justify-between">
-                    <div className="flex items-center gap-4">
-                      <div className={cn(
-                        "w-1 h-10 rounded-full",
-                        item.isUp ? "bg-emerald-500/40" : "bg-red-500/40"
-                      )} />
-                      <div>
-                        <div className="font-headline font-bold text-white tracking-tight">{item.symbol}</div>
-                        <div className="flex items-center gap-2 mt-1">
-                          <span className={cn(
-                            "text-[8px] font-black px-1.5 py-0.5 rounded uppercase tracking-tighter",
-                            item.isUp ? "bg-emerald-500/10 text-emerald-400" : "bg-red-500/10 text-red-400"
-                          )}>
-                            {item.sentiment}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                    <div className="text-right">
-                      <div className="font-data-md font-bold text-white">₹{item.price}</div>
-                      <div className={cn(
-                        "text-[11px] font-bold mt-1",
-                        item.isUp ? "text-emerald-500" : "text-red-500"
-                      )}>
-                        {item.change}
-                      </div>
+                <div className="flex justify-between items-center mb-4 relative z-10">
+                  <div>
+                    <h3 className="font-terminal-label text-[12px] uppercase tracking-wider text-zinc-300 mb-1 font-bold">Historical Performance</h3>
+                    <div className="flex items-baseline gap-4">
+                      <span className="font-headline font-bold text-4xl tracking-tighter text-white tabular-nums"><RollingNumber value={totalNetWorth} currency prefix="₹" decimals={0} /></span>
+                      <span className={`font-terminal-label text-[10px] border px-2 py-0.5 rounded-[4px] uppercase tracking-widest font-bold ${totalPLPerc >= 0 ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-red-500/10 text-red-500 border-red-500/20'
+                        }`}>
+                        <RollingNumber value={totalPLPerc} suffix="%" decimals={2} prefix={totalPLPerc >= 0 ? "+" : ""} />
+                      </span>
                     </div>
                   </div>
-                </motion.div>
-              ))}
-            </div>
-          </div>
+                  <div className="flex gap-2 relative z-20">
+                    {['1W', '1M', '1Y', 'ALL'].map((range) => (
+                      <button
+                        key={range}
+                        onClick={() => setTimeRange(range as any)}
+                        className={`px-4 py-1.5 rounded-lg font-terminal-label text-[11px] font-bold tracking-widest border transition-all duration-300 ${timeRange === range
+                          ? (range === '1D' && getMarketStatus('IN') === 'CLOSED'
+                            ? 'bg-zinc-500/20 border-zinc-500/60 text-zinc-400 shadow-[0_0_25px_rgba(113,113,122,0.15)]'
+                            : (rangeIsPositive ? 'bg-emerald-500/20 border-emerald-500/60 text-emerald-400 shadow-[0_0_25px_rgba(16,185,129,0.15)]' : 'bg-red-500/20 border-red-500/60 text-red-400 shadow-[0_0_25px_rgba(239,68,68,0.15)]')
+                          )
+                          : 'border-white/10 text-white/60 hover:text-white hover:border-white/20 hover:bg-white/5'
+                          }`}
+                      >
+                        {range}
+                      </button>
+                    ))}
+                  </div>
+                </div>
 
-          <div className="p-6 bg-black/40 border-t border-white/5 mt-auto">
-            <button className="w-full py-3 rounded-xl bg-white/5 border border-white/10 text-[11px] font-black uppercase tracking-[0.2em] text-zinc-400 hover:text-white hover:bg-white/10 hover:border-white/20 transition-all duration-300">
-              Manage Watchlist
-            </button>
+                <div className="h-[340px] w-full pt-0 transition-all duration-500">
+                  {filteredHistory.length > 0 ? (
+                    <WealthChart data={(() => {
+                      const _ = heartbeat;
+                      const map = new Map<string | number, { time: string | number; value: number; ts: number }>();
+                      filteredHistory.forEach((h: { timestamp: string; total_market_value: number }) => {
+                        if (!h.timestamp) return;
+                        const dateObj = new Date(h.timestamp);
+                        const financialDayDate = new Date(dateObj.getTime() - (6 * 60 * 60 * 1000));
+                        const dateKey = new Intl.DateTimeFormat('en-CA', {
+                          timeZone: 'Asia/Kolkata',
+                          year: 'numeric',
+                          month: '2-digit',
+                          day: '2-digit'
+                        }).format(financialDayDate);
+                        const ts = Math.floor(dateObj.getTime() / 1000);
+                        const key = timeRange === '1D' ? ts : dateKey;
+                        const existing = map.get(key);
+                        if (!existing || ts > existing.ts) {
+                          map.set(key, {
+                            time: timeRange === '1D' ? (ts as UTCTimestamp) : dateKey,
+                            value: Number(h.total_market_value) || 0,
+                            ts: ts
+                          });
+                        }
+                      });
+                      const results = Array.from(map.values()).sort((a, b) => a.ts - b.ts);
+                      const now = new Date();
+                      const nowTs = Math.floor(now.getTime() / 1000);
+                      const financialDayNow = new Date(now.getTime() - (6 * 60 * 60 * 1000));
+                      const nowKey = new Intl.DateTimeFormat('en-CA', {
+                        timeZone: 'Asia/Kolkata',
+                        year: 'numeric',
+                        month: '2-digit',
+                        day: '2-digit'
+                      }).format(financialDayNow);
+                      const currentChartKey = timeRange === '1D' ? (nowTs as UTCTimestamp) : nowKey;
+                      if (results.length > 0) {
+                        const lastResult = results[results.length - 1];
+                        if (lastResult.time === currentChartKey) {
+                          lastResult.value = Number(totalNetWorth) || 0;
+                          lastResult.ts = nowTs;
+                        } else if (nowTs > lastResult.ts) {
+                          results.push({
+                            time: currentChartKey,
+                            value: Number(totalNetWorth) || 0,
+                            ts: nowTs
+                          });
+                        }
+                      } else {
+                        results.push({
+                          time: currentChartKey,
+                          value: Number(totalNetWorth) || 0,
+                          ts: nowTs
+                        });
+                      }
+                      return results.map(item => ({
+                        time: item.time as any,
+                        value: item.value
+                      }));
+                    })()}
+                      isProfitOverride={totalPL >= 0}
+                    />
+                  ) : (
+                    <div className="h-full flex flex-col items-center justify-center gap-6">
+                      <div className="flex flex-col items-center gap-3 opacity-30">
+                        <Cpu className="w-12 h-12 animate-pulse" />
+                        <span className="font-terminal-label text-[10px] uppercase tracking-[0.4em]">Initializing...</span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Simplified Data Note */}
+                <div className="mt-4 pt-4 border-t border-white/5 flex items-center gap-2.5 opacity-60">
+                  <Info className="size-3 text-blue-400 shrink-0" />
+                  <p className="text-[10px] font-terminal-label uppercase tracking-widest text-zinc-300">
+                    <span className="font-black text-white mr-1 italic">Note:</span>
+                    This chart is built from daily portfolio snapshots. Real-time changes are added every time you sync.
+                  </p>
+                </div>
+              </motion.section>
+            </motion.div>
+          </motion.div>
+
+          {/* RIGHT COLUMN: Portfolio Analyzer - Now perfectly aligned with Header */}
+          <motion.aside
+            initial={{ opacity: 0, x: 20 }}
+            animate={{
+              opacity: isPortfolioDropdownOpen ? 0.8 : 1,
+              x: 0,
+              scale: isPortfolioDropdownOpen ? 0.995 : 1
+            }}
+            transition={{ duration: 0.8, ease: [0.16, 1, 0.3, 1], delay: 0.8 }}
+            className="glass-panel rounded-3xl border border-white/10 bg-[#0a0d14]/80 backdrop-blur-3xl shadow-[0_40px_100px_rgba(0,0,0,0.4)] group/sidebar overflow-hidden transition-all duration-500 relative flex flex-col h-[calc(100%+2rem)] -mt-8"
+          >
+            <AnimatePresence>
+              {isPortfolioDropdownOpen && (
+                <motion.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  className="absolute inset-0 backdrop-blur-[4px] bg-black/10 z-50 pointer-events-none rounded-3xl"
+                />
+              )}
+            </AnimatePresence>
+            <PortfolioAnalyzer holdings={holdings} onRefresh={handleAnalyzerRefresh} />
+          </motion.aside>
+        </div>
+
+        {/* BOTTOM ROW: Asset Allocation Console */}
+        <div className="flex flex-col gap-6">
+
+
+          <motion.div
+            className="w-full"
+          >
+
+            <motion.section
+              variants={{
+                hidden: { opacity: 0, y: 20, filter: 'blur(10px)' },
+                visible: { opacity: 1, y: 0, filter: 'blur(0px)' }
+              }}
+              transition={{ duration: 0.8, ease: [0.16, 1, 0.3, 1] }}
+              className="glass-panel rounded-3xl overflow-hidden flex flex-col border border-white/10 shadow-2xl bg-gradient-to-b from-white/[0.02] to-transparent relative"
+            >
+              <AnimatePresence>
+                {isPortfolioDropdownOpen && (
+                  <motion.div
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    className="absolute inset-0 backdrop-blur-[4px] bg-black/10 z-50 pointer-events-none rounded-3xl"
+                  />
+                )}
+              </AnimatePresence>
+              <div className="px-6 py-4 border-b border-white/5 flex justify-between items-center bg-white/[0.01]">
+                <h3 className="font-terminal-label text-[11px] uppercase tracking-wider text-zinc-300 font-bold">Current Holdings</h3>
+                <div className="relative group">
+                  <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-emerald-500/50 group-focus-within:text-emerald-400 transition-colors w-3.5 h-3.5" />
+                  <input
+                    type="text"
+                    placeholder="FILTER HOLDINGS..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="bg-white/[0.02] border border-white/10 text-[10px] tracking-[0.1em] font-terminal-label pl-10 pr-4 py-2.5 w-72 rounded-full focus:ring-1 focus:ring-emerald-500/40 focus:bg-white/[0.04] focus:outline-none placeholder:text-zinc-600 transition-all uppercase"
+                  />
+                </div>
+              </div>
+
+              <div className="overflow-x-auto overflow-y-auto max-h-[440px] custom-scrollbar">
+                <table className="w-full text-left border-collapse min-w-[1100px]">
+                  <thead>
+                    <tr className="bg-white/[0.02]">
+                      <th
+                        className="min-w-[220px] px-6 py-5 font-terminal-label text-[10px] uppercase tracking-[0.2em] text-zinc-500 font-black cursor-pointer hover:bg-white/[0.02] transition-colors group/header"
+                        onClick={() => requestSort('trading_symbol')}
+                      >
+                        <div className="flex items-center gap-3">
+                          Stock Details
+                          <div className={cn(
+                            "flex items-center justify-center size-5 rounded-md transition-all duration-300 relative overflow-hidden",
+                            sortConfig.key === 'trading_symbol' && sortConfig.direction ? "bg-emerald-500/15 text-emerald-400 shadow-[0_0_15px_rgba(16,185,129,0.15)]" : "text-zinc-600 group-hover/header:text-zinc-400"
+                          )}>
+                            <AnimatePresence mode="wait">
+                              <motion.div
+                                key={`${sortConfig.key === 'trading_symbol'}-${sortConfig.direction}`}
+                                initial={{ opacity: 0, scale: 0.5, rotate: -10 }}
+                                animate={{ opacity: 1, scale: 1, rotate: 0 }}
+                                exit={{ opacity: 0, scale: 0.5, rotate: 10 }}
+                                transition={{ duration: 0.15, ease: "easeOut" }}
+                              >
+                                {sortConfig.key === 'trading_symbol' && sortConfig.direction === 'asc' ? (
+                                  <ChevronUp className="size-3" />
+                                ) : sortConfig.key === 'trading_symbol' && sortConfig.direction === 'desc' ? (
+                                  <ChevronDown className="size-3" />
+                                ) : (
+                                  <ArrowUpDown className="size-3 opacity-40" />
+                                )}
+                              </motion.div>
+                            </AnimatePresence>
+                          </div>
+                        </div>
+                      </th>
+                      <th
+                        className="min-w-[100px] px-6 py-5 font-terminal-label text-[10px] uppercase tracking-[0.2em] text-zinc-500 text-right font-black cursor-pointer hover:bg-white/[0.02] transition-colors group/header"
+                        onClick={() => requestSort('quantity')}
+                      >
+                        <div className="flex items-center justify-end gap-3">
+                          Quantity
+                          <div className={cn(
+                            "flex items-center justify-center size-5 rounded-md transition-all duration-300 relative overflow-hidden",
+                            sortConfig.key === 'quantity' && sortConfig.direction ? "bg-emerald-500/15 text-emerald-400 shadow-[0_0_15px_rgba(16,185,129,0.15)]" : "text-zinc-600 group-hover/header:text-zinc-400"
+                          )}>
+                            <AnimatePresence mode="wait">
+                              <motion.div
+                                key={`${sortConfig.key === 'quantity'}-${sortConfig.direction}`}
+                                initial={{ opacity: 0, scale: 0.5, rotate: -10 }}
+                                animate={{ opacity: 1, scale: 1, rotate: 0 }}
+                                exit={{ opacity: 0, scale: 0.5, rotate: 10 }}
+                                transition={{ duration: 0.15, ease: "easeOut" }}
+                              >
+                                {sortConfig.key === 'quantity' && sortConfig.direction === 'asc' ? (
+                                  <ChevronUp className="size-3" />
+                                ) : sortConfig.key === 'quantity' && sortConfig.direction === 'desc' ? (
+                                  <ChevronDown className="size-3" />
+                                ) : (
+                                  <ArrowUpDown className="size-3 opacity-40" />
+                                )}
+                              </motion.div>
+                            </AnimatePresence>
+                          </div>
+                        </div>
+                      </th>
+                      <th
+                        className="min-w-[110px] px-6 py-5 font-terminal-label text-[10px] uppercase tracking-[0.2em] text-zinc-500 text-right font-black cursor-pointer hover:bg-white/[0.02] transition-colors group/header"
+                        onClick={() => requestSort('average_price')}
+                      >
+                        <div className="flex items-center justify-end gap-3">
+                          Avg. Cost
+                          <div className={cn(
+                            "flex items-center justify-center size-5 rounded-md transition-all duration-300 relative overflow-hidden",
+                            sortConfig.key === 'average_price' && sortConfig.direction ? "bg-emerald-500/15 text-emerald-400 shadow-[0_0_15px_rgba(16,185,129,0.15)]" : "text-zinc-600 group-hover/header:text-zinc-400"
+                          )}>
+                            <AnimatePresence mode="wait">
+                              <motion.div
+                                key={`${sortConfig.key === 'average_price'}-${sortConfig.direction}`}
+                                initial={{ opacity: 0, scale: 0.5, rotate: -10 }}
+                                animate={{ opacity: 1, scale: 1, rotate: 0 }}
+                                exit={{ opacity: 0, scale: 0.5, rotate: 10 }}
+                                transition={{ duration: 0.15, ease: "easeOut" }}
+                              >
+                                {sortConfig.key === 'average_price' && sortConfig.direction === 'asc' ? (
+                                  <ChevronUp className="size-3" />
+                                ) : sortConfig.key === 'average_price' && sortConfig.direction === 'desc' ? (
+                                  <ChevronDown className="size-3" />
+                                ) : (
+                                  <ArrowUpDown className="size-3 opacity-40" />
+                                )}
+                              </motion.div>
+                            </AnimatePresence>
+                          </div>
+                        </div>
+                      </th>
+                      <th
+                        className="min-w-[130px] px-6 py-5 font-terminal-label text-[10px] uppercase tracking-[0.2em] text-zinc-500 text-right font-black cursor-pointer hover:bg-white/[0.02] transition-colors group/header"
+                        onClick={() => requestSort('invested_value')}
+                      >
+                        <div className="flex items-center justify-end gap-3">
+                          Invested Value
+                          <div className={cn(
+                            "flex items-center justify-center size-5 rounded-md transition-all duration-300 relative overflow-hidden",
+                            sortConfig.key === 'invested_value' && sortConfig.direction ? "bg-emerald-500/15 text-emerald-400 shadow-[0_0_15px_rgba(16,185,129,0.15)]" : "text-zinc-600 group-hover/header:text-zinc-400"
+                          )}>
+                            <AnimatePresence mode="wait">
+                              <motion.div
+                                key={`${sortConfig.key === 'invested_value'}-${sortConfig.direction}`}
+                                initial={{ opacity: 0, scale: 0.5, rotate: -10 }}
+                                animate={{ opacity: 1, scale: 1, rotate: 0 }}
+                                exit={{ opacity: 0, scale: 0.5, rotate: 10 }}
+                                transition={{ duration: 0.15, ease: "easeOut" }}
+                              >
+                                {sortConfig.key === 'invested_value' && sortConfig.direction === 'asc' ? (
+                                  <ChevronUp className="size-3" />
+                                ) : sortConfig.key === 'invested_value' && sortConfig.direction === 'desc' ? (
+                                  <ChevronDown className="size-3" />
+                                ) : (
+                                  <ArrowUpDown className="size-3 opacity-40" />
+                                )}
+                              </motion.div>
+                            </AnimatePresence>
+                          </div>
+                        </div>
+                      </th>
+                      <th
+                        className="min-w-[130px] px-6 py-5 font-terminal-label text-[10px] uppercase tracking-[0.2em] text-zinc-500 text-right font-black cursor-pointer hover:bg-white/[0.02] transition-colors group/header"
+                        onClick={() => requestSort('market_value')}
+                      >
+                        <div className="flex items-center justify-end gap-3">
+                          Current Value
+                          <div className={cn(
+                            "flex items-center justify-center size-5 rounded-md transition-all duration-300 relative overflow-hidden",
+                            sortConfig.key === 'market_value' && sortConfig.direction ? "bg-emerald-500/15 text-emerald-400 shadow-[0_0_15px_rgba(16,185,129,0.15)]" : "text-zinc-600 group-hover/header:text-zinc-400"
+                          )}>
+                            <AnimatePresence mode="wait">
+                              <motion.div
+                                key={`${sortConfig.key === 'market_value'}-${sortConfig.direction}`}
+                                initial={{ opacity: 0, scale: 0.5, rotate: -10 }}
+                                animate={{ opacity: 1, scale: 1, rotate: 0 }}
+                                exit={{ opacity: 0, scale: 0.5, rotate: 10 }}
+                                transition={{ duration: 0.15, ease: "easeOut" }}
+                              >
+                                {sortConfig.key === 'market_value' && sortConfig.direction === 'asc' ? (
+                                  <ChevronUp className="size-3" />
+                                ) : sortConfig.key === 'market_value' && sortConfig.direction === 'desc' ? (
+                                  <ChevronDown className="size-3" />
+                                ) : (
+                                  <ArrowUpDown className="size-3 opacity-40" />
+                                )}
+                              </motion.div>
+                            </AnimatePresence>
+                          </div>
+                        </div>
+                      </th>
+                      <th
+                        className="min-w-[120px] px-6 py-5 font-terminal-label text-[10px] uppercase tracking-[0.2em] text-zinc-500 text-right font-black cursor-pointer hover:bg-white/[0.02] transition-colors group/header"
+                        onClick={() => requestSort('day_change')}
+                      >
+                        <div className="flex items-center justify-end gap-3">
+                          Day Change
+                          <div className={cn(
+                            "flex items-center justify-center size-5 rounded-md transition-all duration-300 relative overflow-hidden",
+                            sortConfig.key === 'day_change' && sortConfig.direction ? "bg-emerald-500/15 text-emerald-400 shadow-[0_0_15px_rgba(16,185,129,0.15)]" : "text-zinc-600 group-hover/header:text-zinc-400"
+                          )}>
+                            <AnimatePresence mode="wait">
+                              <motion.div
+                                key={`${sortConfig.key === 'day_change'}-${sortConfig.direction}`}
+                                initial={{ opacity: 0, scale: 0.5, rotate: -10 }}
+                                animate={{ opacity: 1, scale: 1, rotate: 0 }}
+                                exit={{ opacity: 0, scale: 0.5, rotate: 10 }}
+                                transition={{ duration: 0.15, ease: "easeOut" }}
+                              >
+                                {sortConfig.key === 'day_change' && sortConfig.direction === 'asc' ? (
+                                  <ChevronUp className="size-3" />
+                                ) : sortConfig.key === 'day_change' && sortConfig.direction === 'desc' ? (
+                                  <ChevronDown className="size-3" />
+                                ) : (
+                                  <ArrowUpDown className="size-3 opacity-40" />
+                                )}
+                              </motion.div>
+                            </AnimatePresence>
+                          </div>
+                        </div>
+                      </th>
+                      <th
+                        className="min-w-[100px] px-6 py-5 font-terminal-label text-[10px] uppercase tracking-[0.2em] text-zinc-500 text-right font-black cursor-pointer hover:bg-white/[0.02] transition-colors group/header"
+                        onClick={() => requestSort('weight')}
+                      >
+                        <div className="flex items-center justify-end gap-3">
+                          Weight
+                          <div className={cn(
+                            "flex items-center justify-center size-5 rounded-md transition-all duration-300 relative overflow-hidden",
+                            sortConfig.key === 'weight' && sortConfig.direction ? "bg-emerald-500/15 text-emerald-400 shadow-[0_0_15px_rgba(16,185,129,0.15)]" : "text-zinc-600 group-hover/header:text-zinc-400"
+                          )}>
+                            <AnimatePresence mode="wait">
+                              <motion.div
+                                key={`${sortConfig.key === 'weight'}-${sortConfig.direction}`}
+                                initial={{ opacity: 0, scale: 0.5, rotate: -10 }}
+                                animate={{ opacity: 1, scale: 1, rotate: 0 }}
+                                exit={{ opacity: 0, scale: 0.5, rotate: 10 }}
+                                transition={{ duration: 0.15, ease: "easeOut" }}
+                              >
+                                {sortConfig.key === 'weight' && sortConfig.direction === 'asc' ? (
+                                  <ChevronUp className="size-3" />
+                                ) : sortConfig.key === 'weight' && sortConfig.direction === 'desc' ? (
+                                  <ChevronDown className="size-3" />
+                                ) : (
+                                  <ArrowUpDown className="size-3 opacity-40" />
+                                )}
+                              </motion.div>
+                            </AnimatePresence>
+                          </div>
+                        </div>
+                      </th>
+                      <th
+                        className="min-w-[170px] px-6 py-5 font-terminal-label text-[10px] uppercase tracking-[0.2em] text-zinc-500 text-right font-black cursor-pointer hover:bg-white/[0.02] transition-colors group/header"
+                        onClick={() => requestSort('p_l')}
+                      >
+                        <div className="flex items-center justify-end gap-3">
+                          Total Returns
+                          <div className={cn(
+                            "flex items-center justify-center size-5 rounded-md transition-all duration-300 relative overflow-hidden",
+                            sortConfig.key === 'p_l' && sortConfig.direction ? "bg-emerald-500/15 text-emerald-400 shadow-[0_0_15px_rgba(16,185,129,0.15)]" : "text-zinc-600 group-hover/header:text-zinc-400"
+                          )}>
+                            <AnimatePresence mode="wait">
+                              <motion.div
+                                key={`${sortConfig.key === 'p_l'}-${sortConfig.direction}`}
+                                initial={{ opacity: 0, scale: 0.5, rotate: -10 }}
+                                animate={{ opacity: 1, scale: 1, rotate: 0 }}
+                                exit={{ opacity: 0, scale: 0.5, rotate: 10 }}
+                                transition={{ duration: 0.15, ease: "easeOut" }}
+                              >
+                                {sortConfig.key === 'p_l' && sortConfig.direction === 'asc' ? (
+                                  <ChevronUp className="size-3" />
+                                ) : sortConfig.key === 'p_l' && sortConfig.direction === 'desc' ? (
+                                  <ChevronDown className="size-3" />
+                                ) : (
+                                  <ArrowUpDown className="size-3 opacity-40" />
+                                )}
+                              </motion.div>
+                            </AnimatePresence>
+                          </div>
+                        </div>
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-white/[0.03]">
+
+                    {sortedHoldings.length === 0 ? (
+                      <tr>
+                        <td colSpan={8} className="py-24 text-center">
+                          <div className="flex flex-col items-center gap-4 opacity-40">
+                            <div className="w-12 h-12 rounded-full border border-emerald-500/20 flex items-center justify-center animate-pulse">
+                              <Database className="w-5 h-5 text-emerald-500/50" />
+                            </div>
+                            <div className="flex flex-col gap-1">
+                              <span className="font-terminal-label text-[10px] uppercase tracking-[0.4em] text-emerald-500">
+                                {searchQuery ? "No Matching Stocks" : "Portfolio Not Found"}
+                              </span>
+                              <span className="font-data-sm text-[11px] text-zinc-500 uppercase tracking-widest">
+                                {searchQuery ? "Try a different search term" : "Upload your Excel statement to start"}
+                              </span>
+                              {!searchQuery && (
+                                <button
+                                  onClick={() => setAddPortfolioModalOpen(true)}
+                                  className="mt-4 px-6 py-2 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 font-terminal-label text-[10px] uppercase tracking-widest hover:bg-emerald-500/20 transition-all"
+                                >
+                                  Import Excel
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        </td>
+                      </tr>
+                    ) : (
+                      <AnimatePresence>
+                        {sortedHoldings.map((asset, idx) => (
+                          <motion.tr
+                            layout="position"
+                            key={asset.id || asset.trading_symbol}
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            exit={{ opacity: 0, scale: 0.98 }}
+                            whileHover={{
+                              backgroundColor: 'rgba(255, 255, 255, 0.02)',
+                              transition: { duration: 0.2 }
+                            }}
+                            transition={{
+                              layout: { duration: 0.4, ease: [0.16, 1, 0.3, 1] },
+                              opacity: { duration: 0.3 }
+                            }}
+                            onClick={() => router.push(`/stocks/${asset.trading_symbol}`)}
+                            className="group cursor-pointer border-b border-white/[0.02] relative overflow-hidden"
+                          >
+                            <td className="min-w-[220px] px-6 py-6 relative">
+                              {/* Radial Glow Effect on Hover */}
+                              <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-700 pointer-events-none bg-[radial-gradient(circle_at_var(--mouse-x,50%)_var(--mouse-y,50%),rgba(16,185,129,0.05)_0%,transparent_70%)]" />
+                              <div className="flex items-center gap-4 relative z-10">
+                                <div className={cn(
+                                  "w-1 h-8 rounded-full transition-all duration-500",
+                                  Number(asset.p_l) >= 0 ? "bg-emerald-500/40" : "bg-red-500/40"
+                                )} />
+                                <div className="flex flex-col">
+                                  <span className="font-headline font-bold text-[14px] text-white tracking-tight group-hover:text-emerald-400 transition-colors">
+                                    {asset.trading_symbol.replace('.NS', '').replace('.BO', '')}
+                                  </span>
+                                  <span className="font-terminal-label text-[9px] text-zinc-600 uppercase tracking-[0.1em] mt-0.5">
+                                    {activePortfolio?.id === 'overall' && asset.user_portfolios?.name ? (
+                                      <span className="flex items-center gap-1.5">
+                                        <span className="text-zinc-400 font-black">{asset.user_portfolios.name}</span>
+                                        <span className="opacity-30">•</span>
+                                        <span>{asset.trading_symbol.endsWith('.NS') ? 'NSE' : (asset.trading_symbol.endsWith('.BO') ? 'BSE' : 'EQUITY')}</span>
+                                      </span>
+                                    ) : (
+                                      asset.trading_symbol.endsWith('.NS') ? 'NSE' : (asset.trading_symbol.endsWith('.BO') ? 'BSE' : 'EQUITY')
+                                    )}
+                                  </span>
+                                </div>
+                              </div>
+                            </td>
+                            <td className="min-w-[100px] px-6 py-6 text-right">
+                              <span className="font-data-md text-sm text-zinc-400 tabular-nums">
+                                <RollingNumber value={asset.quantity || 0} decimals={0} />
+                                <span className="text-[9px] ml-1 text-zinc-600 uppercase">Unit</span>
+                              </span>
+                            </td>
+                            <td className="min-w-[110px] px-6 py-6 text-right">
+                              <span className="font-data-md text-sm text-zinc-400 tabular-nums">
+                                <RollingNumber value={Number(asset.average_price) || 0} currency prefix="₹" decimals={2} />
+                              </span>
+                            </td>
+                            <td className="min-w-[130px] px-6 py-6 text-right">
+                              <span className="font-data-md text-sm text-zinc-500/60 tabular-nums">
+                                <RollingNumber value={Number(asset.invested_value) || 0} currency prefix="₹" decimals={0} />
+                              </span>
+                            </td>
+                            <td className="min-w-[130px] px-6 py-6 text-right">
+                              <span className="font-data-md text-base text-white tabular-nums drop-shadow-sm font-bold">
+                                <RollingNumber value={Number(asset.market_value) || 0} currency prefix="₹" decimals={0} />
+                              </span>
+                            </td>
+                            <td className="min-w-[120px] px-6 py-6 text-right">
+                              <div className="flex flex-col items-end">
+                                <span className={cn(
+                                  "font-data-md text-[13px] font-bold tabular-nums",
+                                  Number(asset.day_change) >= 0 ? "text-emerald-400" : "text-rose-400"
+                                )}>
+                                  <RollingNumber value={Math.abs(Number(asset.day_change)) || 0} currency prefix={Number(asset.day_change) >= 0 ? "+₹" : "-₹"} decimals={0} />
+                                </span>
+                                <span className={cn(
+                                  "text-[10px] font-black tracking-tighter opacity-50",
+                                  Number(asset.day_change) >= 0 ? "text-emerald-500" : "text-rose-500"
+                                )}>
+                                  <RollingNumber value={Number(asset.day_change_percentage) || 0} suffix="%" decimals={2} />
+                                </span>
+                              </div>
+                            </td>
+                            <td className="min-w-[100px] px-6 py-6 text-right">
+                              <div className="flex flex-col items-end gap-1.5">
+                                <span className="font-terminal-label text-[11px] text-zinc-500 font-bold">
+                                  <RollingNumber value={totalNetWorth > 0 ? (Number(asset.market_value) / totalNetWorth) * 100 : 0} suffix="%" decimals={1} />
+                                </span>
+                                <div className="w-16 h-1 bg-white/[0.03] rounded-full overflow-hidden border border-white/5">
+                                  <motion.div
+                                    initial={{ width: 0 }}
+                                    animate={{ width: `${Math.min((totalNetWorth > 0 ? (Number(asset.market_value) / totalNetWorth) * 100 : 0), 100)}%` }}
+                                    transition={{ duration: 1, ease: "easeOut" }}
+                                    className="h-full bg-indigo-500/40"
+                                  />
+                                </div>
+                              </div>
+                            </td>
+                            <td className="min-w-[170px] px-6 py-6 text-right">
+                              <div className="flex flex-col items-end gap-1">
+                                <div className={cn(
+                                  "px-2.5 py-1 rounded-lg flex items-center gap-1.5 transition-all",
+                                  Number(asset.p_l) >= 0 ? "bg-emerald-500/10 border border-emerald-500/20" : "bg-red-500/10 border border-red-500/20"
+                                )}>
+                                  <span className={cn(
+                                    "font-data-md text-sm font-black tabular-nums",
+                                    Number(asset.p_l) >= 0 ? "text-emerald-400" : "text-rose-400"
+                                  )}>
+                                    <RollingNumber value={Math.abs(Number(asset.p_l)) || 0} currency prefix={Number(asset.p_l) >= 0 ? "+₹" : "-₹"} decimals={0} />
+                                  </span>
+                                </div>
+                                <span className={cn(
+                                  "font-terminal-label text-[11px] font-black tabular-nums opacity-40",
+                                  Number(asset.p_l) >= 0 ? "text-emerald-500" : "text-rose-500"
+                                )}>
+                                  <RollingNumber value={Number(asset.p_l_percentage) || 0} suffix="%" decimals={2} />
+                                </span>
+                              </div>
+                            </td>
+                          </motion.tr>
+                        ))}
+                      </AnimatePresence>
+                    )}
+
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="px-8 py-5 bg-black/40 flex justify-between items-center border-t border-white/5">
+                <span className="font-terminal-label text-[10px] text-white/30 uppercase tracking-[0.2em]">Showing {filteredHoldings.length} of {holdings.length} holdings</span>
+                <div className="group relative">
+                  <button
+                    onClick={() => {
+                      const now = new Date();
+                      const ist = new Date(now.toLocaleString("en-US", { timeZone: "Asia/Kolkata" }));
+                      const day = ist.getDay(); // 0 = Sunday, 6 = Saturday
+                      const totalMinutes = ist.getHours() * 60 + ist.getMinutes();
+                      const isRestricted = day >= 1 && day <= 5 && totalMinutes >= 540 && totalMinutes < 960; // Weekdays 9:00 AM to 4:00 PM IST
+
+                      if (isRestricted) return;
+                      setIsResyncMode(true);
+                      setAddPortfolioModalOpen(true);
+                    }}
+                    className={cn(
+                      "font-terminal-label text-[10px] uppercase tracking-[0.25em] font-bold flex items-center gap-2 transition-all",
+                      (() => {
+                        const now = new Date();
+                        const ist = new Date(now.toLocaleString("en-US", { timeZone: "Asia/Kolkata" }));
+                        const day = ist.getDay();
+                        const mins = ist.getHours() * 60 + ist.getMinutes();
+                        return day >= 1 && day <= 5 && mins >= 540 && mins < 960;
+                      })()
+                        ? "text-zinc-700 cursor-not-allowed"
+                        : "text-emerald-500/60 hover:text-emerald-500"
+                    )}
+                  >
+                    <RefreshCcw className={cn("w-3.5 h-3.5", isRefreshing && "animate-spin")} />
+                    Resync Portfolio
+                  </button>
+                  {(() => {
+                    const now = new Date();
+                    const ist = new Date(now.toLocaleString("en-US", { timeZone: "Asia/Kolkata" }));
+                    const day = ist.getDay();
+                    const mins = ist.getHours() * 60 + ist.getMinutes();
+                    const isRestricted = day >= 1 && day <= 5 && mins >= 540 && mins < 960;
+
+                    return (
+                      <div className="absolute bottom-full right-0 mb-3 px-4 py-2 bg-zinc-950/90 backdrop-blur-md border border-white/5 rounded-lg whitespace-nowrap opacity-0 group-hover:opacity-100 transition-all duration-300 pointer-events-none z-[100] shadow-[0_0_20px_rgba(0,0,0,0.5)]">
+                        <div className="flex items-center gap-2">
+                          <div className={cn(
+                            "w-1.5 h-1.5 rounded-full animate-pulse",
+                            isRestricted ? "bg-amber-500" : "bg-emerald-500"
+                          )} />
+                          <p className="text-[9px] font-bold uppercase tracking-[0.12em]">
+                            <span className="text-white/60">Purchased or sold any stock?</span>{" "}
+                            {isRestricted ? (
+                              <span className="text-amber-500/90">Resync will be available after 4PM IST...</span>
+                            ) : (
+                              <span className="text-emerald-500">Resync portfolio now...</span>
+                            )}
+                          </p>
+                        </div>
+                        <div className={cn(
+                          "absolute top-full right-4 w-2 h-2 bg-zinc-950/90 border-r border-b rotate-45 -translate-y-1",
+                          isRestricted ? "border-amber-500/20" : "border-emerald-500/20"
+                        )} />
+                      </div>
+                    );
+                  })()}
+                </div>
+              </div>
+            </motion.section>
+          </motion.div>
+          
+          {/* BOTTOM SECTION: 3/5 Terminal & 2/5 News Split */}
+          <div className="grid grid-cols-1 lg:grid-cols-5 gap-6 w-full mt-0">
+            {/* LEFT: Market Intelligence (3/5) */}
+            <motion.div
+              variants={{
+                hidden: { opacity: 0, x: -20 },
+                visible: { opacity: 1, x: 0 }
+              }}
+              initial="hidden"
+              animate="visible"
+              transition={{ duration: 0.8, ease: [0.16, 1, 0.3, 1], delay: 0.4 }}
+              className="lg:col-span-3"
+            >
+              <WatchlistTerminal userId={portfolioId} holdings={holdings} />
+            </motion.div>
+
+            {/* RIGHT: Institutional News (2/5) */}
+            <motion.div
+              variants={{
+                hidden: { opacity: 0, x: 20 },
+                visible: { opacity: 1, x: 0 }
+              }}
+              initial="hidden"
+              animate="visible"
+              transition={{ duration: 0.8, ease: [0.16, 1, 0.3, 1], delay: 0.5 }}
+              className="lg:col-span-2 glass-panel rounded-3xl border border-white/10 bg-[#0a0d14]/80 backdrop-blur-3xl shadow-2xl overflow-hidden"
+            >
+              <InstitutionalNews />
+            </motion.div>
           </div>
-        </motion.div>
-      </section>
+        </div>
+      </div>
+
 
 
       {/* Add Portfolio Modal - Portaled to Body to bypass transforms */}
@@ -1252,15 +1761,23 @@ export default function DashboardPage() {
                   </div>
                   <div>
                     <h2 className="font-sans font-bold text-lg text-white tracking-tight">
-                      {(showGrowwGuide || showZerodhaGuide) ? "Sync Guide" : "Link Account"}
+                      {(showGrowwGuide || showZerodhaGuide) ? "Sync Guide" : isResyncMode ? "Differential Resync" : "Link Account"}
                     </h2>
                     <p className="text-[10px] font-sans uppercase tracking-[0.2em] text-zinc-500 font-black mt-0.5">
-                      {(showGrowwGuide || showZerodhaGuide) ? "Follow the steps below" : "Import your current holdings"}
+                      {(showGrowwGuide || showZerodhaGuide) ? "Follow the steps below" : isResyncMode ? "Select portfolio to reconcile" : "Import your current holdings"}
                     </p>
                   </div>
                 </div>
                 <button
-                  onClick={() => { setAddPortfolioModalOpen(false); setNewPortfolioType(""); setNewPortfolioName(""); setShowGrowwGuide(false); setShowZerodhaGuide(false); }}
+                  onClick={() => {
+                    setAddPortfolioModalOpen(false);
+                    setIsResyncMode(false);
+                    setResyncPortfolioId(null);
+                    setNewPortfolioType("");
+                    setNewPortfolioName("");
+                    setShowGrowwGuide(false);
+                    setShowZerodhaGuide(false);
+                  }}
                   className="p-1.5 rounded-lg hover:bg-white/5 text-zinc-500 hover:text-white transition-all"
                 >
                   <X className="w-4 h-4" />
@@ -1302,318 +1819,347 @@ export default function DashboardPage() {
                     exit={{ opacity: 0, x: 20 }}
                     className="p-4 space-y-4"
                   >
-                    <div className="space-y-2">
-                      <label className="text-[10px] font-sans uppercase tracking-[0.3em] text-zinc-600 font-black px-1">Portfolio Name</label>
-                      <div className="relative group">
-                        <input
-                          type="text"
-                          value={newPortfolioName}
-                          onChange={(e) => setNewPortfolioName(e.target.value)}
-                          placeholder="e.g. Tactical Assets"
-                          className="w-full bg-white/[0.02] border border-white/5 rounded-2xl px-4 py-3 text-[14px] font-headline font-bold text-white focus:outline-none focus:border-emerald-500/30 focus:bg-emerald-500/[0.02] transition-all duration-500 placeholder:text-zinc-700 shadow-[inset_0_1px_1px_rgba(255,255,255,0.02)]"
-                        />
-                        <div className="absolute inset-0 rounded-2xl border border-emerald-500/0 group-focus-within:border-emerald-500/20 transition-all duration-500 pointer-events-none shadow-[0_0_20px_rgba(16,185,129,0)] group-focus-within:shadow-[0_0_20px_rgba(16,185,129,0.05)]" />
-                      </div>
-                    </div>
-
-                    <div className="space-y-2">
-                      <div className="px-1">
-                        <label className="text-[10px] font-sans uppercase tracking-[0.3em] text-zinc-600 font-black">Choose your broker</label>
-                      </div>
-                      <div className="grid grid-cols-2 gap-4">
-                        {[
-                          { id: 'GROWW', name: 'Groww', icon: '/Icons/groww.svg' },
-                          { id: 'ZERODHA', name: 'Zerodha', icon: '/Icons/zerodha.svg' }
-                        ].map((broker) => (
-                          <button
-                            key={broker.id}
-                            onClick={() => setNewPortfolioType(broker.id as any)}
-                            className={cn(
-                              "p-3 rounded-2xl border transition-all duration-500 flex flex-col items-center gap-2 group relative overflow-hidden",
-                              newPortfolioType === broker.id
-                                ? "bg-emerald-500/5 border-emerald-500/30 shadow-[inset_0_1px_1px_rgba(255,255,255,0.05),0_10px_30px_rgba(0,0,0,0.2)]"
-                                : "bg-white/[0.01] border-white/5 hover:border-white/20 hover:bg-white/[0.03] hover:shadow-[0_10px_20px_rgba(0,0,0,0.1)]"
-                            )}
-                          >
-                            {/* Selection Glow */}
-                            {newPortfolioType === broker.id && (
-                              <div className="absolute inset-0 bg-gradient-to-br from-emerald-500/5 to-transparent pointer-events-none" />
-                            )}
-
-                            <div className={cn(
-                              "size-11 flex items-center justify-center p-1 transition-all duration-700 relative z-10",
-                              newPortfolioType === broker.id ? "scale-110" : "opacity-40 group-hover:opacity-100 group-hover:scale-110"
-                            )}>
-                              <img src={broker.icon} alt={broker.name} className="w-full h-full object-contain" />
-                            </div>
-                            <span className={cn(
-                              "font-sans text-[11px] font-bold tracking-[0.2em] uppercase relative z-10 transition-colors duration-500",
-                              newPortfolioType === broker.id ? "text-emerald-400" : "text-zinc-600 group-hover:text-zinc-300"
-                            )}>{broker.name}</span>
-
-                            {newPortfolioType === broker.id && (
-                              <motion.div layoutId="active-broker-glow" className="absolute inset-0 border-2 border-emerald-500/10 rounded-2xl pointer-events-none" />
-                            )}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-
-                    <AnimatePresence mode="wait">
-                      {newPortfolioType === 'GROWW' && (
-                        <motion.div
-                          key="groww-fields"
-                          initial={{ opacity: 0, y: 10 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          exit={{ opacity: 0, y: 10 }}
-                          className="space-y-6 pt-2"
-                        >
-                          <div className="p-4 bg-white/[0.02] rounded-[24px] border border-white/5 text-center space-y-3 relative overflow-hidden group/upload">
-                            <div className="absolute inset-0 bg-gradient-to-b from-emerald-500/[0.02] to-transparent opacity-0 group-hover/upload:opacity-100 transition-opacity duration-700" />
-
-                            <div className="size-10 flex items-center justify-center mx-auto transition-transform duration-500 group-hover/upload:scale-110 relative z-10">
-                              <FileUp className="w-6 h-6 text-emerald-500/60" />
-                            </div>
-                            <div className="relative z-10">
-                              <h3 className="text-white font-headline font-black text-lg tracking-tight">Upload Statement</h3>
-                              <p className="text-zinc-500 text-[11px] font-bold uppercase tracking-widest mt-1">Select the .xlsx file from Groww</p>
-                            </div>
-
-                            <input
-                              type="file"
-                              id="excel-upload"
-                              className="hidden"
-                              accept=".xlsx"
-                              onChange={async (e) => {
-                                const file = e.target.files?.[0];
-                                if (!file) return;
-
-                                setIsRefreshing(true);
-                                setImportStatus("Analyzing Statement...");
-                                let pData: any;
-                                try {
-                                  // 1. Create the portfolio record first
-                                  setImportStatus("Registering Portfolio...");
-                                  const { data: createdPortfolio, error: pErr } = await supabase
-                                    .from('user_portfolios')
-                                    .insert({
-                                      user_id: portfolioId,
-                                      name: newPortfolioName || "New Portfolio",
-                                      broker_name: 'GROWW',
-                                      is_primary: portfolios.length === 0
-                                    })
-                                    .select()
-                                    .single();
-                                  pData = createdPortfolio;
-
-                                  if (pErr) throw pErr;
-
-                                  setImportStatus("Ingesting Excel Data...");
-                                  const formData = new FormData();
-                                  formData.append('file', file);
-                                  formData.append('portfolioId', pData.id); // Explicit Portfolio UUID
-                                  formData.append('userId', portfolioId || ""); // Explicit User UUID
-
-                                  const res = await axios.post(`${engineUrl}/api/broker/groww/import-excel`, formData, {
-                                    headers: { 'Content-Type': 'multipart/form-data' }
-                                  });
-
-                                  if (res.data.success) {
-                                    setImportStatus("Synchronizing Dashboard...");
-                                    await fetchPortfolios();
-                                    setActivePortfolio(pData);
-                                    setAddPortfolioModalOpen(false);
-                                  }
-                                } catch (err: any) {
-                                  // ROLLBACK: Delete the empty portfolio if ingestion failed
-                                  if (typeof pData !== 'undefined' && pData?.id) {
-                                    await supabase.from('user_portfolios').delete().eq('id', pData.id);
-                                  }
-                                  const errorMsg = err.response?.data?.error || err.message || "Unknown Error";
-                                  alert(`Import Failed: ${errorMsg}`);
-                                } finally {
-                                  setIsRefreshing(false);
-                                  setImportStatus("");
-                                }
-                              }}
-                            />
-
+                    {isResyncMode && !resyncPortfolioId ? (
+                      <div className="space-y-4">
+                        <p className="text-[10px] font-black text-zinc-400 uppercase tracking-widest mb-2">Target Portfolio</p>
+                        <div className="grid grid-cols-1 gap-2 max-h-[300px] overflow-y-auto custom-scrollbar pr-2">
+                          {portfolios.filter(p => p.id !== 'overall').map(p => (
                             <button
-                              onClick={() => document.getElementById('excel-upload')?.click()}
-                              disabled={isRefreshing}
-                              className="w-full py-2.5 bg-white/[0.04] hover:bg-white/[0.08] text-white font-headline font-black text-[11px] uppercase tracking-[0.25em] rounded-xl border border-white/10 group-hover/upload:border-white/20 transition-all duration-500 disabled:opacity-50 relative z-10 shadow-sm"
-                            >
-                              {isRefreshing ? (
-                                <div className="flex items-center justify-center gap-3">
-                                  <motion.div
-                                    animate={{ rotate: 360 }}
-                                    transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
-                                    className="w-4 h-4 border-2 border-emerald-500/30 border-t-emerald-500 rounded-full"
-                                  />
-                                  <span className="text-emerald-400">{importStatus || "Processing..."}</span>
-                                </div>
-                              ) : "Choose Local File"}
-                            </button>
-
-                            <div className="pt-2 border-t border-white/5 mt-2 relative z-10">
-                              <button
-                                onClick={() => setShowGrowwGuide(true)}
-                                className="w-full py-3 px-4 rounded-xl bg-emerald-500/5 hover:bg-emerald-500/10 border border-emerald-500/10 text-emerald-400 font-terminal-label font-bold text-[10px] uppercase tracking-[0.2em] transition-all duration-500 flex items-center justify-between group/btn"
-                              >
-                                <span className="flex items-center gap-2 text-zinc-500 group-hover/btn:text-zinc-200 transition-colors">
-                                  <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shadow-[0_0_8px_rgba(16,185,129,0.5)]" />
-                                  Need fetching guide?
-                                </span>
-                                <span className="text-emerald-400 flex items-center gap-1 group-hover/btn:translate-x-1 transition-transform">
-                                  View steps &rarr;
-                                </span>
-                              </button>
-                            </div>
-                          </div>
-                        </motion.div>
-                      )}
-                      {newPortfolioType === 'ZERODHA' && (
-                        <motion.div
-                          key="zerodha-fields"
-                          initial={{ opacity: 0, y: 10 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          exit={{ opacity: 0, y: 10 }}
-                          className="space-y-6 pt-2"
-                        >
-                          <div className="p-4 bg-white/[0.02] rounded-[24px] border border-white/5 text-center space-y-3 relative overflow-hidden group/upload">
-                            <div className="absolute inset-0 bg-gradient-to-b from-indigo-500/[0.02] to-transparent opacity-0 group-hover/upload:opacity-100 transition-opacity duration-700" />
-
-                            <div className="size-10 flex items-center justify-center mx-auto transition-transform duration-500 group-hover/upload:scale-110 relative z-10">
-                              <FileUp className="w-6 h-6 text-indigo-500/60" />
-                            </div>
-                            <div className="relative z-10">
-                              <h3 className="text-white font-headline font-black text-lg tracking-tight">Upload CSV</h3>
-                              <p className="text-zinc-500 text-[11px] font-bold uppercase tracking-widest mt-1">Select the .csv file from Zerodha Console</p>
-                            </div>
-
-                            <input
-                              type="file"
-                              id="zerodha-upload"
-                              className="hidden"
-                              accept=".csv"
-                              onChange={async (e) => {
-                                const file = e.target.files?.[0];
-                                if (!file) return;
-
-                                setIsRefreshing(true);
-                                setImportStatus("Analyzing CSV...");
-                                let pData: any;
-                                try {
-                                  setImportStatus("Registering Portfolio...");
-                                  const { data: createdPortfolio, error: pErr } = await supabase
-                                    .from('user_portfolios')
-                                    .insert({
-                                      user_id: portfolioId,
-                                      name: newPortfolioName || "Zerodha Portfolio",
-                                      broker_name: 'ZERODHA',
-                                      is_primary: portfolios.length === 0
-                                    })
-                                    .select()
-                                    .single();
-                                  pData = createdPortfolio;
-
-                                  if (pErr) throw pErr;
-
-                                  setImportStatus("Ingesting Zerodha Data...");
-                                  const formData = new FormData();
-                                  formData.append('file', file);
-                                  formData.append('portfolioId', pData.id);
-                                  formData.append('userId', portfolioId || "");
-
-                                  const res = await axios.post(`${engineUrl}/api/broker/zerodha/import-csv`, formData, {
-                                    headers: { 'Content-Type': 'multipart/form-data' }
-                                  });
-
-                                  if (res.data.success) {
-                                    setImportStatus("Synchronizing Dashboard...");
-                                    await fetchPortfolios();
-                                    setActivePortfolio(pData);
-                                    setAddPortfolioModalOpen(false);
-                                  }
-                                } catch (err: any) {
-                                  // ROLLBACK: Delete the empty portfolio if ingestion failed
-                                  if (typeof pData !== 'undefined' && pData?.id) {
-                                    await supabase.from('user_portfolios').delete().eq('id', pData.id);
-                                  }
-                                  const errorMsg = err.response?.data?.error || err.message || "Unknown Error";
-                                  alert(`Import Failed: ${errorMsg}`);
-                                } finally {
-                                  setIsRefreshing(false);
-                                  setImportStatus("");
-                                }
+                              key={p.id}
+                              onClick={() => {
+                                setResyncPortfolioId(p.id);
+                                setNewPortfolioType(p.broker_name as any);
                               }}
-                            />
-
-                            <button
-                              onClick={() => document.getElementById('zerodha-upload')?.click()}
-                              disabled={isRefreshing}
-                              className="w-full py-2.5 bg-white/[0.04] hover:bg-white/[0.08] text-white font-headline font-black text-[11px] uppercase tracking-[0.25em] rounded-xl border border-white/10 group-hover/upload:border-white/20 transition-all duration-500 disabled:opacity-50 relative z-10 shadow-sm"
+                              className="flex items-center justify-between p-4 rounded-2xl bg-white/[0.03] border border-white/5 hover:border-emerald-500/30 hover:bg-emerald-500/5 transition-all group"
                             >
-                              {isRefreshing ? (
-                                <div className="flex items-center justify-center gap-3">
-                                  <motion.div
-                                    animate={{ rotate: 360 }}
-                                    transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
-                                    className="w-4 h-4 border-2 border-indigo-500/30 border-t-indigo-500 rounded-full"
+                              <div className="flex items-center gap-4">
+                                <div className="w-10 h-10 rounded-xl bg-white/5 flex items-center justify-center border border-white/10 group-hover:border-emerald-500/20 p-2">
+                                  <img
+                                    src={p.broker_name === 'GROWW' ? '/Icons/groww.svg' : '/Icons/zerodha.svg'}
+                                    alt={p.broker_name}
+                                    className="w-full h-full object-contain opacity-50 group-hover:opacity-100 transition-opacity"
                                   />
-                                  <span className="text-indigo-400">{importStatus || "Processing..."}</span>
                                 </div>
-                              ) : "Choose Local CSV"}
-                            </button>
-
-                              <div className="pt-2 border-t border-white/5 mt-2 relative z-10">
-                                <button
-                                  onClick={() => setShowZerodhaGuide(true)}
-                                  className="w-full py-3 px-4 rounded-xl bg-indigo-500/5 hover:bg-indigo-500/10 border border-indigo-500/10 text-indigo-400 font-terminal-label font-bold text-[10px] uppercase tracking-[0.2em] transition-all duration-500 flex items-center justify-between group/btn"
-                                >
-                                  <span className="flex items-center gap-2 text-zinc-500 group-hover/btn:text-zinc-200 transition-colors">
-                                    <span className="w-2 h-2 rounded-full bg-indigo-500 animate-pulse shadow-[0_0_8px_rgba(99,102,241,0.5)]" />
-                                    Need fetching guide?
-                                  </span>
-                                  <span className="text-indigo-400 flex items-center gap-1 group-hover/btn:translate-x-1 transition-transform">
-                                    View steps &rarr;
-                                  </span>
-                                </button>
+                                <div className="text-left">
+                                  <p className="text-sm font-black text-white group-hover:text-emerald-400 transition-colors">{p.name}</p>
+                                  <p className="text-[9px] font-black text-zinc-500 uppercase tracking-widest">{p.broker_name}</p>
+                                </div>
                               </div>
+                              <ChevronRight className="w-4 h-4 text-zinc-600 group-hover:text-emerald-500" />
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    ) : (
+                      <>
+                        {!isResyncMode && (
+                          <>
+                            <div className="space-y-2">
+                              <label className="text-[10px] font-sans uppercase tracking-[0.3em] text-zinc-600 font-black px-1">Portfolio Name</label>
+                              <div className="relative group">
+                                <input
+                                  type="text"
+                                  value={newPortfolioName}
+                                  onChange={(e) => setNewPortfolioName(e.target.value)}
+                                  placeholder="e.g. Tactical Assets"
+                                  className="w-full bg-white/[0.02] border border-white/5 rounded-2xl px-4 py-3 text-[14px] font-headline font-bold text-white focus:outline-none focus:border-emerald-500/30 focus:bg-emerald-500/[0.02] transition-all duration-500 placeholder:text-zinc-700 shadow-[inset_0_1px_1px_rgba(255,255,255,0.02)]"
+                                />
+                                <div className="absolute inset-0 rounded-2xl border border-emerald-500/0 group-focus-within:border-emerald-500/20 transition-all duration-500 pointer-events-none shadow-[0_0_20px_rgba(16,185,129,0)] group-focus-within:shadow-[0_0_20px_rgba(16,185,129,0.05)]" />
+                              </div>
+                            </div>
 
-                              <div className="mt-4 p-4 rounded-2xl bg-amber-500/[0.03] border border-amber-500/10 flex gap-4 items-start text-left relative z-10">
-                                <Info className="w-5 h-5 text-amber-500/40 shrink-0 mt-0.5" />
-                                <div className="space-y-1">
-                                  <h4 className="text-[10px] font-sans uppercase tracking-[0.2em] text-amber-500/60 font-black">Data Fidelity Advisory</h4>
-                                  <p className="text-[11px] text-zinc-500 leading-relaxed font-medium">
-                                    For <span className="text-zinc-300">100% settlement accuracy</span>, we recommend uploading after <span className="text-amber-500/60">4:00 PM IST</span>. Always download a <span className="text-zinc-200 underline underline-offset-4 decoration-amber-500/30">fresh statement</span> from your broker console immediately before uploading.
+                            <div className="space-y-2">
+                              <div className="px-1">
+                                <label className="text-[10px] font-sans uppercase tracking-[0.3em] text-zinc-600 font-black">Choose your broker</label>
+                              </div>
+                              <div className="grid grid-cols-2 gap-4">
+                                {[
+                                  { id: 'GROWW', name: 'Groww', icon: '/Icons/groww.svg' },
+                                  { id: 'ZERODHA', name: 'Zerodha', icon: '/Icons/zerodha.svg' }
+                                ].map((broker) => (
+                                  <button
+                                    key={broker.id}
+                                    onClick={() => setNewPortfolioType(broker.id as any)}
+                                    className={cn(
+                                      "p-3 rounded-2xl border transition-all duration-500 flex flex-col items-center gap-2 group relative overflow-hidden",
+                                      newPortfolioType === broker.id
+                                        ? "bg-emerald-500/5 border-emerald-500/30 shadow-[inset_0_1px_1px_rgba(255,255,255,0.05),0_10px_30px_rgba(0,0,0,0.2)]"
+                                        : "bg-white/[0.01] border-white/5 hover:border-white/20 hover:bg-white/[0.03] hover:shadow-[0_10px_20px_rgba(0,0,0,0.1)]"
+                                    )}
+                                  >
+                                    {/* Selection Glow */}
+                                    {newPortfolioType === broker.id && (
+                                      <div className="absolute inset-0 bg-gradient-to-br from-emerald-500/5 to-transparent pointer-events-none" />
+                                    )}
+
+                                    <div className={cn(
+                                      "size-11 flex items-center justify-center p-1 transition-all duration-700 relative z-10",
+                                      newPortfolioType === broker.id ? "scale-110" : "opacity-40 group-hover:opacity-100 group-hover:scale-110"
+                                    )}>
+                                      <img src={broker.icon} alt={broker.name} className="w-full h-full object-contain" />
+                                    </div>
+                                    <span className={cn(
+                                      "font-sans text-[11px] font-bold tracking-[0.2em] uppercase relative z-10 transition-colors duration-500",
+                                      newPortfolioType === broker.id ? "text-white" : "text-zinc-500 group-hover:text-zinc-200"
+                                    )}>{broker.name}</span>
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          </>
+                        )}
+
+                        <AnimatePresence>
+                          {newPortfolioType && (
+                            <motion.div
+                              key="upload-form"
+                              initial={{ opacity: 0, y: 10 }}
+                              animate={{ opacity: 1, y: 0 }}
+                              exit={{ opacity: 0, y: -10 }}
+                              className="space-y-4"
+                            >
+                              <div className="p-4 bg-white/[0.02] rounded-[24px] border border-white/5 text-center space-y-3 relative overflow-hidden group/upload">
+                                <div className={cn(
+                                  "absolute inset-0 opacity-0 group-hover/upload:opacity-100 transition-opacity duration-700 bg-gradient-to-b from-transparent",
+                                  newPortfolioType === 'GROWW' ? "from-emerald-500/[0.02]" : "from-indigo-500/[0.02]"
+                                )} />
+
+                                <div className="size-10 flex items-center justify-center mx-auto transition-transform duration-500 group-hover/upload:scale-110 relative z-10">
+                                  <FileUp className={cn(
+                                    "w-6 h-6",
+                                    newPortfolioType === 'GROWW' ? "text-emerald-500/60" : "text-indigo-500/60"
+                                  )} />
+                                </div>
+                                <div className="relative z-10">
+                                  <h3 className="text-white font-headline font-black text-lg tracking-tight">
+                                    {isResyncMode ? "Resync Statement" : "Upload Statement"}
+                                  </h3>
+                                  <p className="text-zinc-500 text-[11px] font-bold uppercase tracking-widest mt-1">
+                                    {newPortfolioType === 'GROWW' ? "Select the .xlsx file from Groww" : "Select the holdings .csv from Zerodha Console"}
                                   </p>
                                 </div>
+
+                                <input
+                                  type="file"
+                                  id="universal-upload"
+                                  className="hidden"
+                                  accept={newPortfolioType === 'GROWW' ? ".xlsx" : ".csv"}
+                                  onChange={async (e) => {
+                                    const file = e.target.files?.[0];
+                                    if (!file) return;
+                                    setIsRefreshing(true);
+                                    setImportStatus("Analyzing Statement...");
+                                    let targetPortfolioId = resyncPortfolioId;
+                                    let pData: any = null;
+                                    try {
+                                      if (!isResyncMode) {
+                                        setImportStatus("Registering Portfolio...");
+                                        const { data: createdPortfolio, error: pErr } = await supabase
+                                          .from('user_portfolios')
+                                          .insert({
+                                            user_id: portfolioId,
+                                            name: newPortfolioName || "New Portfolio",
+                                            broker_name: newPortfolioType,
+                                            is_primary: portfolios.length === 0
+                                          })
+                                          .select()
+                                          .single();
+                                        if (pErr) throw pErr;
+                                        pData = createdPortfolio;
+                                        targetPortfolioId = createdPortfolio.id;
+                                      } else {
+                                        pData = portfolios.find(p => p.id === resyncPortfolioId);
+                                      }
+                                      if (!targetPortfolioId) throw new Error("No target portfolio identified");
+                                      const tempPortfolioName = `SYNC_TEMP_${Date.now()}`;
+                                      const { data: tempPortfolio, error: tempErr } = await supabase
+                                        .from('user_portfolios')
+                                        .insert({ user_id: portfolioId, name: tempPortfolioName, broker_name: newPortfolioType, is_primary: false })
+                                        .select().single();
+                                      if (tempErr) throw tempErr;
+                                      setImportStatus("Ingesting Broker Data...");
+                                      const formData = new FormData();
+                                      formData.append('file', file);
+                                      formData.append('portfolioId', tempPortfolio.id);
+                                      formData.append('userId', portfolioId || "");
+                                      const endpoint = newPortfolioType === 'GROWW' ? 'groww/import-excel' : 'zerodha/import-csv';
+                                      const res = await axios.post(`${engineUrl}/api/broker/${endpoint}`, formData, {
+                                        headers: { 'Content-Type': 'multipart/form-data' }
+                                      });
+                                      if (res.data.success) {
+                                        setImportStatus("Reconciling Holdings...");
+                                        const [{ data: existingHoldings }, { data: newHoldings }] = await Promise.all([
+                                          supabase.from('holdings').select('*').eq('portfolio_id', targetPortfolioId),
+                                          supabase.from('holdings').select('*').eq('portfolio_id', tempPortfolio.id)
+                                        ]);
+                                        const existingMap = new Map(existingHoldings?.map(h => [h.trading_symbol, h]));
+                                        const newMap = new Map(newHoldings?.map(h => [h.trading_symbol, h]));
+                                        for (const [symbol, newH] of newMap.entries()) {
+                                          const existingH = existingMap.get(symbol);
+                                          if (existingH) {
+                                            const { error: uErr } = await supabase.from('holdings').update({
+                                              quantity: newH.quantity,
+                                              average_price: newH.average_price,
+                                              invested_value: newH.invested_value,
+                                              market_value: newH.market_value,
+                                              p_l: newH.p_l,
+                                              p_l_percentage: newH.p_l_percentage,
+                                              updated_at: new Date().toISOString()
+                                            }).eq('id', existingH.id);
+                                            if (uErr) throw uErr;
+                                          } else {
+                                            const { error: iErr } = await supabase.from('holdings').insert({
+                                              ...newH,
+                                              id: undefined,
+                                              portfolio_id: targetPortfolioId,
+                                              user_id: portfolioId,
+                                              updated_at: new Date().toISOString()
+                                            });
+                                            if (iErr) throw iErr;
+                                          }
+                                        }
+                                        for (const [symbol, existingH] of existingMap.entries()) {
+                                          if (!newMap.has(symbol)) {
+                                            const { error: dErr } = await supabase.from('holdings').delete().eq('id', existingH.id);
+                                            if (dErr) throw dErr;
+                                          }
+                                        }
+
+                                        // 1. Fetch and Migrate Rich History Snapshots from Temp Portfolio to Target Portfolio
+                                        setImportStatus("Finalizing Snapshots...");
+                                        const { data: tempHistory } = await supabase
+                                          .from('portfolio_history')
+                                          .select('*')
+                                          .eq('portfolio_id', tempPortfolio.id);
+
+                                        if (tempHistory && tempHistory.length > 0) {
+                                          const historyToUpsert = tempHistory.map(h => {
+                                            const { id, ...rest } = h;
+                                            return {
+                                              ...rest,
+                                              portfolio_id: targetPortfolioId
+                                            };
+                                          });
+                                          const { error: hErr } = await supabase
+                                            .from('portfolio_history')
+                                            .upsert(historyToUpsert, { onConflict: 'portfolio_id,timestamp' });
+                                          if (hErr) throw hErr;
+                                        }
+
+                                        // 2. Safely Clean Up Temporary Portfolio Resources (Cascades will no longer affect the migrated history)
+                                        await supabase.from('holdings').delete().eq('portfolio_id', tempPortfolio.id);
+                                        await supabase.from('user_portfolios').delete().eq('id', tempPortfolio.id);
+
+                                        // 3. Live Market Injection with NSE/BSE Guard
+                                        const { data: marketData } = await supabase.from('market_assets').select('symbol, price, day_change, day_change_percentage');
+                                        if (marketData && marketData.length > 0) {
+                                          const marketMap = new Map(marketData.map(m => [m.symbol.toUpperCase(), m]));
+                                          for (const h of (newHoldings || [])) {
+                                            const symbol = h.trading_symbol.toUpperCase();
+                                            const statementLTP = h.quantity > 0 ? (h.market_value / h.quantity) : 0;
+
+                                            // Find variants
+                                            const nseVariant = marketMap.get(`${symbol}:NSE`) || marketMap.get(`NSE:${symbol}`);
+                                            const bseVariant = marketMap.get(`${symbol}:BSE`) || marketMap.get(`BSE:${symbol}`);
+                                            const directMatch = marketMap.get(symbol);
+
+                                            // Exact Match Tie-breaker: Which exchange matches the statement LTP exactly?
+                                            let live = directMatch;
+                                            if (nseVariant && nseVariant.price === statementLTP) {
+                                              live = nseVariant;
+                                            } else if (bseVariant && bseVariant.price === statementLTP) {
+                                              live = bseVariant;
+                                            } else {
+                                              live = nseVariant || bseVariant || directMatch;
+                                            }
+
+                                            if (live) {
+                                              const { error: lErr } = await supabase.from('holdings').update({
+                                                market_value: live.price * h.quantity,
+                                                day_change: live.day_change * h.quantity,
+                                                day_change_percentage: live.day_change_percentage,
+                                                updated_at: new Date().toISOString()
+                                              }).eq('portfolio_id', targetPortfolioId).eq('trading_symbol', h.trading_symbol);
+                                              if (lErr) throw lErr;
+                                            }
+                                          }
+                                        }
+
+                                        setImportStatus("Sync Complete...");
+                                        await fetchPortfolios();
+                                        await fetchHoldings();
+                                        await fetchHistory();
+                                        if (!isResyncMode) setActivePortfolio(pData);
+                                        setAddPortfolioModalOpen(false);
+                                        setIsResyncMode(false);
+                                        setResyncPortfolioId(null);
+                                      }
+                                    } catch (err: any) {
+                                      const errorMsg = err.response?.data?.error || err.message || "Unknown Error";
+                                      alert(`Resync Failed: ${errorMsg}`);
+                                    } finally {
+                                      setIsRefreshing(false);
+                                      setImportStatus("");
+                                    }
+                                  }}
+                                />
+
+                                <button
+                                  onClick={() => document.getElementById('universal-upload')?.click()}
+                                  disabled={isRefreshing}
+                                  className={cn(
+                                    "w-full py-3 text-white font-headline font-black text-[11px] uppercase tracking-[0.25em] rounded-xl border transition-all duration-500 disabled:opacity-50 relative z-10",
+                                    newPortfolioType === 'GROWW'
+                                      ? "bg-emerald-500/10 border-emerald-500/20 hover:bg-emerald-500/20"
+                                      : "bg-indigo-500/10 border-indigo-500/20 hover:bg-indigo-500/20"
+                                  )}
+                                >
+                                  {isRefreshing ? (
+                                    <div className="flex items-center justify-center gap-3">
+                                      <motion.div
+                                        animate={{ rotate: 360 }}
+                                        transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+                                        className={cn(
+                                          "w-4 h-4 border-2 rounded-full",
+                                          newPortfolioType === 'GROWW' ? "border-emerald-500/30 border-t-emerald-500" : "border-indigo-500/30 border-t-indigo-500"
+                                        )}
+                                      />
+                                      <span className={newPortfolioType === 'GROWW' ? "text-emerald-400" : "text-indigo-400"}>
+                                        {importStatus || "Processing..."}
+                                      </span>
+                                    </div>
+                                  ) : "Select Statement File"}
+                                </button>
+
+                                <div className="pt-2 border-t border-white/5 mt-2 relative z-10">
+                                  <button
+                                    onClick={() => newPortfolioType === 'GROWW' ? setShowGrowwGuide(true) : setShowZerodhaGuide(true)}
+                                    className="w-full py-3 px-4 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-zinc-400 font-terminal-label font-bold text-[10px] uppercase tracking-[0.2em] transition-all duration-500 flex items-center justify-between group/btn"
+                                  >
+                                    <span className="flex items-center gap-2 group-hover/btn:text-zinc-200 transition-colors">
+                                      <Clock className="w-3.5 h-3.5 opacity-50" />
+                                      Need help finding the file?
+                                    </span>
+                                    <ChevronRight className="w-3.5 h-3.5 opacity-0 group-hover/btn:opacity-100 transition-all group-hover/btn:translate-x-1" />
+                                  </button>
+                                </div>
                               </div>
 
-                            </div>
-
-                        </motion.div>
-                      )}
-                    </AnimatePresence>
-
-                    <div className="pt-4">
-                      <button
-                        onClick={() => {
-                          if (newPortfolioType === 'GROWW') {
-                            document.getElementById('excel-upload')?.click();
-                          } else if (newPortfolioType === 'ZERODHA') {
-                            document.getElementById('zerodha-upload')?.click();
-                          }
-                        }}
-                        disabled={!newPortfolioType || (newPortfolioType === 'GROWW' && isRefreshing) || (newPortfolioType === 'ZERODHA' && isRefreshing)}
-                        className="w-full py-4 rounded-[20px] bg-emerald-500 text-black font-headline font-black text-[14px] uppercase tracking-[0.15em] shadow-[0_10px_40px_rgba(16,185,129,0.2)] hover:shadow-[0_15px_50px_rgba(16,185,129,0.4)] hover:scale-[1.01] active:scale-[0.98] transition-all duration-500 disabled:opacity-10 disabled:grayscale disabled:scale-100 disabled:shadow-none"
-                      >
-                        {isRefreshing ? "Syncing Account..." : (newPortfolioType === 'GROWW' ? "Select Statement & Sync" : newPortfolioType === 'ZERODHA' ? "Select CSV & Sync" : "Connect Broker")}
-                      </button>
-                    </div>
+                              <div className="bg-amber-500/5 border border-amber-500/10 rounded-2xl p-4 flex gap-4 items-start relative overflow-hidden">
+                                <div className="absolute top-0 right-0 w-24 h-24 bg-amber-500/10 blur-[40px] rounded-full -translate-y-1/2 translate-x-1/2" />
+                                <ShieldAlert className="w-5 h-5 text-amber-500/60 shrink-0 mt-0.5" />
+                                <p className="text-[10px] text-amber-500/80 leading-relaxed font-bold uppercase tracking-widest">
+                                  {isResyncMode
+                                    ? "Differential Sync will merge this statement with your current data. Fully sold stocks will be purged."
+                                    : "For 100% settlement accuracy, we recommend uploading after 4:00 PM IST."}
+                                </p>
+                              </div>
+                            </motion.div>
+                          )}
+                        </AnimatePresence>
+                      </>
+                    )}
                   </motion.div>
-
                 )}
               </AnimatePresence>
             </motion.div>
@@ -1693,7 +2239,7 @@ export default function DashboardPage() {
         )}
       </AnimatePresence>
 
-      <FloatingAssistant />
+
     </div>
   )
 }

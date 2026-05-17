@@ -18,8 +18,11 @@ import { UsDeepSyncJob } from './scheduler/jobs/UsDeepSyncJob';
 import { PortfolioRevaluationJob } from './scheduler/jobs/PortfolioRevaluationJob';
 import multer from 'multer';
 import { ExcelImportService } from './services/ExcelImportService';
+import { YahooProvider } from './scheduler/providers/YahooProvider';
+import { SymbolSyncStateService } from './scheduler/core/SymbolSyncStateService';
 
 const upload = multer({ storage: multer.memoryStorage() });
+
 
 // ---------------------------------------------------------
 // IST HELPER
@@ -30,6 +33,19 @@ export const getISTTimestamp = () => {
   const istTime = new Date(now.getTime() + offset);
   return istTime.toISOString().replace('Z', '+05:30');
 };
+
+export const getNormalizedNoonTimestamp = (dateInput?: Date) => {
+  const date = dateInput || new Date();
+  const formatter = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Kolkata',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  });
+  const dateStr = formatter.format(date); // YYYY-MM-DD
+  return `${dateStr}T12:00:00.000Z`; // Noon UTC on that calendar day
+};
+
 
 const app = express();
 app.use(cors());
@@ -260,8 +276,75 @@ app.get(['/api/stocks/:symbol/history', '/api/us-stocks/:symbol/history'], async
 });
 
 // ---------------------------------------------------------
+// TARGETED SYNC (Burst Mode)
+// ---------------------------------------------------------
+app.get('/api/sync/burst', async (req, res) => {
+  const symbol = req.query.symbol as string;
+  const region = (req.query.region as string || 'IN') as MarketRegion;
+
+  if (!symbol) return res.status(400).json({ error: 'Symbol is required' });
+
+  try {
+    console.log(`[BURST-SYNC] 🚀 Targeted Burst for ${symbol} (${region})`);
+    const quote = await YahooProvider.fetchQuote(symbol, region === MarketRegion.US ? 'US' : 'IN');
+    
+    if (!quote || quote.price === undefined) {
+      console.warn(`[BURST-SYNC] ⚠️  No quote found for ${symbol}`);
+      return res.status(404).json({ error: 'Quote not found' });
+    }
+
+    // Upsert to DB
+    const tableName = region === MarketRegion.US ? 'us_market_assets' : 'market_assets';
+    const payload = {
+      symbol: normalizeStorageSymbol(symbol),
+      current_price: quote.price,
+      day_change: quote.change,
+      day_change_percentage: quote.changePercent,
+      prev_close: quote.prevClose,
+      premarket_price: (quote as any).preMarketPrice,
+      premarket_change_pct: (quote as any).preMarketChangePercent,
+      after_hours_price: (quote as any).postMarketPrice,
+      after_hours_change_pct: (quote as any).postMarketChangePercent,
+      updated_at: new Date().toISOString()
+    };
+
+
+    const { error } = await supabase.from(tableName).upsert(payload, { onConflict: 'symbol' });
+    if (error) {
+      console.error(`[BURST-SYNC] ❌ DB Upsert failed for ${symbol}:`, error.message);
+      throw error;
+    }
+
+    // Update active market symbols last_synced_at & sync_error_count
+    await SymbolSyncStateService.recordSyncResult(
+      normalizeStorageSymbol(symbol),
+      region === MarketRegion.US ? 'US' : 'IN',
+      true
+    ).catch(e => console.error(`[BURST-SYNC] Failed to record success:`, e.message));
+
+    console.log(`[BURST-SYNC] ✅ Successfully synced ${symbol} | Price: ${quote.price} | AfterHours: ${(quote as any).postMarketPrice}`);
+    res.json({ success: true, price: quote.price, afterHoursPrice: (quote as any).postMarketPrice });
+
+  } catch (err: any) {
+    console.error(`[BURST-SYNC] 🔥 FATAL ERROR for ${symbol}:`, err.message);
+    
+    // Record sync failure in active_market_symbols table
+    await SymbolSyncStateService.recordSyncResult(
+      normalizeStorageSymbol(symbol),
+      region === MarketRegion.US ? 'US' : 'IN',
+      false,
+      err.message
+    ).catch(e => console.error(`[BURST-SYNC] Failed to record failure:`, e.message));
+
+    res.status(500).json({ error: err.message });
+  }
+});
+
+
+// ---------------------------------------------------------
 // PORTFOLIO SYNC ENGINE
 // ---------------------------------------------------------
+
 app.post('/api/sync', async (req, res) => {
   try {
     syncOrchestrator.dispatch(new IndianLiveSyncJob());
@@ -340,10 +423,27 @@ app.get('/api/health/universe', (req, res) => {
   });
 });
 
+function isMarketRestricted(): boolean {
+  const now = new Date();
+  const ist = new Date(now.toLocaleString("en-US", { timeZone: "Asia/Kolkata" }));
+  const day = ist.getDay(); // 0 = Sunday, 6 = Saturday
+  const mins = ist.getHours() * 60 + ist.getMinutes();
+  
+  // Restricted on Weekdays (Mon-Fri) between 9:00 AM (540 mins) and 4:00 PM (960 mins) IST
+  return day >= 1 && day <= 5 && mins >= 540 && mins < 960;
+}
+
 app.post('/api/broker/groww/import-excel', upload.single('file'), async (req, res) => {
   const { portfolioId, userId } = req.body;
   const file = req.file;
   if (!file || !portfolioId || !userId) return res.status(400).json({ error: "Missing file, portfolioId or userId" });
+
+  if (isMarketRestricted()) {
+    console.warn(`[EXCEL-IMPORT] 🚫 Rejecting Groww import: Request made during active weekday market hours.`);
+    return res.status(403).json({ 
+      error: "Portfolio imports are suspended during active market hours (9:00 AM - 4:00 PM IST on weekdays) to prevent asset valuation mismatches. Please try again after 4:00 PM IST." 
+    });
+  }
 
   try {
     console.log(`[EXCEL-IMPORT] 📊 Processing report for portfolio: ${portfolioId} (User: ${userId})`);
@@ -359,6 +459,13 @@ app.post('/api/broker/zerodha/import-csv', upload.single('file'), async (req, re
   const { portfolioId, userId } = req.body;
   const file = req.file;
   if (!file || !portfolioId || !userId) return res.status(400).json({ error: "Missing file, portfolioId or userId" });
+
+  if (isMarketRestricted()) {
+    console.warn(`[ZERODHA-IMPORT] 🚫 Rejecting Zerodha import: Request made during active weekday market hours.`);
+    return res.status(403).json({ 
+      error: "Portfolio imports are suspended during active market hours (9:00 AM - 4:00 PM IST on weekdays) to prevent asset valuation mismatches. Please try again after 4:00 PM IST." 
+    });
+  }
 
   try {
     console.log(`[ZERODHA-IMPORT] 📊 Processing CSV for portfolio: ${portfolioId} (User: ${userId})`);
