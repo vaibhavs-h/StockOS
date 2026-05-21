@@ -33,7 +33,7 @@ export class PortfolioRevaluationJob extends BaseJob {
     const inOpen = MarketSessionService.isIndianMarketOpen();
     const usOpen = MarketSessionService.isUsMarketOpen();
     
-    console.log(`[REVAL] 💓 Portfolio Pulse | IN: ${inOpen ? 'OPEN' : 'CLOSED'} | US: ${usOpen ? 'OPEN' : 'CLOSED'}`);
+    console.log(`[REVAL] Portfolio Pulse | IN: ${inOpen ? 'OPEN' : 'CLOSED'} | US: ${usOpen ? 'OPEN' : 'CLOSED'}`);
 
 
     const supabase = SupabaseProvider.getClient();

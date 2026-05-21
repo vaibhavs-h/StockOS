@@ -83,7 +83,7 @@ export const WatchlistTerminal: React.FC<WatchlistTerminalProps> = ({ userId, ho
 
         setWatchlists(formattedLists);
         
-        // 🚀 Initial Load Heartbeat: Instantly alert the active_market_symbols registry upon mount or full load
+        // Initial Load Heartbeat: Instantly alert the active_market_symbols registry upon mount or full load
         const activeListIdToUse = activeListId || formattedLists[0]?.id;
         const currentActiveList = formattedLists.find(l => l.id === activeListIdToUse);
         if (currentActiveList && currentActiveList.assets) {
@@ -122,7 +122,7 @@ export const WatchlistTerminal: React.FC<WatchlistTerminalProps> = ({ userId, ho
       if (updatedAssets && updatedAssets.length > 0) {
         const marketMap = new Map(updatedAssets.map(a => [a.symbol.trim().toUpperCase(), a]));
 
-        // 🚀 Heartbeat: Notify active_market_symbols registry that these stocks are being actively viewed on a watchlist
+        // Heartbeat: Notify active_market_symbols registry that these stocks are being actively viewed on a watchlist
         const nowStr = new Date().toISOString();
         supabase
           .from('active_market_symbols')
@@ -155,7 +155,7 @@ export const WatchlistTerminal: React.FC<WatchlistTerminalProps> = ({ userId, ho
   const activeList = watchlists.find(l => l.id === activeListId);
   const activeSymbolsStr = activeList?.assets?.map(a => a.symbol).sort().join(',') || '';
 
-  // 🕰️ Dual Market Scheduler: Runs separate, timezone-aware loops for Indian and US assets
+  // Dual Market Scheduler: Runs separate, timezone-aware loops for Indian and US assets
   useEffect(() => {
     if (!activeListId || !activeList || !activeList.assets) return;
 

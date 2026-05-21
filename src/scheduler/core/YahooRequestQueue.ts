@@ -138,7 +138,7 @@ class YahooRequestQueue {
     if (this.totalRequestsInWindow >= this.WINDOW_SIZE) {
       const errorRate = this.failureCount / this.totalRequestsInWindow;
       if (errorRate > this.FAILURE_THRESHOLD) {
-        console.error(`[YAHOO-QUEUE] 🚨 CIRCUIT BREAKER TRIGGERED: ${Math.round(errorRate * 100)}% failure rate.`);
+        console.error(`[YAHOO-QUEUE] CIRCUIT BREAKER TRIGGERED: ${Math.round(errorRate * 100)}% failure rate.`);
         this.isPaused = true;
         this.pauseStartedAt = Date.now();
       }

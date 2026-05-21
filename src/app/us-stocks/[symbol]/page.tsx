@@ -388,7 +388,17 @@ export default function USStockPage() {
             {/* MAIN GRID - BENTO STYLE */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
               <motion.div variants={{ hidden: { opacity: 0, scale: 0.98 }, visible: { opacity: 1, scale: 1, transition: { duration: 0.5 } } }} className="lg:col-span-2 space-y-3">
-                <div className="glass-panel rounded-2xl pt-5 px-6 pb-4 shadow-2xl bg-gradient-to-br from-white/[0.05] via-transparent to-emerald-500/[0.02] relative overflow-hidden group border-white/5 backdrop-blur-2xl">
+                <div className={cn(
+                  "glass-panel rounded-2xl pt-5 px-6 pb-4 shadow-2xl relative overflow-hidden group backdrop-blur-2xl transition-all duration-500",
+                  rangeIsPositive 
+                    ? "bg-gradient-to-br from-white/[0.05] via-transparent to-emerald-500/[0.02] border-emerald-500/10 hover:border-emerald-500/30" 
+                    : "bg-gradient-to-br from-white/[0.05] via-transparent to-rose-500/[0.02] border-rose-500/10 hover:border-rose-500/30"
+                )}>
+                  {/* Dynamic Atmospheric Ambient Glow */}
+                  <div className={cn(
+                    "absolute -bottom-16 -right-16 w-64 h-64 blur-[100px] transition-all duration-700 opacity-0 group-hover:opacity-10 pointer-events-none",
+                    rangeIsPositive ? "bg-emerald-500" : "bg-rose-500"
+                  )} />
                   <div className="absolute inset-0 pointer-events-none opacity-[0.04] bg-[linear-gradient(rgba(18,16,16,0)_50%,rgba(0,0,0,0.3)_50%),linear-gradient(90deg,rgba(255,0,0,0.06),rgba(0,255,0,0.02),rgba(0,0,255,0.06))] bg-[length:100%_2px,3px_100%]" />
                   <div className="flex justify-between items-center mb-3 relative z-10">
                     <div>

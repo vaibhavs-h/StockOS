@@ -31,7 +31,7 @@ export class SyncCoordinator {
   public async start() {
     if (this.isRunning) return;
     this.isRunning = true;
-    console.log('[MAESTRO] 🧠 Pulse Engine v2 Awakening...');
+    console.log('[MAESTRO] Pulse Engine v2 Awakening...');
     
     this.runLoop();
   }
@@ -43,7 +43,7 @@ export class SyncCoordinator {
       try {
         await this.pulse();
       } catch (error: any) {
-        console.error('[MAESTRO] ❌ Pulse Error:', error.message);
+        console.error('[MAESTRO] Pulse Error:', error.message);
       }
 
       // Adaptive Pacing: 
@@ -78,7 +78,7 @@ export class SyncCoordinator {
     const activeUs = usUniverse.total.filter(s => !cooldowns.has(s));
 
     if (activeIn.length > 0 || activeUs.length > 0) {
-      console.log(`[MAESTRO] 💓 Pulse Wave | IN: ${activeIn.length} | US: ${activeUs.length} | Total: ${activeIn.length + activeUs.length}`);
+      console.log(`[MAESTRO] Pulse Wave | IN: ${activeIn.length} | US: ${activeUs.length} | Total: ${activeIn.length + activeUs.length}`);
     }
 
     // 2. Batch Sync Quotes (Greedy Aggregation)
@@ -162,7 +162,7 @@ export class SyncCoordinator {
     const flush = async (table: string, data: any[], conflictColumn: string = 'symbol') => {
       if (data.length === 0) return;
       const { error } = await supabase.from(table).upsert(data, { onConflict: conflictColumn });
-      if (error) console.error(`[MAESTRO] ❌ Flush failed for ${table}:`, error.message);
+      if (error) console.error(`[MAESTRO] Flush failed for ${table}:`, error.message);
     };
 
     await Promise.all([
@@ -188,7 +188,7 @@ export class SyncCoordinator {
 
     metricsService.recordDbFlush();
     const totalUpdated = inSnapshots.length + usSnapshots.length;
-    console.log(`[MAESTRO] 💾 FLUSH | Updated ${totalUpdated} symbols in DB.`);
+    console.log(`[MAESTRO] FLUSH | Updated ${totalUpdated} symbols in DB.`);
     
     return totalUpdated;
   }

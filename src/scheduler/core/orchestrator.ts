@@ -101,7 +101,7 @@ class SyncOrchestrator {
 
     this.metrics.pendingCount++;
 
-    const logMsg = `[ORCHESTRATOR] 📥 DISPATCH | ${job.id.padEnd(20)} | Priority: ${job.metadata.priority}`;
+    const logMsg = `[ORCHESTRATOR] DISPATCH | ${job.id.padEnd(20)} | Priority: ${job.metadata.priority}`;
     this.addLog(logMsg, 'info');
     console.log(logMsg + ` | Queue: ${job.metadata.bullMqQueueName}`);
     
@@ -144,7 +144,7 @@ class SyncOrchestrator {
     this.totalLagTimeMs += lag;
     this.metrics.avgQueueLagMs = this.totalLagTimeMs / (this.metrics.totalProcessed + 1) || 0;
 
-    const logMsg = `[ORCHESTRATOR] ⚙️  RUNNING  | ${item.jobId.padEnd(20)} | Lag: ${lag}ms`;
+    const logMsg = `[ORCHESTRATOR] RUNNING  | ${item.jobId.padEnd(20)} | Lag: ${lag}ms`;
     this.addLog(logMsg, 'info');
     console.log(logMsg);
 
@@ -152,14 +152,14 @@ class SyncOrchestrator {
       await item.job.execute(item.data);
       item.status = 'completed';
       this.metrics.completedCount++;
-      const logMsg = `[ORCHESTRATOR] ✅ SUCCESS  | ${item.jobId.padEnd(20)} | Time: ${Date.now() - item.startedAt}ms`;
+      const logMsg = `[ORCHESTRATOR] SUCCESS  | ${item.jobId.padEnd(20)} | Time: ${Date.now() - item.startedAt}ms`;
       this.addLog(logMsg, 'success');
       console.log(logMsg);
     } catch (error) {
       item.status = 'failed';
       this.metrics.failedCount++;
       this.metrics.totalErrors++;
-      const logMsg = `[ORCHESTRATOR] ❌ FAILED   | ${item.jobId.padEnd(20)} | Error: ${(error as any).message}`;
+      const logMsg = `[ORCHESTRATOR] FAILED   | ${item.jobId.padEnd(20)} | Error: ${(error as any).message}`;
       this.addLog(logMsg, 'error');
       console.error(logMsg);
     } finally {
@@ -226,7 +226,7 @@ class SyncOrchestrator {
    * Used for daily session resets.
    */
   public clearSnapshots(region: string): void {
-    console.log(`[ORCHESTRATOR] 🧹 PURGE | Region: ${region}`);
+    console.log(`[ORCHESTRATOR] PURGE | Region: ${region}`);
     const symbols = Array.from(this.snapshotCache.keys());
     let count = 0;
     for (const symbol of symbols) {
@@ -236,7 +236,7 @@ class SyncOrchestrator {
       this.snapshotCache.delete(symbol);
       count++;
     }
-    console.log(`[ORCHESTRATOR] 🧹 SUCCESS | Purged ${count} snapshots.`);
+    console.log(`[ORCHESTRATOR] SUCCESS | Purged ${count} snapshots.`);
   }
 
   public recordWriteSkip(): void {

@@ -104,7 +104,7 @@ export default function ReviewsPage() {
     const targetUrl = `${API_URL}/api/reviews?sort=${sortBy}`;
 
     try {
-      console.log(`🌐 Fetching: ${targetUrl}`);
+      console.log(`Fetching: ${targetUrl}`);
       const res = await fetch(targetUrl);
 
       if (!res.ok) {
@@ -116,7 +116,7 @@ export default function ReviewsPage() {
         setReviews(data.data);
       }
     } catch (err: any) {
-      console.error("❌ Failed to fetch reviews:", err);
+      console.error("Failed to fetch reviews:", err);
       // Don't show toast for initial fetch if empty, maybe just a console warning
     } finally {
       setLoadingReviews(false);
@@ -167,7 +167,7 @@ export default function ReviewsPage() {
         setTimeout(() => setToast(null), 3000);
       }
     } catch (err: any) {
-      console.error("❌ Submit error:", err);
+      console.error("Submit error:", err);
       setToast({
         message: err.message === "Failed to fetch"
           ? `Network Error: Could not reach backend.`

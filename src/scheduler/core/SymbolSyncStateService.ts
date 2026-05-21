@@ -52,7 +52,7 @@ export class SymbolSyncStateService {
           .eq('symbol', symbol);
       }
     } catch (err: any) {
-      console.error(`[HEALTH] ❌ Failed to update active_market_symbols for ${symbol}:`, err.message);
+      console.error(`[HEALTH] Failed to update active_market_symbols for ${symbol}:`, err.message);
     }
 
     // 2. In-Memory Cooldown Tracking: Lightweight & lightning-fast

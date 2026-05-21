@@ -17,7 +17,12 @@ next-env.d.ts
 .env.development.local
 .env.test.local
 .env.production.local
+.env.development
+.env.production
+.env.staging
+.env.test
 *.env
+*.env.local
 
 # 4. OS & IDE System Files
 .DS_Store
@@ -34,6 +39,11 @@ Thumbs.db
 *.njsproj
 *.sln
 *.sw?
+.project
+.classpath
+.settings/
+*.sublime-workspace
+*.sublime-project
 
 # 5. Debugging & Verification Logs
 npm-debug.log*
@@ -41,6 +51,10 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 *.log
+logs/
+*.pid
+*.seed
+*.pid.lock
 
 # 6. StockOS Custodian & Temporary Files
 scratch/
@@ -54,3 +68,4 @@ check_*.js
 count_assets.js
 .vercel
 .turbo/
+

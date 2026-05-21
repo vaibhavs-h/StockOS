@@ -8,13 +8,15 @@ import { UsMarketResetJob } from './jobs/UsMarketResetJob';
 import { StartupRecoveryManager } from './core/StartupRecoveryManager';
 import { IndianMasterSeedJob } from './jobs/internal/IndianMasterSeedJob';
 import { PortfolioRevaluationJob } from './jobs/PortfolioRevaluationJob';
+import { AlphaVantageNewsSyncJob } from './jobs/AlphaVantageNewsSyncJob';
+import { IndianNewsSyncJob } from './jobs/IndianNewsSyncJob';
 
 /**
  * initializeScheduler: The Ignition Point for Pulse Engine v2.
  * Switches from static cron polling to demand-driven institutional orchestration.
  */
 export function initializeScheduler() {
-  console.log('[SCHEDULER] 🚀 Initializing Pulse Engine v2 (Resilient Orchestration)...');
+  console.log('[SCHEDULER] Initializing Pulse Engine v2 (Resilient Orchestration)...');
 
   // 1. PHASED STARTUP: Hand over to Recovery Manager
   // This starts the SyncCoordinator pulse loop with jitter and safety offsets.
@@ -56,5 +58,14 @@ export function initializeScheduler() {
     syncOrchestrator.dispatch(new IndianMasterSeedJob());
   }, { timezone: 'Asia/Kolkata' });
 
-  console.log('[SCHEDULER] ✅ Institutional Orchestration Active.');
+  // 6. INTELLIGENCE NEWS FEED: Alpha Vantage (global) + Indian RSS — every 2 hours
+  //    Alpha Vantage: 12 calls/day — well within 25/day free tier
+  //    Indian RSS: free, no key required
+  cron.schedule('0 */2 * * *', () => {
+    syncOrchestrator.dispatch(new AlphaVantageNewsSyncJob());
+    syncOrchestrator.dispatch(new IndianNewsSyncJob());
+  });
+
+  console.log('[SCHEDULER] Institutional Orchestration Active.');
 }
+

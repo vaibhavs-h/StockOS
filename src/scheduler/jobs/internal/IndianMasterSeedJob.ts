@@ -35,7 +35,7 @@ export class IndianMasterSeedJob extends BaseJob {
     if (error || !unseeded || unseeded.length === 0) return 0;
 
     const symbols = unseeded.map(a => a.symbol);
-    console.log(`[SEEDER] 🌱 Processing ${symbols.length} unseeded Indian assets...`);
+    console.log(`[SEEDER] Processing ${symbols.length} unseeded Indian assets...`);
 
     let count = 0;
     for (const symbol of symbols) {
@@ -56,7 +56,7 @@ export class IndianMasterSeedJob extends BaseJob {
           count++;
         }
       } catch (e: any) {
-        console.error(`[SEEDER] ❌ Failed to seed ${symbol}:`, e.message);
+        console.error(`[SEEDER] Failed to seed ${symbol}:`, e.message);
       }
     }
 

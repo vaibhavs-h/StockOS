@@ -99,7 +99,7 @@ function extractDomain(url: string | null): string {
 }
 
 async function enrichMonograms() {
-  console.log("🚀 Starting Automatic High-Fidelity Monogram Fallback Upgrade Engine...");
+  console.log("Starting Automatic High-Fidelity Monogram Fallback Upgrade Engine...");
 
   // 1. Scan public folder for monogram fallbacks
   const inDir = path.join(process.cwd(), 'public', 'stock-icons', 'in');
@@ -257,7 +257,7 @@ async function enrichMonograms() {
 </svg>`;
 
       fs.writeFileSync(savePath, svgContent);
-      console.log(`✅ UPGRADED: ${symbol} using domain "${domain}" (Size: ${buffer.length} bytes)`);
+      console.log(`UPGRADED: ${symbol} using domain "${domain}" (Size: ${buffer.length} bytes)`);
       upgradedCount++;
     } catch (e: any) {
       // Keep existing monogram on error
@@ -295,7 +295,7 @@ async function enrichMonograms() {
   const mappingPath = path.join(process.cwd(), 'public', 'stock-icons', 'mapping.json');
   fs.writeFileSync(mappingPath, JSON.stringify(mapping, null, 2));
 
-  console.log(`\n🎉 SUCCESS! Automatically upgraded ${upgradedCount} monogram fallbacks to premium high-fidelity brand logos!`);
+  console.log(`\nSUCCESS! Automatically upgraded ${upgradedCount} monogram fallbacks to premium high-fidelity brand logos!`);
 }
 
 enrichMonograms().catch(console.error);

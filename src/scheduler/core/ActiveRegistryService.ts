@@ -28,7 +28,7 @@ export class ActiveRegistryService {
       .select('symbol');
 
     if (hError || wError) {
-      console.error(`[REGISTRY] ❌ DB Fetch Error:`, hError?.message || wError?.message);
+      console.error(`[REGISTRY] DB Fetch Error:`, hError?.message || wError?.message);
     }
 
     // Filter holdings locally by universe and suffix for region
@@ -112,10 +112,10 @@ export class ActiveRegistryService {
     const removed = Array.from(prev).filter(s => !universe.has(s));
 
     if (added.length > 0) {
-      console.log(`[REGISTRY] ➕ Added to ${region} Active List: ${added.join(', ')}`);
+      console.log(`[REGISTRY] Added to ${region} Active List: ${added.join(', ')}`);
     }
     if (removed.length > 0) {
-      console.log(`[REGISTRY] ➖ Removed from ${region} Active List: ${removed.join(', ')}`);
+      console.log(`[REGISTRY] Removed from ${region} Active List: ${removed.join(', ')}`);
     }
 
     this.lastUniverse.set(region, universe);
@@ -157,7 +157,7 @@ export class ActiveRegistryService {
         .upsert(snapshots, { onConflict: 'symbol' });
 
       if (error) {
-        console.error(`[REGISTRY] ❌ Failed to persist active registry:`, error.message);
+        console.error(`[REGISTRY] Failed to persist active registry:`, error.message);
       }
     }
 
@@ -177,7 +177,7 @@ export class ActiveRegistryService {
           .filter(s => !activeSet.has(s));
 
         if (obsoleteSymbols.length > 0) {
-          console.log(`[REGISTRY] 🧹 Pruning ${obsoleteSymbols.length} obsolete ${region} symbols from registry: ${obsoleteSymbols.join(', ')}`);
+          console.log(`[REGISTRY] Pruning ${obsoleteSymbols.length} obsolete ${region} symbols from registry: ${obsoleteSymbols.join(', ')}`);
           
           const { error: deleteErr } = await supabase
             .from('active_market_symbols')
@@ -185,12 +185,12 @@ export class ActiveRegistryService {
             .in('symbol', obsoleteSymbols);
 
           if (deleteErr) {
-            console.error(`[REGISTRY] ❌ Failed to prune obsolete symbols:`, deleteErr.message);
+            console.error(`[REGISTRY] Failed to prune obsolete symbols:`, deleteErr.message);
           }
         }
       }
     } catch (err: any) {
-      console.error(`[REGISTRY] ❌ Pruning engine error:`, err.message);
+      console.error(`[REGISTRY] Pruning engine error:`, err.message);
     }
   }
 }

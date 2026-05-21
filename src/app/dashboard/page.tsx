@@ -22,7 +22,9 @@ import {
   Clock,
   ShieldAlert,
   X,
-  Info
+  Info,
+  Edit2,
+  Check
 } from "lucide-react"
 
 import { supabase } from "@/services/DatabaseClient"
@@ -71,6 +73,33 @@ export default function DashboardPage() {
   const [searchResults, setSearchResults] = useState<any[]>([])
   const [isSearching, setIsSearching] = useState(false)
   const [isPortfolioDropdownOpen, setIsPortfolioDropdownOpen] = useState(false)
+  const [editingPortfolioId, setEditingPortfolioId] = useState<string | null>(null)
+  const [editName, setEditName] = useState("")
+
+  const savePortfolioName = async (portfolioId: string) => {
+    if (!editName.trim()) return;
+    try {
+      const { error } = await supabase
+        .from('user_portfolios')
+        .update({ name: editName.trim() })
+        .eq('id', portfolioId);
+
+      if (error) throw error;
+
+      const updatedPortfolios = portfolios.map(p => 
+        p.id === portfolioId ? { ...p, name: editName.trim() } : p
+      );
+      setPortfolios(updatedPortfolios);
+
+      if (activePortfolio?.id === portfolioId) {
+        setActivePortfolio({ ...activePortfolio, name: editName.trim() });
+      }
+
+      setEditingPortfolioId(null);
+    } catch (err) {
+      console.error("[PORTFOLIO] Error updating name:", err);
+    }
+  };
   const [syncLogs, setSyncLogs] = useState<any[]>([])
   const [showSyncConsole, setShowSyncConsole] = useState(false)
   const [lastSyncTime, setLastSyncTime] = useState<string>('SYNCHRONIZING...')
@@ -867,10 +896,28 @@ export default function DashboardPage() {
                                       </div>
                                       <div className="flex flex-col items-start">
                                         <div className="flex items-center gap-2">
-                                          <span className={cn(
-                                            "text-[15px] font-headline font-black tracking-tight transition-colors",
-                                            activePortfolio?.id === p.id ? "text-white" : "text-zinc-400 group-hover/item:text-zinc-200"
-                                          )}>{p.name}</span>
+                                          {editingPortfolioId === p.id ? (
+                                            <input
+                                              type="text"
+                                              value={editName}
+                                              onChange={(e) => setEditName(e.target.value)}
+                                              onKeyDown={async (e) => {
+                                                if (e.key === 'Enter') {
+                                                  await savePortfolioName(p.id);
+                                                } else if (e.key === 'Escape') {
+                                                  setEditingPortfolioId(null);
+                                                }
+                                              }}
+                                              onClick={(e) => e.stopPropagation()}
+                                              className="bg-black/60 border border-white/20 text-white rounded px-2 py-0.5 text-xs font-headline max-w-[120px] focus:outline-none focus:border-emerald-500/60"
+                                              autoFocus
+                                            />
+                                          ) : (
+                                            <span className={cn(
+                                              "text-[15px] font-headline font-black tracking-tight transition-colors",
+                                              activePortfolio?.id === p.id ? "text-white" : "text-zinc-400 group-hover/item:text-zinc-200"
+                                            )}>{p.name}</span>
+                                          )}
                                           {activePortfolio?.id === p.id && (
                                             <div className="size-1.5 rounded-full bg-emerald-500 animate-pulse shadow-[0_0_8px_rgba(16,185,129,0.6)]" />
                                           )}
@@ -885,6 +932,25 @@ export default function DashboardPage() {
                                     </div>
 
                                     <div className="flex items-center gap-2 relative z-10">
+                                      <button
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          if (editingPortfolioId === p.id) {
+                                            savePortfolioName(p.id);
+                                          } else {
+                                            setEditingPortfolioId(p.id);
+                                            setEditName(p.name);
+                                          }
+                                        }}
+                                        className="size-8 rounded-lg bg-emerald-500/5 border border-emerald-500/10 flex items-center justify-center hover:bg-emerald-500/20 hover:border-emerald-500/30 transition-all"
+                                        title="Rename Portfolio"
+                                      >
+                                        {editingPortfolioId === p.id ? (
+                                          <Check className="w-3.5 h-3.5 text-emerald-500" />
+                                        ) : (
+                                          <Edit2 className="w-3.5 h-3.5 text-emerald-500/60 group-hover/item:text-emerald-500 transition-colors" />
+                                        )}
+                                      </button>
                                       <button
                                         onClick={async (e) => {
                                           e.stopPropagation();
@@ -1029,8 +1095,18 @@ export default function DashboardPage() {
               className="h-full"
             >
               <motion.section
-                className="glass-panel rounded-3xl pt-4 px-6 pb-4 relative group border border-white/10 shadow-[0_20px_50px_rgba(0,0,0,0.5)] bg-gradient-to-b from-white/[0.04] to-transparent transition-all duration-500"
+                className={cn(
+                  "glass-panel rounded-3xl pt-4 px-6 pb-4 relative group border transition-all duration-500 shadow-[0_20px_50px_rgba(0,0,0,0.5)] backdrop-blur-2xl overflow-hidden",
+                  totalPL >= 0 
+                    ? "border-emerald-500/10 hover:border-emerald-500/30 bg-gradient-to-br from-white/[0.04] via-transparent to-emerald-500/[0.02]" 
+                    : "border-red-500/10 hover:border-red-500/30 bg-gradient-to-br from-white/[0.04] via-transparent to-red-500/[0.02]"
+                )}
               >
+                {/* Dynamic Atmospheric Ambient Glow */}
+                <div className={cn(
+                  "absolute -bottom-16 -right-16 w-64 h-64 blur-[100px] transition-all duration-700 opacity-0 group-hover:opacity-10 pointer-events-none",
+                  totalPL >= 0 ? "bg-emerald-500" : "bg-red-500"
+                )} />
                 <AnimatePresence>
                   {isPortfolioDropdownOpen && (
                     <motion.div
@@ -1061,7 +1137,7 @@ export default function DashboardPage() {
                         className={`px-4 py-1.5 rounded-lg font-terminal-label text-[11px] font-bold tracking-widest border transition-all duration-300 ${timeRange === range
                           ? (range === '1D' && getMarketStatus('IN') === 'CLOSED'
                             ? 'bg-zinc-500/20 border-zinc-500/60 text-zinc-400 shadow-[0_0_25px_rgba(113,113,122,0.15)]'
-                            : (rangeIsPositive ? 'bg-emerald-500/20 border-emerald-500/60 text-emerald-400 shadow-[0_0_25px_rgba(16,185,129,0.15)]' : 'bg-red-500/20 border-red-500/60 text-red-400 shadow-[0_0_25px_rgba(239,68,68,0.15)]')
+                            : (totalPL >= 0 ? 'bg-emerald-500/20 border-emerald-500/60 text-emerald-400 shadow-[0_0_25px_rgba(16,185,129,0.15)]' : 'bg-red-500/20 border-red-500/60 text-red-400 shadow-[0_0_25px_rgba(239,68,68,0.15)]')
                           )
                           : 'border-white/10 text-white/60 hover:text-white hover:border-white/20 hover:bg-white/5'
                           }`}
@@ -1707,7 +1783,7 @@ export default function DashboardPage() {
               initial="hidden"
               animate="visible"
               transition={{ duration: 0.8, ease: [0.16, 1, 0.3, 1], delay: 0.4 }}
-              className="lg:col-span-3"
+              className="lg:col-span-3 h-[440px] overflow-hidden"
             >
               <WatchlistTerminal userId={portfolioId} holdings={holdings} />
             </motion.div>
@@ -1721,7 +1797,7 @@ export default function DashboardPage() {
               initial="hidden"
               animate="visible"
               transition={{ duration: 0.8, ease: [0.16, 1, 0.3, 1], delay: 0.5 }}
-              className="lg:col-span-2 glass-panel rounded-3xl border border-white/10 bg-[#0a0d14]/80 backdrop-blur-3xl shadow-2xl overflow-hidden"
+              className="lg:col-span-2 h-[440px] flex flex-col glass-panel rounded-3xl border border-white/10 bg-[#0a0d14]/60 backdrop-blur-3xl shadow-2xl overflow-hidden"
             >
               <InstitutionalNews />
             </motion.div>

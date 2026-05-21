@@ -8,10 +8,12 @@
     color: var(--foreground);
     @apply antialiased;
   }
+
   .theme {
     --font-heading: var(--font-sans);
     --font-sans: var(--font-sans);
   }
+
   :root {
     --background: #ffffff;
     --foreground: #09090b;
@@ -34,6 +36,7 @@
     --ring: #09090b;
     --radius: 0.75rem;
   }
+
   .dark {
     --background: #030305;
     --foreground: #fafafa;
@@ -55,6 +58,7 @@
     --input: #27272a;
     --ring: #d4d4d8;
   }
+
   html {
     @apply font-sans;
   }
@@ -97,9 +101,17 @@
 }
 
 @keyframes wait-reveal {
-  0% { opacity: 0; }
-  80% { opacity: 0; }
-  100% { opacity: 1; }
+  0% {
+    opacity: 0;
+  }
+
+  80% {
+    opacity: 0;
+  }
+
+  100% {
+    opacity: 1;
+  }
 }
 
 /* Custom Scrollbar for Terminal */
@@ -161,13 +173,15 @@
   background-color: rgba(9, 9, 11, 0.98) !important;
   border-color: rgba(255, 255, 255, 0.1) !important;
 }
+
 /* Cinematic Search Focus */
 #terminal-main {
-  transition: all 0.6s cubic-bezier(0.4, 0, 0.2, 1);
-  will-change: filter, transform, opacity;
+  transition: opacity 0.6s cubic-bezier(0.4, 0, 0.2, 1), filter 0.6s cubic-bezier(0.4, 0, 0.2, 1), transform 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+  will-change: opacity;
 }
 
 .search-open #terminal-main {
+  will-change: filter, transform, opacity;
   filter: blur(12px) brightness(0.5);
   opacity: 0.4;
   transform: scale(0.98);

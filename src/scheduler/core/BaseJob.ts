@@ -50,10 +50,10 @@ export abstract class BaseJob<T = any> {
         this.metrics.durationMs = this.metrics.endTime - this.metrics.startTime;
         this.metrics.failed = false;
         
-        console.log(`\n[SYNC COMPLETED] 🚀 ${this.id}`);
+        console.log(`\n[SYNC COMPLETED] ${this.id}`);
         console.log(`  Duration:  ${this.metrics.durationMs}ms`);
         console.log(`  Processed: ${this.metrics.recordsProcessed} records`);
-        console.log(`  Status:    SUCCESS ✅\n`);
+        console.log(`  Status:    SUCCESS \n`);
         return;
       } catch (error: any) {
         attempt++;

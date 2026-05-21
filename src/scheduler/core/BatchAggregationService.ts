@@ -27,12 +27,12 @@ export class BatchAggregationService {
     const results: any[] = [];
 
     // Execute batches in parallel (Respecting YahooRequestQueue concurrency)
-    console.log(`[BATCH] 🔄 Starting sync for ${uniqueSymbols.length} ${region} symbols in ${batches.length} batches...`);
+    console.log(`[BATCH] Starting sync for ${uniqueSymbols.length} ${region} symbols in ${batches.length} batches...`);
     
     await Promise.all(batches.map(async (batch, index) => {
       try {
         const quoteBatch = await YahooProvider.fetchQuotes(batch, region);
-        console.log(`[BATCH] ✅ Batch ${index + 1}/${batches.length} complete (${batch.length} stocks)`);
+        console.log(`[BATCH] Batch ${index + 1}/${batches.length} complete (${batch.length} stocks)`);
         
         // Populate MarketStateCache with fresh data
         if (Array.isArray(quoteBatch)) {
@@ -56,7 +56,7 @@ export class BatchAggregationService {
           results.push(...quoteBatch);
         }
       } catch (error: any) {
-        console.error(`[BATCH-SERVICE] ❌ Batch failed for ${batch.length} symbols:`, error.message);
+        console.error(`[BATCH-SERVICE] Batch failed for ${batch.length} symbols:`, error.message);
         
         // RECORD HEALTH: Batch Failure
         batch.forEach(symbol => {
