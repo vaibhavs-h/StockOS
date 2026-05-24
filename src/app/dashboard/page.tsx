@@ -176,16 +176,26 @@ export default function DashboardPage() {
 		formData.append("file", casFile)
 		formData.append("password", casPassword)
 		formData.append("portfolioName", newMFPortfolioName.trim() || `CAS Folio ${portfolios.filter(p => p.type === 'MF').length + 1}`)
+		formData.append("userId", portfolioId)
 
 		try {
-			const response = await fetch("/api/portfolio/import-cas", {
+			const response = await fetch(`${engineUrl}/api/portfolio/import-cas`, {
 				method: "POST",
 				body: formData
 			})
+
+			// Content-type shielding to prevent "Unexpected token <" HTML parsing errors
+			const contentType = response.headers.get("content-type");
+			if (!contentType || !contentType.includes("application/json")) {
+				const text = await response.text();
+				console.error("[CAS-IMPORT] Non-JSON response:", text);
+				throw new Error(`Server returned non-JSON response (Status: ${response.status}). The engine backend might have crashed or returned an error page.`);
+			}
+
 			const data = await response.json()
 
 			if (response.ok && data.success) {
-				setCasSuccessData(data.data)
+				setCasSuccessData(data)
 				setCasImportStep(2)
 				// Refresh portfolios and mutual funds data
 				await fetchPortfolios()

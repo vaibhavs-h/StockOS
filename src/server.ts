@@ -19,6 +19,7 @@ import { UsDeepSyncJob } from './scheduler/jobs/UsDeepSyncJob';
 import { PortfolioRevaluationJob } from './scheduler/jobs/PortfolioRevaluationJob';
 import multer from 'multer';
 import { ExcelImportService } from './services/ExcelImportService';
+import { CASImportService } from './services/CASImportService';
 import { YahooProvider } from './scheduler/providers/YahooProvider';
 import { SymbolSyncStateService } from './scheduler/core/SymbolSyncStateService';
 import { getDbUserId } from './lib/user';
@@ -1113,6 +1114,41 @@ app.post('/api/broker/zerodha/import-csv', upload.single('file'), async (req, re
   } catch (err: any) {
     console.error("[ZERODHA-IMPORT] Failed:", err.message);
     res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/portfolio/import-cas', upload.single('file'), async (req, res) => {
+  const { password, portfolioName, userId } = req.body;
+  const file = req.file;
+
+  if (!file || !userId) {
+    return res.status(400).json({ error: "Missing file or userId" });
+  }
+
+  try {
+    const dbUserId = getDbUserId(userId);
+    console.log(`[API-IMPORT-CAS] Processing CAS PDF statement for user: ${dbUserId}`);
+    const result = await CASImportService.importCAS(file.buffer, password || '', dbUserId, portfolioName || 'Unified CAS Folio');
+    res.json({ success: true, ...result });
+  } catch (error: any) {
+    console.error("[API-IMPORT-CAS] Ingestion crash:", error.message || error);
+    
+    // Check specific decryption failure
+    if (error.message && error.message.includes('DECRYPTION_FAILED')) {
+      return res.status(400).json({ 
+        error: "Decryption failed. The password provided is incorrect for this CAS PDF." 
+      });
+    }
+
+    if (error.message && error.message.includes('NO_HOLDINGS_FOUND')) {
+      return res.status(400).json({ 
+        error: "No holdings found. The uploaded PDF might not be a valid CAMS/KFintech CAS statement." 
+      });
+    }
+
+    res.status(500).json({ 
+      error: error.message || "An unexpected error occurred during statement ingestion." 
+    });
   }
 });
 
