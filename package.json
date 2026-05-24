@@ -35,6 +35,7 @@
     "next-auth": "^4.24.14",
     "node-cron": "^4.2.1",
     "otplib": "^13.4.0",
+    "pdf-parse": "^2.4.5",
     "react": "^18",
     "react-dom": "^18",
     "recharts": "^3.8.1",

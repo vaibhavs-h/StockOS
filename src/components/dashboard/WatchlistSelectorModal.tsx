@@ -29,6 +29,7 @@ export const WatchlistSelectorModal: React.FC<WatchlistSelectorModalProps> = ({
   const [watchlists, setWatchlists] = useState<WatchlistWithStatus[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isProcessing, setIsProcessing] = useState<string | null>(null);
+  const [assetName, setAssetName] = useState<string | null>(null);
   const [errorBanner, setErrorBanner] = useState<{
     type: 'limit' | 'subscription';
     title: string;
@@ -39,6 +40,23 @@ export const WatchlistSelectorModal: React.FC<WatchlistSelectorModalProps> = ({
     if (!userId || userId === 'guest') return;
 
     try {
+      const isMF = symbol.startsWith('INF') || (symbol.length === 12 && symbol.startsWith('IN'));
+      if (isMF) {
+        const { data: mfData } = await supabase
+          .from('mutual_funds_master')
+          .select('name')
+          .eq('isin', symbol.toUpperCase())
+          .maybeSingle();
+        if (mfData) setAssetName(mfData.name);
+      } else {
+        const { data: stockData } = await supabase
+          .from('market_assets')
+          .select('name')
+          .eq('symbol', symbol.toUpperCase())
+          .maybeSingle();
+        if (stockData) setAssetName(stockData.name);
+      }
+
       // 1. Fetch all user watchlists
       const { data: lists } = await supabase
         .from('user_watchlists')
@@ -146,6 +164,10 @@ export const WatchlistSelectorModal: React.FC<WatchlistSelectorModalProps> = ({
     }
   };
 
+  const displayLabel = assetName
+    ? (assetName.length > 25 ? `${assetName.slice(0, 25).trim()}...` : assetName)
+    : symbol;
+
   return (
     <StockOSPortal>
       <AnimatePresence>
@@ -176,7 +198,7 @@ export const WatchlistSelectorModal: React.FC<WatchlistSelectorModalProps> = ({
                     <h3 className="text-base font-black uppercase tracking-[0.25em] text-white leading-none mb-2">Add to Watchlist</h3>
                     <div className="flex items-center gap-2">
                       <div className="size-1.5 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]" />
-                      <p className="text-[10px] text-zinc-500 font-black uppercase tracking-[0.2em]">{symbol}</p>
+                      <p className="text-[10px] text-zinc-500 font-black uppercase tracking-[0.2em]">{displayLabel}</p>
                     </div>
                   </div>
                 </div>

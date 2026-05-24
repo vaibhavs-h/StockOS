@@ -11,6 +11,7 @@ import { MarketStatusEngine } from './scheduler/core/MarketStatusEngine';
 import { MarketRegion } from './scheduler/core/types';
 import { initializeScheduler } from './scheduler/index';
 import { syncOrchestrator } from './scheduler/core/orchestrator';
+import { mfSyncCoordinator } from './scheduler/core/MFSyncCoordinator';
 import { IndianLiveSyncJob } from './scheduler/jobs/IndianLiveSyncJob';
 import { UsLiveSyncJob } from './scheduler/jobs/UsLiveSyncJob';
 import { IndianDeepSyncJob } from './scheduler/jobs/IndianDeepSyncJob';
@@ -20,31 +21,16 @@ import multer from 'multer';
 import { ExcelImportService } from './services/ExcelImportService';
 import { YahooProvider } from './scheduler/providers/YahooProvider';
 import { SymbolSyncStateService } from './scheduler/core/SymbolSyncStateService';
+import { getDbUserId } from './lib/user';
 
 const upload = multer({ storage: multer.memoryStorage() });
 
 
 // ---------------------------------------------------------
-// IST HELPER
+// IST HELPER (Imported and re-exported from src/lib/date)
 // ---------------------------------------------------------
-export const getISTTimestamp = () => {
-  const now = new Date();
-  const offset = 5.5 * 60 * 60 * 1000; // IST is UTC + 5:30
-  const istTime = new Date(now.getTime() + offset);
-  return istTime.toISOString().replace('Z', '+05:30');
-};
-
-export const getNormalizedNoonTimestamp = (dateInput?: Date) => {
-  const date = dateInput || new Date();
-  const formatter = new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Asia/Kolkata',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit'
-  });
-  const dateStr = formatter.format(date); // YYYY-MM-DD
-  return `${dateStr}T12:00:00.000Z`; // Noon UTC on that calendar day
-};
+import { getISTTimestamp, getNormalizedNoonTimestamp } from './lib/date';
+export { getISTTimestamp, getNormalizedNoonTimestamp };
 
 
 const app = express();
@@ -342,15 +328,124 @@ app.get('/api/sync/burst', async (req, res) => {
 
 
 // ---------------------------------------------------------
+// TARGETED MUTUAL FUND SYNC (Burst Mode)
+// ---------------------------------------------------------
+app.get('/api/sync/burst/mf', async (req, res) => {
+  const schemeCode = req.query.scheme_code as string;
+
+  if (!schemeCode) return res.status(400).json({ error: 'scheme_code is required' });
+
+  try {
+    console.log(`[BURST-SYNC] Targeted Mutual Fund Burst for ${schemeCode}`);
+
+    // 1. Run AMFI NAV Ingestion for this specific scheme code
+    try {
+      const { MutualFundSyncJob } = require('./scheduler/jobs/MutualFundSyncJob');
+      const navSyncJob = new MutualFundSyncJob();
+      await (navSyncJob as any).process([schemeCode]);
+      console.log(`[BURST-SYNC] Completed AMFI NAV sync for MF ${schemeCode}`);
+    } catch (navErr: any) {
+      console.error(`[BURST-SYNC] AMFI NAV sync failed for MF ${schemeCode}:`, navErr.message);
+    }
+
+    // 2. Fetch scheme record from DB
+    const { data: fund, error: fundErr } = await supabase
+      .from('mutual_funds_master')
+      .select('scheme_code, isin, name, symbol')
+      .eq('scheme_code', schemeCode)
+      .single();
+
+    if (fundErr || !fund) {
+      console.warn(`[BURST-SYNC] Fund not found in DB after AMFI sync: ${schemeCode}`);
+      return res.status(404).json({ error: 'Fund not found' });
+    }
+
+    // 3. Find Yahoo Symbol if not already matched
+    let symbol = fund.symbol;
+    const { MFYahooEnrichJob } = await import('./scheduler/jobs/internal/MFYahooEnrichJob');
+    const enrichJob = new MFYahooEnrichJob(1, false);
+
+    if (!symbol) {
+      symbol = await (enrichJob as any).findYahooSymbol(fund.isin, fund.name);
+    }
+
+    if (!symbol) {
+      console.warn(`[BURST-SYNC] Yahoo symbol not found for fund: ${fund.name}. Syncing NAV only.`);
+      return res.json({ success: true, message: 'AMFI NAV synced successfully, Yahoo symbol not found.' });
+    }
+
+    // 4. Fetch summary modules for enrichment using MFYahooEnrichJob's method
+    const enrichData = await (enrichJob as any).fetchEnrichmentData(symbol);
+
+    // 5. Update the DB with Yahoo enrichment data
+    const { error: updateErr } = await supabase
+      .from('mutual_funds_master')
+      .update({
+        symbol,
+        returns_1y:                 enrichData.returns_1y                 ?? null,
+        returns_3y:                 enrichData.returns_3y                 ?? null,
+        returns_5y:                 enrichData.returns_5y                 ?? null,
+        expense_ratio:              enrichData.expense_ratio              ?? null,
+        aum:                        enrichData.aum                        ?? null,
+        logo_url:                   enrichData.logo_url                   ?? null,
+        min_initial_investment:     enrichData.min_initial_investment     ?? null,
+        min_subsequent_investment:  enrichData.min_subsequent_investment  ?? null,
+        rating:                     enrichData.rating                     ?? null,
+        style_box_url:              enrichData.style_box_url              ?? null,
+        manager_name:               enrichData.manager_name               ?? null,
+        manager_start_date:         enrichData.manager_start_date         ?? null,
+        asset_allocation:           enrichData.asset_allocation           ?? null,
+        sector_allocations:         enrichData.sector_allocations         ?? null,
+        credit_ratings:             enrichData.credit_ratings             ?? null,
+        top_holdings:               enrichData.top_holdings               ?? null,
+        risk_statistics:            enrichData.risk_statistics            ?? null,
+        performance_history:        enrichData.performance_history        ?? null,
+        updated_at:                 new Date().toISOString()
+      })
+      .eq('scheme_code', schemeCode);
+
+    if (updateErr) {
+      console.error(`[BURST-SYNC] DB Update failed for mutual fund ${schemeCode}:`, updateErr.message);
+      throw updateErr;
+    }
+
+    console.log(`[BURST-SYNC] Successfully synced MF ${schemeCode} | Yahoo Symbol: ${symbol}`);
+    res.json({ success: true, symbol });
+  } catch (err: any) {
+    console.error(`[BURST-SYNC] FATAL ERROR for mutual fund ${schemeCode}:`, err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+
+// ---------------------------------------------------------
 // PORTFOLIO SYNC ENGINE
 // ---------------------------------------------------------
 
 app.post('/api/sync', async (req, res) => {
   try {
+    console.log('[SERVER] Global Dashboard Sync triggered: Dispatching Equities & Mutual Funds sync...');
     syncOrchestrator.dispatch(new IndianLiveSyncJob());
     syncOrchestrator.dispatch(new UsLiveSyncJob());
+    
+    // Proactively trigger Mutual Fund Sync & Revaluation in the background
+    mfSyncCoordinator.syncActiveMutualFunds().catch(err => {
+      console.error('[SERVER] Background Mutual Fund Active Sync failed:', err.message);
+    });
+
     res.json({ success: true, status: "queued" });
   } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.post('/api/sync/mf', async (req, res) => {
+  try {
+    console.log('[SERVER] Manual Mutual Fund Active Sync triggered via API.');
+    const count = await mfSyncCoordinator.syncActiveMutualFunds();
+    res.json({ success: true, count, message: `Active mutual funds sync completed for ${count} funds.` });
+  } catch (err: any) {
+    console.error('[SERVER] Manual MF Sync failed:', err.message);
     res.status(500).json({ success: false, error: err.message });
   }
 });
@@ -372,6 +467,62 @@ app.post('/api/market-seed', async (req, res) => {
   syncOrchestrator.dispatch(new IndianDeepSyncJob());
   syncOrchestrator.dispatch(new UsDeepSyncJob());
   res.json({ success: true, status: "queued" });
+});
+
+// ─── Mutual Fund Universe Seeding ─────────────────────────────────────────────
+
+/**
+ * POST /api/mf-seed
+ * Wipes the existing mutual_funds_master and re-seeds the full AMFI universe.
+ * Ingests all ~10,000+ Indian mutual fund schemes from the official AMFI NAV feed.
+ */
+app.post('/api/mf-seed', async (req, res) => {
+  try {
+    console.log('[SERVER] MF full-universe seed triggered via API.');
+
+    // Optional: wipe existing rows so re-seeding is clean
+    const clearFirst = req.query.clear !== 'false'; // default true
+    if (clearFirst) {
+      console.log('[SERVER] Clearing mutual_funds_master before re-seeding...');
+      await supabase.from('active_mutual_funds').delete().neq('scheme_code', '');
+      await supabase.from('user_mutual_fund_watchlists').delete().neq('scheme_code', '');
+      // Holdings are user data — we do NOT delete those
+      await supabase.from('mutual_funds_master').delete().neq('scheme_code', '');
+      console.log('[SERVER] mutual_funds_master cleared.');
+    }
+
+    const { MFMasterSeedJob } = await import('./scheduler/jobs/internal/MFMasterSeedJob');
+    const seedJob = new MFMasterSeedJob(req.query.force === 'true');
+    syncOrchestrator.dispatch(seedJob);
+
+    res.json({ success: true, status: 'queued', message: 'AMFI full-universe seeding started. Check /api/sync/logs for progress.' });
+  } catch (err: any) {
+    console.error('[SERVER] MF seed trigger failed:', err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * POST /api/mf-enrich
+ * Matches unenriched mutual fund schemes to Yahoo Finance symbols,
+ * then fetches 1Y/3Y/5Y returns, expense ratio, and AUM.
+ * Processes up to `batch` schemes per call (default 50).
+ */
+app.post('/api/mf-enrich', async (req, res) => {
+  try {
+    const batchSize = Number(req.query.batch) || 200;
+    const continuous = req.query.continuous === 'true';
+    console.log(`[SERVER] MF Yahoo enrichment triggered (batch=${batchSize}, continuous=${continuous}).`);
+
+    const { MFYahooEnrichJob } = await import('./scheduler/jobs/internal/MFYahooEnrichJob');
+    const enrichJob = new MFYahooEnrichJob(batchSize, continuous);
+    syncOrchestrator.dispatch(enrichJob);
+
+    res.json({ success: true, status: 'queued', message: `Yahoo enrichment started for up to ${batchSize} funds. Continuous: ${continuous}` });
+  } catch (err: any) {
+    console.error('[SERVER] MF enrich trigger failed:', err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
 });
 
 app.post('/api/admin/reset-cache', async (req, res) => {
@@ -403,78 +554,150 @@ app.get('/api/news/monthly-metrics', async (req, res) => {
     console.log(`[NEWS-METRICS] Fetching all monthly news. Category: ${category}, User: ${userId || 'guest'}, Range: ${startISO} to ${endISO}`);
 
     let newsItems: any[] = [];
+    const CHUNK_SIZE = 1000;
 
     if (category === 'saved') {
       if (!userId) {
         return res.status(400).json({ error: 'userId is required for saved category' });
       }
 
-      // Fetch user's bookmarked news ids
-      const { data: bookmarks, error: bookmarkErr } = await supabase
-        .from('news_bookmarks')
-        .select('news_id')
-        .eq('user_id', userId);
+      // Fetch user's bookmarked news ids in pages of 1000 to bypass default Supabase limit
+      let allBookmarks: any[] = [];
+      let bFrom = 0;
+      let bHasMore = true;
 
-      if (bookmarkErr) {
-        console.error('[NEWS-METRICS] Failed to fetch bookmarks:', bookmarkErr.message);
-        throw bookmarkErr;
+      while (bHasMore) {
+        const { data: bookmarks, error: bookmarkErr } = await supabase
+          .from('news_bookmarks')
+          .select('news_id')
+          .eq('user_id', userId)
+          .range(bFrom, bFrom + CHUNK_SIZE - 1);
+
+        if (bookmarkErr) {
+          console.error('[NEWS-METRICS] Failed to fetch bookmarks:', bookmarkErr.message);
+          throw bookmarkErr;
+        }
+
+        if (bookmarks && bookmarks.length > 0) {
+          allBookmarks = allBookmarks.concat(bookmarks);
+          bFrom += CHUNK_SIZE;
+          if (bookmarks.length < CHUNK_SIZE) {
+            bHasMore = false;
+          }
+        } else {
+          bHasMore = false;
+        }
       }
 
-      if (!bookmarks || bookmarks.length === 0) {
+      if (allBookmarks.length === 0) {
         return res.json({ news: [] });
       }
 
-      const bookmarkedIds = bookmarks.map((b: any) => b.news_id);
+      const bookmarkedIds = allBookmarks.map((b: any) => b.news_id);
 
-      // Fetch news items matching bookmarked ids within current month
-      const { data: items, error: newsErr } = await supabase
-        .from('news')
-        .select('*')
-        .in('id', bookmarkedIds)
-        .gte('published_at', startISO)
-        .lte('published_at', endISO)
-        .order('published_at', { ascending: false });
+      // Fetch news items matching bookmarked ids within current month, chunking to bypass 1000 row limits
+      let allSavedNews: any[] = [];
+      let sFrom = 0;
+      let sHasMore = true;
 
-      if (newsErr) {
-        console.error('[NEWS-METRICS] Failed to fetch saved news items:', newsErr.message);
-        throw newsErr;
+      while (sHasMore) {
+        const { data: items, error: newsErr } = await supabase
+          .from('news')
+          .select('*')
+          .in('id', bookmarkedIds)
+          .gte('published_at', startISO)
+          .lte('published_at', endISO)
+          .order('published_at', { ascending: false })
+          .range(sFrom, sFrom + CHUNK_SIZE - 1);
+
+        if (newsErr) {
+          console.error('[NEWS-METRICS] Failed to fetch saved news items:', newsErr.message);
+          throw newsErr;
+        }
+
+        if (items && items.length > 0) {
+          allSavedNews = allSavedNews.concat(items);
+          sFrom += CHUNK_SIZE;
+          if (items.length < CHUNK_SIZE) {
+            sHasMore = false;
+          }
+        } else {
+          sHasMore = false;
+        }
       }
 
-      newsItems = items || [];
+      newsItems = allSavedNews;
     } else {
-      // General categories (all, global, india) within current month
-      let query = supabase
-        .from('news')
-        .select('*')
-        .gte('published_at', startISO)
-        .lte('published_at', endISO)
-        .order('published_at', { ascending: false });
+      // General categories (all, global, india) within current month - paginated to bypass default 1000 limit
+      let allItems: any[] = [];
+      let from = 0;
+      let hasMore = true;
 
-      if (category === 'global' || category === 'india') {
-        query = query.eq('category', category);
+      while (hasMore) {
+        let query = supabase
+          .from('news')
+          .select('*')
+          .gte('published_at', startISO)
+          .lte('published_at', endISO)
+          .order('published_at', { ascending: false })
+          .range(from, from + CHUNK_SIZE - 1);
+
+        if (category === 'global' || category === 'india') {
+          query = query.eq('category', category);
+        }
+
+        const { data: items, error: newsErr } = await query;
+
+        if (newsErr) {
+          console.error('[NEWS-METRICS] Failed to fetch news items:', newsErr.message);
+          throw newsErr;
+        }
+
+        if (items && items.length > 0) {
+          allItems = allItems.concat(items);
+          from += CHUNK_SIZE;
+          if (items.length < CHUNK_SIZE) {
+            hasMore = false;
+          }
+        } else {
+          hasMore = false;
+        }
       }
 
-      const { data: items, error: newsErr } = await query;
-
-      if (newsErr) {
-        console.error('[NEWS-METRICS] Failed to fetch news items:', newsErr.message);
-        throw newsErr;
-      }
-
-      newsItems = items || [];
+      newsItems = allItems;
     }
 
-    // Determine which items are bookmarked if userId is provided
+    // Determine which items are bookmarked if userId is provided, paginated as well
     let bookmarkedIds = new Set<string>();
     if (userId) {
-      const { data: bookmarks, error: bookmarkErr } = await supabase
-        .from('news_bookmarks')
-        .select('news_id')
-        .eq('user_id', userId);
+      let allUserBookmarks: any[] = [];
+      let ubFrom = 0;
+      let ubHasMore = true;
 
-      if (!bookmarkErr && bookmarks) {
-        bookmarkedIds = new Set(bookmarks.map((b: any) => b.news_id));
+      while (ubHasMore) {
+        const { data: bookmarks, error: bookmarkErr } = await supabase
+          .from('news_bookmarks')
+          .select('news_id')
+          .eq('user_id', userId)
+          .range(ubFrom, ubFrom + CHUNK_SIZE - 1);
+
+        if (bookmarkErr) {
+          console.error('[NEWS-METRICS] Failed to fetch user bookmarks for mapping:', bookmarkErr.message);
+          break;
+        }
+
+        if (bookmarks && bookmarks.length > 0) {
+          allUserBookmarks = allUserBookmarks.concat(bookmarks);
+          ubFrom += CHUNK_SIZE;
+          if (bookmarks.length < CHUNK_SIZE) {
+            ubHasMore = false;
+          }
+        } else {
+          ubHasMore = false;
+        }
       }
+
+      bookmarkedIds = new Set(allUserBookmarks.map((b: any) => b.news_id));
     }
 
     // Format DB snake_case to camelCase expected by frontend
@@ -860,8 +1083,9 @@ app.post('/api/broker/groww/import-excel', upload.single('file'), async (req, re
   }
 
   try {
-    console.log(`[EXCEL-IMPORT] Processing report for portfolio: ${portfolioId} (User: ${userId})`);
-    const result = await ExcelImportService.importGrowwOrders(file.buffer, portfolioId, userId);
+    const dbUserId = getDbUserId(userId);
+    console.log(`[EXCEL-IMPORT] Processing report for portfolio: ${portfolioId} (User: ${dbUserId})`);
+    const result = await ExcelImportService.importGrowwOrders(file.buffer, portfolioId, dbUserId);
     res.json({ success: true, ...result });
   } catch (err: any) {
     console.error("[EXCEL-IMPORT] Failed:", err.message);
@@ -882,8 +1106,9 @@ app.post('/api/broker/zerodha/import-csv', upload.single('file'), async (req, re
   }
 
   try {
-    console.log(`[ZERODHA-IMPORT] Processing CSV for portfolio: ${portfolioId} (User: ${userId})`);
-    const result = await ExcelImportService.importZerodhaCSV(file.buffer, portfolioId, userId);
+    const dbUserId = getDbUserId(userId);
+    console.log(`[ZERODHA-IMPORT] Processing CSV for portfolio: ${portfolioId} (User: ${dbUserId})`);
+    const result = await ExcelImportService.importZerodhaCSV(file.buffer, portfolioId, dbUserId);
     res.json({ success: true, ...result });
   } catch (err: any) {
     console.error("[ZERODHA-IMPORT] Failed:", err.message);

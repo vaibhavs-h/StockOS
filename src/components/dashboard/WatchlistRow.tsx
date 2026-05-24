@@ -17,12 +17,20 @@ export const WatchlistRow: React.FC<WatchlistRowProps> = ({ asset, onRemove }) =
   const holding = asset.holding;
   const hasHolding = !!holding;
 
-  const terminalLink = asset.symbol.endsWith('.NS') || asset.symbol.endsWith('.BO')
-    ? `/stocks/${asset.symbol}`
-    : `/us-stocks/${asset.symbol}`;
+  const isMF = asset.market === 'MF' || asset.symbol.startsWith('INF') || (asset.symbol.length === 12 && asset.symbol.startsWith('IN'));
+
+  const terminalLink = isMF
+    ? `/mutual-funds/${asset.symbol}`
+    : (asset.symbol.endsWith('.NS') || asset.symbol.endsWith('.BO')
+      ? `/stocks/${asset.symbol}`
+      : `/us-stocks/${asset.symbol}`);
 
   // Get first letter for avatar
   const displayChar = asset.symbol.charAt(0).toUpperCase();
+
+  const displaySymbolStr = isMF
+    ? (asset.displaySymbol || asset.symbol)
+    : asset.symbol.split('.')[0];
 
   return (
     <motion.div
@@ -37,36 +45,39 @@ export const WatchlistRow: React.FC<WatchlistRowProps> = ({ asset, onRemove }) =
         <motion.div
           onMouseEnter={() => setIsHovered(true)}
           onMouseLeave={() => setIsHovered(false)}
-          whileHover={{ y: -5, scale: 1.02 }}
+          whileHover={{ y: -4, scale: 1.015 }}
           className={cn(
-            "relative p-6 rounded-[28px] border transition-all duration-500 overflow-hidden flex flex-col justify-between h-[140px] backdrop-blur-3xl",
+            "relative p-4 rounded-[24px] border transition-all duration-500 overflow-hidden flex flex-col justify-between h-[140px] backdrop-blur-3xl",
             "bg-white/[0.01] border-white/[0.05] group-hover:border-white/20 group-hover:bg-white/[0.03] shadow-xl",
             isHovered && (isUp ? "shadow-emerald-500/10" : "shadow-rose-500/10")
           )}
         >
           {/* Dynamic Atmospheric Glow */}
           <div className={cn(
-            "absolute -bottom-12 -right-12 size-44 blur-[55px] transition-all duration-700 opacity-0 group-hover:opacity-20",
+            "absolute -bottom-10 -right-10 size-36 blur-[45px] transition-all duration-700 opacity-0 group-hover:opacity-20",
             isUp ? "bg-emerald-500" : "bg-rose-500"
           )} />
 
           {/* Top Section: Identity & Action HUD */}
           <div className="flex justify-between items-start z-10 relative">
-            <div className="flex items-center gap-4">
+            <div className="flex items-center gap-3.5">
               <AssetLogo
                 symbol={asset.symbol}
                 name={asset.name}
                 size="md"
                 className="shrink-0"
               />
-              <div className="flex flex-col">
-                <div className="flex items-center gap-2">
-                  <h3 className="text-[18px] font-black text-white tracking-tighter uppercase leading-none drop-shadow-2xl">
-                    {asset.symbol.split('.')[0]}
+              <div className="flex flex-col min-w-0">
+                <div className="flex items-center gap-1.5">
+                  <h3 className={cn(
+                    "text-[16px] font-black text-white tracking-tighter uppercase leading-none drop-shadow-2xl truncate",
+                    isMF && "text-[13px] max-w-[130px]"
+                  )}>
+                    {displaySymbolStr}
                   </h3>
-                  {hasHolding && <div className="size-1 rounded-full bg-cyan-400 shadow-[0_0_10px_rgba(34,211,238,0.6)] animate-pulse" />}
+                  {hasHolding && <div className="size-1 rounded-full bg-cyan-400 shadow-[0_0_10px_rgba(34,211,238,0.6)] animate-pulse shrink-0" />}
                 </div>
-                <p className="text-[10px] text-zinc-400 font-bold uppercase tracking-[0.2em] truncate max-w-[120px] opacity-60 mt-1.5">
+                <p className="text-[10px] text-zinc-400 font-bold uppercase tracking-[0.15em] truncate max-w-[110px] opacity-60 mt-1">
                   {asset.name}
                 </p>
               </div>
@@ -80,9 +91,9 @@ export const WatchlistRow: React.FC<WatchlistRowProps> = ({ asset, onRemove }) =
                   e.stopPropagation();
                   onRemove(asset.symbol);
                 }}
-                className="p-2 rounded-lg bg-rose-500/10 text-rose-500 hover:text-white transition-all border border-rose-500/30 hover:bg-rose-500 hover:shadow-[0_0_15px_rgba(244,63,94,0.4)]"
+                className="p-1.5 rounded-lg bg-rose-500/10 text-rose-500 hover:text-white transition-all border border-rose-500/30 hover:bg-rose-500 hover:shadow-[0_0_15px_rgba(244,63,94,0.4)]"
               >
-                <Trash2 className="w-4 h-4" />
+                <Trash2 className="w-3.5 h-3.5" />
               </button>
             </div>
           </div>
@@ -90,18 +101,30 @@ export const WatchlistRow: React.FC<WatchlistRowProps> = ({ asset, onRemove }) =
           {/* Bottom Section: Market Hero Rail */}
           <div className="flex justify-between items-end z-10">
             <div className="flex flex-col">
-              <span className="text-[19px] font-black text-white font-mono tracking-tighter tabular-nums leading-none">
-                ₹{asset.current_price?.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-              </span>
+              {isMF ? (
+                <div className="flex items-baseline gap-1.5">
+                  <span className="text-[8px] font-black text-purple-400 uppercase tracking-widest bg-purple-500/10 px-2 py-0.5 rounded-full border border-purple-500/20 shrink-0">NAV</span>
+                  <span className="text-[19px] font-black text-white font-mono tracking-tighter tabular-nums leading-none">
+                    ₹{asset.current_price != null ? Number(asset.current_price).toFixed(2) : '-'}
+                  </span>
+                </div>
+              ) : (
+                <div className="flex items-baseline gap-1.5">
+                  <span className="text-[8px] font-black text-cyan-400 uppercase tracking-widest bg-cyan-500/10 px-2 py-0.5 rounded-full border border-cyan-500/20 shrink-0">LTP</span>
+                  <span className="text-[19px] font-black text-white font-mono tracking-tighter tabular-nums leading-none">
+                    ₹{asset.current_price?.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </span>
+                </div>
+              )}
               {hasHolding && (
-                <span className="text-[8px] text-zinc-500 font-black uppercase tracking-[0.2em] mt-2.5 opacity-80">
-                  {holding.quantity} UNITS
+                <span className="text-[8px] text-zinc-500 font-black uppercase tracking-[0.15em] mt-1.5 opacity-80">
+                  {isMF ? `${Number(holding.quantity).toFixed(2)} UNITS` : `${holding.quantity} SHARES`}
                 </span>
               )}
             </div>
 
             <div className={cn(
-              "px-3 py-1.5 rounded-full border text-[11px] font-black tabular-nums tracking-tighter transition-all duration-500 shadow-lg",
+              "px-2.5 py-0.5 rounded-full border text-[10px] font-black tabular-nums tracking-tighter transition-all duration-500 shadow-md",
               isUp
                 ? "text-emerald-400 border-emerald-500/20 bg-emerald-500/10"
                 : "text-rose-400 border-rose-500/20 bg-rose-500/10"

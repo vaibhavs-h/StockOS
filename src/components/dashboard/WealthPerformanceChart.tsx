@@ -10,6 +10,7 @@ interface WealthChartProps {
   locale?: string;
   timezoneLabel?: string;
   isProfitOverride?: boolean;
+  theme?: 'emerald' | 'purple';
 }
 
 export const WealthPerformanceChart: React.FC<WealthChartProps> = ({ 
@@ -17,7 +18,8 @@ export const WealthPerformanceChart: React.FC<WealthChartProps> = ({
   currency = 'INR', 
   locale = 'en-IN',
   timezoneLabel = 'IST',
-  isProfitOverride
+  isProfitOverride,
+  theme = 'emerald'
 }) => {
 
   const chartContainerRef = useRef<HTMLDivElement>(null);
@@ -71,8 +73,13 @@ export const WealthPerformanceChart: React.FC<WealthChartProps> = ({
       ? isProfitOverride 
       : (displayData.length >= 2 ? displayData[displayData.length - 1].value >= displayData[0].value : true);
       
-    const color = isProfit ? '#10b981' : '#ef4444';
-    const rgba = isProfit ? '16, 185, 129' : '239, 68, 68';
+    const color = theme === 'purple'
+      ? '#a855f7'
+      : (isProfit ? '#10b981' : '#ef4444');
+      
+    const rgba = theme === 'purple'
+      ? '168, 85, 247'
+      : (isProfit ? '16, 185, 129' : '239, 68, 68');
 
 
     const chart = createChart(chartContainerRef.current, {

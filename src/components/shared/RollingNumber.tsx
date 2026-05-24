@@ -77,7 +77,7 @@ export function RollingNumber({
   }, [displayValue])
 
   return (
-    <motion.span ref={ref} className={className}>
+    <motion.span ref={ref} className={`whitespace-nowrap ${className}`}>
       {displayValue.get()}
     </motion.span>
   )

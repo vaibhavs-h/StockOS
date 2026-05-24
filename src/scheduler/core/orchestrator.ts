@@ -14,6 +14,7 @@ export interface QueueItem {
   addedAt: number;
   startedAt?: number;
   completedAt?: number;
+  resolve?: (value: { success: boolean; error?: any }) => void;
 }
 
 export interface QueueMetrics {
@@ -42,10 +43,10 @@ class SyncOrchestrator {
   private activeWorkers: number = 0;
   private logs: { timestamp: string, message: string, type: 'info' | 'success' | 'error' | 'warn' }[] = [];
   
-  private addLog(message: string, type: 'info' | 'success' | 'error' | 'warn' = 'info') {
+  public addLog(message: string, type: 'info' | 'success' | 'error' | 'warn' = 'info') {
     const log = { timestamp: new Date().toISOString(), message, type };
     this.logs.push(log);
-    if (this.logs.length > 50) this.logs.shift();
+    if (this.logs.length > 1000) this.logs.shift();
     return log;
   }
 
@@ -80,42 +81,45 @@ class SyncOrchestrator {
    * Dispatches a job to the queue. 
    * Mimics `BullQueue.add()`
    */
-  public dispatch(job: BaseJob, data?: any): void {
+  public dispatch(job: BaseJob, data?: any): Promise<{ success: boolean; error?: any }> {
     if (syncLockManager.isLocked(job.id)) {
       console.log(`[QUEUE SKIP] Job ${job.id} is already in the queue or running.`);
-      return;
+      return Promise.resolve({ success: false, error: new Error('Job is locked') });
     }
 
     // Acquire lock to prevent duplicate enqueues
     syncLockManager.acquire(job.id);
     this.metrics.activeLocks++;
     
-    this.queue.push({
-      jobId: job.id,
-      job,
-      metadata: job.metadata,
-      data,
-      status: 'pending',
-      addedAt: Date.now(),
+    return new Promise<{ success: boolean; error?: any }>((resolve) => {
+      this.queue.push({
+        jobId: job.id,
+        job,
+        metadata: job.metadata,
+        data,
+        status: 'pending',
+        addedAt: Date.now(),
+        resolve
+      });
+
+      this.metrics.pendingCount++;
+
+      const logMsg = `[ORCHESTRATOR] DISPATCH | ${job.id.padEnd(20)} | Priority: ${job.metadata.priority}`;
+      this.addLog(logMsg, 'info');
+      console.log(logMsg + ` | Queue: ${job.metadata.bullMqQueueName}`);
+      
+      // Sort queue strictly by priority (Lower number = Higher Priority)
+      // BullMQ standard: 1 is highest priority.
+      this.queue.sort((a, b) => {
+        // Only sort pending items. Running items stay where they are.
+        if (a.status !== 'pending') return -1;
+        if (b.status !== 'pending') return 1;
+        return a.metadata.priority - b.metadata.priority;
+      });
+
+      // Trigger worker loop
+      this.processQueue();
     });
-
-    this.metrics.pendingCount++;
-
-    const logMsg = `[ORCHESTRATOR] DISPATCH | ${job.id.padEnd(20)} | Priority: ${job.metadata.priority}`;
-    this.addLog(logMsg, 'info');
-    console.log(logMsg + ` | Queue: ${job.metadata.bullMqQueueName}`);
-    
-    // Sort queue strictly by priority (Lower number = Higher Priority)
-    // BullMQ standard: 1 is highest priority.
-    this.queue.sort((a, b) => {
-      // Only sort pending items. Running items stay where they are.
-      if (a.status !== 'pending') return -1;
-      if (b.status !== 'pending') return 1;
-      return a.metadata.priority - b.metadata.priority;
-    });
-
-    // Trigger worker loop
-    this.processQueue();
   }
 
   /**
@@ -155,6 +159,9 @@ class SyncOrchestrator {
       const logMsg = `[ORCHESTRATOR] SUCCESS  | ${item.jobId.padEnd(20)} | Time: ${Date.now() - item.startedAt}ms`;
       this.addLog(logMsg, 'success');
       console.log(logMsg);
+      if (item.resolve) {
+        item.resolve({ success: true });
+      }
     } catch (error) {
       item.status = 'failed';
       this.metrics.failedCount++;
@@ -162,6 +169,9 @@ class SyncOrchestrator {
       const logMsg = `[ORCHESTRATOR] FAILED   | ${item.jobId.padEnd(20)} | Error: ${(error as any).message}`;
       this.addLog(logMsg, 'error');
       console.error(logMsg);
+      if (item.resolve) {
+        item.resolve({ success: false, error });
+      }
     } finally {
       item.completedAt = Date.now();
       this.metrics.runningCount--;

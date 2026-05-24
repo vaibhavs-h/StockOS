@@ -28,6 +28,13 @@ export abstract class BaseJob<T = any> {
   };
 
   /**
+   * Helper to log messages to the orchestrator logs.
+   */
+  protected log(message: string, type: 'info' | 'success' | 'error' | 'warn' = 'info'): void {
+    syncOrchestrator.addLog(`[${this.id}] ${message}`, type);
+  }
+
+  /**
    * The actual business logic to be implemented by child classes.
    * Returns the number of records processed.
    */

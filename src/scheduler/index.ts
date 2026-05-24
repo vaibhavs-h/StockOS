@@ -42,6 +42,17 @@ export function initializeScheduler() {
     syncOrchestrator.dispatch(new IndianDeepSyncJob());
   }, { timezone: 'Asia/Kolkata' });
 
+  // 3b. MUTUAL FUND EOD INGESTION: Ingests AMFI daily NAVs (Fires daily at 11:30 PM, 11:35 PM, 11:40 PM, and 11:45 PM IST)
+  cron.schedule('30,35,40,45 23 * * *', async () => {
+    console.log('[SCHEDULER] Dispatching Nightly Mutual Fund EOD Sync...');
+    try {
+      const { mfSyncCoordinator } = require('./core/MFSyncCoordinator');
+      await mfSyncCoordinator.syncActiveMutualFunds();
+    } catch (err: any) {
+      console.error('[SCHEDULER] Nightly Mutual Fund Sync failed:', err.message);
+    }
+  }, { timezone: 'Asia/Kolkata' });
+
   // US (Market closes 4:00 PM EST)
   cron.schedule('15 16 * * *', () => {
     syncOrchestrator.dispatch(new UsDeepSyncJob());

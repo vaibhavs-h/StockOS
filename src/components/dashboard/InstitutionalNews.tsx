@@ -162,7 +162,7 @@ export const InstitutionalNews: React.FC = () => {
                   Terminal Quiet
                 </p>
                 <p className="text-[11px] text-zinc-700 leading-relaxed max-w-[180px]">
-                  No high-impact signals recorded for today's IST session.
+                  No high-impact news recorded for today.
                 </p>
               </div>
             </motion.div>

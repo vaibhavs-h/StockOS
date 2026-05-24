@@ -75,7 +75,7 @@ export function TacticalHeader() {
                   >
                     <div className="flex items-center gap-3">
                       <SearchIcon className="size-4 text-black" />
-                      <span className="text-xs font-bold tracking-tight text-black">Search Stocks...</span>
+                      <span className="text-xs font-bold tracking-tight text-black">Search Stocks, Mutual Funds & ETFs...</span>
                     </div>
                   </Button>
                 </MarketSearch>

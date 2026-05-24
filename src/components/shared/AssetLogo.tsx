@@ -12,16 +12,56 @@ interface AssetLogoProps {
   size?: 'sm' | 'md' | 'lg' | 'xl';
 }
 
+const resolveMFKey = (name: string): string | null => {
+  const nameLower = name.toLowerCase();
+  const keywords = [
+    'hdfc', 'sbi', 'icici', 'prudential', 'axis', 'kotak', 'tata', 
+    'aditya', 'birla', 'uti', 'lic', 'motilal', 'groww', 'franklin', 
+    'dsp', 'mirae', 'ppfas', 'parag', 'quant', 'canara', 'edelweiss', 
+    'sundaram', 'hsbc', 'bandhan', 'invesco', 'zerodha', 'nippon', 
+    'reliance', 'jm', 'whiteoak', 'navi', 'pgim', 'union', 'bajaj', 
+    'samco', 'helios', '360', 'iifl', 'baroda', 'bnp', 'shriram', 
+    'mahindra', 'taurus', 'angel', 'capitalmind', 'abakkus'
+  ];
+  for (const key of keywords) {
+    if (nameLower.includes(key)) {
+      if (key === 'prudential') return 'icici';
+      if (key === 'aditya' || key === 'birla') return 'birla';
+      if (key === 'parag') return 'ppfas';
+      if (key === 'reliance') return 'nippon';
+      if (key === 'iifl' || key === '360') return '360_one';
+      if (key === 'bnp') return 'baroda';
+      return key;
+    }
+  }
+  return null;
+};
+
 export const AssetLogo: React.FC<AssetLogoProps> = ({
   symbol,
   name,
   className,
   size = 'md'
 }) => {
-  const cleanSymbol = symbol.replace('.NS', '').replace('.BO', '').toLowerCase();
-  const market = (symbol.endsWith('.NS') || symbol.endsWith('.BO')) ? 'in' : 'us';
+  // Determine if it is a mutual fund or ETF
+  const amcKey = name ? resolveMFKey(name) : null;
+  
+  // 12-character ISIN check or matching an AMC keyword or symbol/name containing mutual fund clues
+  const isMF = (symbol.length === 12 && (symbol.toUpperCase().startsWith('INF') || /^[A-Z0-9]{12}$/.test(symbol.toUpperCase()))) ||
+               !!amcKey ||
+               (name && (name.toUpperCase().includes('MUTUAL FUND') || name.toUpperCase().includes('ETF') || name.toUpperCase().includes('INDEX FUND')));
+
+  const cleanSymbol = isMF && amcKey 
+    ? amcKey 
+    : symbol.replace('.NS', '').replace('.BO', '').toLowerCase();
+
+  const market = isMF ? 'mf' : (symbol.endsWith('.NS') || symbol.endsWith('.BO')) ? 'in' : 'us';
   const colors = getAssetColors(symbol);
-  const letter = symbol.replace('.NS', '').replace('.BO', '').charAt(0).toUpperCase() || name?.charAt(0) || 'S';
+  
+  // Fallback monogram letter
+  const letter = isMF
+    ? (name ? name.trim().charAt(0).toUpperCase() : amcKey?.charAt(0).toUpperCase() || 'M')
+    : (symbol.replace('.NS', '').replace('.BO', '').charAt(0).toUpperCase() || name?.charAt(0) || 'S');
 
   const sizeClasses = {
     sm: 'size-7 rounded-lg text-[11px] min-w-[28px]',

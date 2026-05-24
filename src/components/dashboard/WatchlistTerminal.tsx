@@ -53,19 +53,34 @@ export const WatchlistTerminal: React.FC<WatchlistTerminalProps> = ({ userId, ho
 
       if (lists && lists.length > 0) {
         const allSymbols = Array.from(new Set(lists.flatMap(l => l.watchlist_assets?.map((a: any) => a.symbol) || [])));
-        const { data: marketAssets } = await supabase.from('market_assets').select('*').in('symbol', allSymbols);
-        const marketMap = new Map(marketAssets?.map(a => [a.symbol.trim().toUpperCase(), a]) || []);
+        
+        // Fetch in parallel from both market_assets and mutual_funds_master
+        const [marketAssetsRes, mfAssetsRes] = await Promise.all([
+          supabase.from('market_assets').select('*').in('symbol', allSymbols),
+          supabase.from('mutual_funds_master').select('isin, name, current_price, day_change_percentage, scheme_code, symbol').in('isin', allSymbols)
+        ]);
+
+        const marketMap = new Map(marketAssetsRes.data?.map(a => [a.symbol.trim().toUpperCase(), a]) || []);
+        const mfMap = new Map(mfAssetsRes.data?.map(a => [a.isin.trim().toUpperCase(), a]) || []);
 
         const activeHoldings = propHoldings || [];
         const holdingsMap = new Map();
         activeHoldings.forEach(h => {
-          if (!h || !h.symbol) return;
-          const clean = h.symbol.trim().toUpperCase();
-          const base = clean.split('.')[0];
-          holdingsMap.set(clean, h);
-          holdingsMap.set(base, h);
-          holdingsMap.set(`${base}.NS`, h);
-          holdingsMap.set(`${base}.BO`, h);
+          if (!h) return;
+          if (h.symbol) {
+            const clean = h.symbol.trim().toUpperCase();
+            const base = clean.split('.')[0];
+            holdingsMap.set(clean, h);
+            holdingsMap.set(base, h);
+            holdingsMap.set(`${base}.NS`, h);
+            holdingsMap.set(`${base}.BO`, h);
+          }
+          if (h.isin) {
+            holdingsMap.set(h.isin.trim().toUpperCase(), h);
+          }
+          if (h.scheme_code) {
+            holdingsMap.set(h.scheme_code.toString().trim(), h);
+          }
         });
 
         const formattedLists = lists.map(l => ({
@@ -74,10 +89,27 @@ export const WatchlistTerminal: React.FC<WatchlistTerminalProps> = ({ userId, ho
           assets: (l.watchlist_assets || []).map((wa: any) => {
             const sym = wa.symbol?.trim().toUpperCase();
             if (!sym) return null;
-            const marketData = marketMap.get(sym);
-            if (!marketData) return null;
-            const holding = holdingsMap.get(sym) || holdingsMap.get(sym.split('.')[0]);
-            return { ...marketData, holding: holding || null };
+            
+            const isMF = sym.startsWith('INF') || (sym.length === 12 && sym.startsWith('IN'));
+            if (isMF) {
+              const mfData = mfMap.get(sym);
+              if (!mfData) return null;
+              const holding = holdingsMap.get(sym) || holdingsMap.get(mfData.scheme_code);
+              return {
+                symbol: sym,
+                displaySymbol: mfData.symbol || sym,
+                name: mfData.name,
+                current_price: mfData.current_price,
+                day_change_percentage: mfData.day_change_percentage,
+                market: 'MF',
+                holding: holding || null
+              };
+            } else {
+              const marketData = marketMap.get(sym);
+              if (!marketData) return null;
+              const holding = holdingsMap.get(sym) || holdingsMap.get(sym.split('.')[0]);
+              return { ...marketData, holding: holding || null };
+            }
           }).filter(Boolean)
         }));
 
@@ -88,12 +120,13 @@ export const WatchlistTerminal: React.FC<WatchlistTerminalProps> = ({ userId, ho
         const currentActiveList = formattedLists.find(l => l.id === activeListIdToUse);
         if (currentActiveList && currentActiveList.assets) {
           const activeSymbols = currentActiveList.assets.map(a => a.symbol);
-          if (activeSymbols.length > 0) {
+          const stockSymbols = activeSymbols.filter(sym => !sym.startsWith('INF') && !(sym.length === 12 && sym.startsWith('IN')));
+          if (stockSymbols.length > 0) {
             const nowStr = new Date().toISOString();
             supabase
               .from('active_market_symbols')
               .update({ last_watchlist_seen_at: nowStr, last_viewed_at: nowStr })
-              .in('symbol', activeSymbols)
+              .in('symbol', stockSymbols)
               .then(() => {}); // Fire and forget
           }
         }
@@ -114,30 +147,52 @@ export const WatchlistTerminal: React.FC<WatchlistTerminalProps> = ({ userId, ho
   const syncAssetPrices = useCallback(async (symbolsToSync: string[]) => {
     if (symbolsToSync.length === 0) return;
     try {
-      const { data: updatedAssets } = await supabase
-        .from('market_assets')
-        .select('*')
-        .in('symbol', symbolsToSync);
+      const [updatedAssetsRes, updatedMfRes] = await Promise.all([
+        supabase.from('market_assets').select('*').in('symbol', symbolsToSync),
+        supabase.from('mutual_funds_master').select('isin, name, current_price, day_change_percentage, scheme_code, symbol').in('isin', symbolsToSync)
+      ]);
 
-      if (updatedAssets && updatedAssets.length > 0) {
+      const updatedAssets = updatedAssetsRes.data || [];
+      const updatedMfs = updatedMfRes.data || [];
+
+      if (updatedAssets.length > 0 || updatedMfs.length > 0) {
         const marketMap = new Map(updatedAssets.map(a => [a.symbol.trim().toUpperCase(), a]));
+        const mfMap = new Map(updatedMfs.map(a => [a.isin.trim().toUpperCase(), a]));
 
         // Heartbeat: Notify active_market_symbols registry that these stocks are being actively viewed on a watchlist
-        const nowStr = new Date().toISOString();
-        supabase
-          .from('active_market_symbols')
-          .update({ last_watchlist_seen_at: nowStr, last_viewed_at: nowStr })
-          .in('symbol', symbolsToSync)
-          .then(() => {}); // Fire and forget
+        const stockSymbols = symbolsToSync.filter(sym => !sym.startsWith('INF') && !(sym.length === 12 && sym.startsWith('IN')));
+        if (stockSymbols.length > 0) {
+          const nowStr = new Date().toISOString();
+          supabase
+            .from('active_market_symbols')
+            .update({ last_watchlist_seen_at: nowStr, last_viewed_at: nowStr })
+            .in('symbol', stockSymbols)
+            .then(() => {}); // Fire and forget
+        }
 
         setWatchlists(prevLists => prevLists.map(list => ({
           ...list,
           assets: list.assets.map(asset => {
             if (!asset || !asset.symbol) return asset;
             const cleanSymbol = asset.symbol.trim().toUpperCase();
-            const updatedData = marketMap.get(cleanSymbol);
-            if (updatedData) {
-              return { ...asset, ...updatedData };
+            
+            const isMF = cleanSymbol.startsWith('INF') || (cleanSymbol.length === 12 && cleanSymbol.startsWith('IN'));
+            if (isMF) {
+              const updatedData = mfMap.get(cleanSymbol);
+              if (updatedData) {
+                return {
+                  ...asset,
+                  name: updatedData.name,
+                  current_price: updatedData.current_price,
+                  day_change_percentage: updatedData.day_change_percentage,
+                  displaySymbol: updatedData.symbol || cleanSymbol
+                };
+              }
+            } else {
+              const updatedData = marketMap.get(cleanSymbol);
+              if (updatedData) {
+                return { ...asset, ...updatedData };
+              }
             }
             return asset;
           }).filter(Boolean)
@@ -267,7 +322,7 @@ export const WatchlistTerminal: React.FC<WatchlistTerminalProps> = ({ userId, ho
   };
 
   return (
-    <div className="flex flex-col h-auto bg-[#0a0d14]/80 backdrop-blur-3xl overflow-hidden rounded-[40px] border border-white/10 shadow-2xl">
+    <div className="flex flex-col h-full bg-[#0a0d14]/80 backdrop-blur-3xl overflow-hidden rounded-[40px] border border-white/10 shadow-2xl">
       {/* Scalable Ultra-Rounded Header */}
       <div className="px-6 py-3 flex items-center justify-between shrink-0 border-b border-white/[0.05] bg-gradient-to-r from-white/[0.05] to-transparent backdrop-blur-3xl z-20 rounded-t-[39px]">
         <div className="flex items-center gap-10 flex-1 min-w-0">
@@ -338,7 +393,7 @@ export const WatchlistTerminal: React.FC<WatchlistTerminalProps> = ({ userId, ho
       </div>
 
       {/* Main Content Area */}
-      <div className="pt-4 pb-5 px-6 relative">
+      <div className="flex-1 pt-4 pb-5 px-6 relative flex flex-col justify-between">
         <div className="absolute inset-0 opacity-[0.02] pointer-events-none"
           style={{ backgroundImage: 'radial-gradient(circle, white 1px, transparent 1px)', backgroundSize: '30px 30px' }} />
 
@@ -347,7 +402,7 @@ export const WatchlistTerminal: React.FC<WatchlistTerminalProps> = ({ userId, ho
             {[1, 2, 3, 4, 5, 6].map(i => (
               <div
                 key={i}
-                className="relative h-[130px] rounded-[24px] border border-white/5 bg-white/[0.01] p-6 flex flex-col justify-between overflow-hidden"
+                className="relative h-[140px] rounded-[24px] border border-white/5 bg-white/[0.01] p-6 flex flex-col justify-between overflow-hidden"
               >
                 <motion.div
                   animate={{ x: ['-100%', '200%'] }}

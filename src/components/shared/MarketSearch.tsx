@@ -29,12 +29,17 @@ export function MarketSearch({ children }: { children: React.ReactNode }) {
         { data: inIndices }, 
         { data: usIndices },
         { count: inCount },
-        { count: usCount }
+        { count: usCount },
+        { count: mfCount }
       ] = await Promise.all([
         supabase.from("market_assets").select("*").in("symbol", indexSymbols),
         supabase.from("us_market_assets").select("*").in("symbol", indexSymbols),
         supabase.from("market_assets").select("*", { count: 'exact', head: true }),
-        supabase.from("us_market_assets").select("*", { count: 'exact', head: true })
+        supabase.from("us_market_assets").select("*", { count: 'exact', head: true }),
+        supabase.from("mutual_funds_master")
+          .select("*", { count: 'exact', head: true })
+          .not("symbol", "is", null)
+          .neq("symbol", "")
       ]);
       
       setIndices([
@@ -42,7 +47,7 @@ export function MarketSearch({ children }: { children: React.ReactNode }) {
         ...(usIndices || []).map(i => ({ ...i, market: 'US' }))
       ]);
 
-      setTotalAssets((inCount || 0) + (usCount || 0));
+      setTotalAssets((inCount || 0) + (usCount || 0) + (mfCount || 0));
     };
     fetchData();
   }, []);
@@ -59,7 +64,7 @@ export function MarketSearch({ children }: { children: React.ReactNode }) {
       if (query.length < 1) return;
 
       try {
-        const [{ data: inData }, { data: usData }] = await Promise.all([
+        const [{ data: inData }, { data: usData }, { data: mfData }] = await Promise.all([
           supabase.from("market_assets")
             .select("*")
             .or(`symbol.ilike.%${query}%,name.ilike.%${query}%`)
@@ -67,12 +72,23 @@ export function MarketSearch({ children }: { children: React.ReactNode }) {
           supabase.from("us_market_assets")
             .select("*")
             .or(`symbol.ilike.%${query}%,name.ilike.%${query}%`)
+            .limit(10),
+          supabase.from("mutual_funds_master")
+            .select("scheme_code, name, symbol, isin, current_price, day_change_percentage")
+            .not("symbol", "is", null)
+            .neq("symbol", "")
+            .or(`symbol.ilike.%${query}%,name.ilike.%${query}%,isin.ilike.%${query}%`)
             .limit(10)
         ]);
 
         const combined = [
           ...(inData || []).map(a => ({ ...a, market: 'IN' })),
-          ...(usData || []).map(a => ({ ...a, market: 'US' }))
+          ...(usData || []).map(a => ({ ...a, market: 'US' })),
+          ...(mfData || []).map(a => ({ 
+            ...a, 
+            market: 'MF',
+            symbol: a.isin || a.symbol
+          }))
         ];
         
         setResults(combined);
@@ -172,13 +188,17 @@ export function MarketSearch({ children }: { children: React.ReactNode }) {
                         <button
                           key={`${stock.market}-${stock.symbol}`}
                           onClick={() => {
-                            const route = stock.market === 'US' ? `/us-stocks/${stock.symbol}` : `/stocks/${stock.symbol}`;
+                            const route = stock.market === 'US' 
+                              ? `/us-stocks/${stock.symbol}` 
+                              : stock.market === 'MF'
+                                ? `/mutual-funds/${stock.isin}`
+                                : `/stocks/${stock.symbol}`;
                             router.push(route);
                             setIsOpen(false);
                           }}
                           className={cn(
                             "w-full flex items-center justify-between p-3 rounded-xl transition-all border border-transparent backdrop-blur-md group relative overflow-hidden",
-                            stock.day_change_percentage >= 0 
+                            (stock.day_change_percentage ?? 0) >= 0 
                               ? "hover:bg-emerald-500/10 hover:border-emerald-500/30 hover:scale-[1.01]" 
                               : "hover:bg-rose-500/10 hover:border-rose-500/30 hover:scale-[1.01]"
                           )}
@@ -193,38 +213,48 @@ export function MarketSearch({ children }: { children: React.ReactNode }) {
                             <div className="text-left">
                               <div className="flex items-center gap-2">
                                 <p className={cn(
-                                  "text-sm font-black font-headline tracking-tighter transition-colors drop-shadow-[0_0_5px_rgba(255,255,255,0.05)]",
-                                  stock.day_change_percentage >= 0 ? "group-hover:text-emerald-400" : "group-hover:text-rose-400"
+                                  "text-sm font-black font-headline tracking-tighter transition-colors drop-shadow-[0_0_5px_rgba(255,255,255,0.05)] truncate max-w-[180px] sm:max-w-[240px]",
+                                  (stock.day_change_percentage ?? 0) >= 0 ? "group-hover:text-emerald-400" : "group-hover:text-rose-400"
                                 )}>
-                                  {stock.symbol}
+                                  {stock.market === 'MF' ? stock.name : stock.symbol}
                                 </p>
                                 <span className={cn(
-                                  "text-[7px] font-black px-1 py-0.5 rounded uppercase tracking-tighter",
-                                  stock.market === 'US' ? "bg-blue-500/10 text-blue-400" : "bg-emerald-500/10 text-emerald-400"
+                                  "text-[7px] font-black px-1.5 py-0.5 rounded uppercase tracking-tighter shrink-0",
+                                  stock.market === 'US' 
+                                    ? "bg-blue-500/10 text-blue-400" 
+                                    : stock.market === 'MF'
+                                      ? "bg-purple-500/10 text-purple-400"
+                                      : "bg-emerald-500/10 text-emerald-400"
                                 )}>
-                                  {stock.market}
+                                  {stock.market === 'US' 
+                                    ? "US Equity" 
+                                    : stock.market === 'MF'
+                                      ? "Mutual Fund"
+                                      : "Indian Equity"}
                                 </span>
                               </div>
-                              <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest font-headline opacity-60 truncate w-32">
-                                {stock.name}
+                              <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest font-headline opacity-60 truncate w-36">
+                                {stock.market === 'MF' ? stock.symbol : stock.name}
                               </p>
                             </div>
                           </div>
                           <div className="text-right">
                             <p className="text-sm font-bold font-headline tabular-nums text-white drop-shadow-[0_0_8px_rgba(255,255,255,0.1)]">
-                              {formatCurrency(stock.current_price, stock.market)}
+                              {formatCurrency(stock.current_price, stock.market === 'MF' ? 'IN' : stock.market)}
                             </p>
                             <div className="flex items-center justify-end gap-1">
                               <p className={cn(
                                 "text-[10px] font-black font-headline drop-shadow-[0_0_5px_rgba(0,0,0,0.2)]",
-                                stock.day_change_percentage >= 0 ? "text-emerald-400" : "text-rose-400"
+                                (stock.day_change_percentage ?? 0) >= 0 ? "text-emerald-400" : "text-rose-400"
                               )}>
-                                {stock.day_change_percentage >= 0 ? "+" : ""}{stock.day_change_percentage?.toFixed(2)}%
+                                {stock.day_change_percentage != null 
+                                  ? `${stock.day_change_percentage >= 0 ? "+" : ""}${stock.day_change_percentage.toFixed(2)}%` 
+                                  : "0.00%"}
                               </p>
                               <ArrowRight className={cn(
                                 "size-3 opacity-0 -translate-x-2 transition-all",
                                 "group-hover:opacity-100 group-hover:translate-x-0",
-                                stock.day_change_percentage >= 0 ? "text-emerald-400" : "text-rose-400"
+                                (stock.day_change_percentage ?? 0) >= 0 ? "text-emerald-400" : "text-rose-400"
                               )} />
                             </div>
                           </div>
