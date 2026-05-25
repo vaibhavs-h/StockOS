@@ -228,7 +228,6 @@ export default function DashboardPage() {
 
 	const { data: session, status } = useSession()
 	const portfolioId = (session?.user as any)?.id || process.env.NEXT_PUBLIC_PORTFOLIO_ID || "guest";
-	const normalizedUuid = useMemo(() => getDbUserId(portfolioId), [portfolioId]);
 
 	const formattedName = useMemo(() => {
 		if (status === 'loading') return "Fetching User's Name...";
@@ -343,8 +342,8 @@ export default function DashboardPage() {
 			let data: any[] = [];
 			if (activePortfolio.id === 'total') {
 				const [eqRes, mfRes] = await Promise.all([
-					supabase.from('portfolio_history').select('*').in('user_id', [portfolioId, normalizedUuid]).order('timestamp', { ascending: true }),
-					supabase.from('mutual_fund_portfolio_history').select('*').eq('user_id', normalizedUuid).order('timestamp', { ascending: true })
+					supabase.from('portfolio_history').select('*').eq('user_id', portfolioId).order('timestamp', { ascending: true }),
+					supabase.from('mutual_fund_portfolio_history').select('*').eq('user_id', portfolioId).order('timestamp', { ascending: true })
 				]);
 				if (eqRes.error) throw eqRes.error;
 				if (mfRes.error) throw mfRes.error;
@@ -353,7 +352,7 @@ export default function DashboardPage() {
 				const mfData = (mfRes.data || []).map(h => ({ ...h, is_mf: true }));
 				data = [...eqData, ...mfData].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
 			} else if (isMFActive) {
-				let query = supabase.from('mutual_fund_portfolio_history').select('*').eq('user_id', normalizedUuid);
+				let query = supabase.from('mutual_fund_portfolio_history').select('*').eq('user_id', portfolioId);
 				if (activePortfolio.id !== 'mf_overall') {
 					query = query.eq('portfolio_id', activePortfolio.id);
 				}
@@ -363,7 +362,7 @@ export default function DashboardPage() {
 			} else {
 				let query = supabase.from('portfolio_history').select('*');
 				if (activePortfolio.id === 'overall') {
-					query = query.in('user_id', [portfolioId, normalizedUuid]);
+					query = query.eq('user_id', portfolioId);
 				} else {
 					query = query.eq('portfolio_id', activePortfolio.id);
 				}
@@ -457,7 +456,7 @@ export default function DashboardPage() {
 			const { data, error } = await supabase
 				.from('user_portfolios')
 				.select('*')
-				.in('user_id', [portfolioId, normalizedUuid])
+				.eq('user_id', portfolioId)
 				.order('is_primary', { ascending: false });
 
 			if (error) throw error;
@@ -657,7 +656,7 @@ export default function DashboardPage() {
 
 		fetchPortfolios();
 		fetchIndices();
-	}, [mounted, portfolioId, normalizedUuid]);
+	}, [mounted, portfolioId]);
 
 	// 2. Realtime Subscriptions for Holdings & History
 	useEffect(() => {
@@ -691,7 +690,7 @@ export default function DashboardPage() {
 					event: '*',
 					schema: 'public',
 					table: 'user_mutual_fund_holdings',
-					filter: `user_id=eq.${normalizedUuid}`
+					filter: `user_id=eq.${portfolioId}`
 				}, () => fetchMFPortfolio())
 				.subscribe();
 
@@ -701,7 +700,7 @@ export default function DashboardPage() {
 					event: '*',
 					schema: 'public',
 					table: 'mutual_fund_portfolio_history',
-					filter: `user_id=eq.${normalizedUuid}`
+					filter: `user_id=eq.${portfolioId}`
 				}, () => setTimeout(fetchHistory, 1000))
 				.subscribe();
 
@@ -719,7 +718,7 @@ export default function DashboardPage() {
 					event: '*',
 					schema: 'public',
 					table: 'user_mutual_fund_holdings',
-					filter: `user_id=eq.${normalizedUuid}`
+					filter: `user_id=eq.${portfolioId}`
 				}, () => fetchMFPortfolio())
 				.subscribe();
 
@@ -729,7 +728,7 @@ export default function DashboardPage() {
 					event: '*',
 					schema: 'public',
 					table: 'mutual_fund_portfolio_history',
-					filter: `user_id=eq.${normalizedUuid}`
+					filter: `user_id=eq.${portfolioId}`
 				}, () => setTimeout(fetchHistory, 1000))
 				.subscribe();
 
@@ -772,7 +771,7 @@ export default function DashboardPage() {
 				supabase.removeChannel(historySubscription);
 			};
 		}
-	}, [mounted, portfolioId, activePortfolio?.id, isMFActive, normalizedUuid]);
+	}, [mounted, portfolioId, activePortfolio?.id, isMFActive]);
 
 	useEffect(() => {
 		if (!mounted || !activePortfolio) return;
@@ -816,7 +815,7 @@ export default function DashboardPage() {
 			clearInterval(syncInterval);
 			clearInterval(pulseInterval);
 		};
-	}, [mounted, activePortfolio, holdings.length, portfolioId, normalizedUuid, status]);
+	}, [mounted, activePortfolio, holdings.length, portfolioId, status]);
 
 
 	// Unified Metrics Logic
@@ -3244,7 +3243,7 @@ export default function DashboardPage() {
 																			const formData = new FormData();
 																			formData.append('file', file);
 																			formData.append('portfolioId', tempPortfolio.id);
-																			formData.append('userId', normalizedUuid || "");
+																			formData.append('userId', portfolioId || "");
 																			const endpoint = newPortfolioType === 'GROWW' ? 'groww/import-excel' : 'zerodha/import-csv';
 																			const res = await axios.post(`${engineUrl}/api/broker/${endpoint}`, formData, {
 																				headers: { 'Content-Type': 'multipart/form-data' }
