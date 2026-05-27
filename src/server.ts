@@ -394,25 +394,25 @@ app.get('/api/sync/burst/mf', async (req, res) => {
       .from('mutual_funds_master')
       .update({
         symbol,
-        returns_1y:                 enrichData.returns_1y                 ?? null,
-        returns_3y:                 enrichData.returns_3y                 ?? null,
-        returns_5y:                 enrichData.returns_5y                 ?? null,
-        expense_ratio:              enrichData.expense_ratio              ?? null,
-        aum:                        enrichData.aum                        ?? null,
-        logo_url:                   enrichData.logo_url                   ?? null,
-        min_initial_investment:     enrichData.min_initial_investment     ?? null,
-        min_subsequent_investment:  enrichData.min_subsequent_investment  ?? null,
-        rating:                     enrichData.rating                     ?? null,
-        style_box_url:              enrichData.style_box_url              ?? null,
-        manager_name:               enrichData.manager_name               ?? null,
-        manager_start_date:         enrichData.manager_start_date         ?? null,
-        asset_allocation:           enrichData.asset_allocation           ?? null,
-        sector_allocations:         enrichData.sector_allocations         ?? null,
-        credit_ratings:             enrichData.credit_ratings             ?? null,
-        top_holdings:               enrichData.top_holdings               ?? null,
-        risk_statistics:            enrichData.risk_statistics            ?? null,
-        performance_history:        enrichData.performance_history        ?? null,
-        updated_at:                 new Date().toISOString()
+        returns_1y: enrichData.returns_1y ?? null,
+        returns_3y: enrichData.returns_3y ?? null,
+        returns_5y: enrichData.returns_5y ?? null,
+        expense_ratio: enrichData.expense_ratio ?? null,
+        aum: enrichData.aum ?? null,
+        logo_url: enrichData.logo_url ?? null,
+        min_initial_investment: enrichData.min_initial_investment ?? null,
+        min_subsequent_investment: enrichData.min_subsequent_investment ?? null,
+        rating: enrichData.rating ?? null,
+        style_box_url: enrichData.style_box_url ?? null,
+        manager_name: enrichData.manager_name ?? null,
+        manager_start_date: enrichData.manager_start_date ?? null,
+        asset_allocation: enrichData.asset_allocation ?? null,
+        sector_allocations: enrichData.sector_allocations ?? null,
+        credit_ratings: enrichData.credit_ratings ?? null,
+        top_holdings: enrichData.top_holdings ?? null,
+        risk_statistics: enrichData.risk_statistics ?? null,
+        performance_history: enrichData.performance_history ?? null,
+        updated_at: new Date().toISOString()
       })
       .eq('scheme_code', schemeCode);
 
@@ -439,7 +439,7 @@ app.post('/api/sync', async (req, res) => {
     console.log('[SERVER] Global Dashboard Sync triggered: Dispatching Equities & Mutual Funds sync...');
     syncOrchestrator.dispatch(new IndianLiveSyncJob());
     syncOrchestrator.dispatch(new UsLiveSyncJob());
-    
+
     // Proactively trigger Mutual Fund Sync & Revaluation in the background
     mfSyncCoordinator.syncActiveMutualFunds().catch(err => {
       console.error('[SERVER] Background Mutual Fund Active Sync failed:', err.message);
@@ -615,7 +615,7 @@ app.get('/api/news/monthly-metrics', async (req, res) => {
       while (sHasMore) {
         const { data: items, error: newsErr } = await supabase
           .from('news')
-          .select('*')
+          .select('id, title, published_at, category, stocks, impact, sentiment_score, ticker_sentiment, topics, source')
           .in('id', bookmarkedIds)
           .order('published_at', { ascending: false })
           .range(sFrom, sFrom + CHUNK_SIZE - 1);
@@ -646,7 +646,7 @@ app.get('/api/news/monthly-metrics', async (req, res) => {
       while (hasMore) {
         let query = supabase
           .from('news')
-          .select('*')
+          .select('id, title, published_at, category, stocks, impact, sentiment_score, ticker_sentiment, topics, source')
           .gte('published_at', startISO)
           .lte('published_at', endISO)
           .order('published_at', { ascending: false })
@@ -1197,22 +1197,22 @@ app.post('/api/portfolio/import-cas', upload.single('file'), async (req, res) =>
     res.json({ success: true, ...result });
   } catch (error: any) {
     console.error("[API-IMPORT-CAS] Ingestion crash:", error.message || error);
-    
+
     // Check specific decryption failure
     if (error.message && error.message.includes('DECRYPTION_FAILED')) {
-      return res.status(400).json({ 
-        error: "Decryption failed. The password provided is incorrect for this CAS PDF." 
+      return res.status(400).json({
+        error: "Decryption failed. The password provided is incorrect for this CAS PDF."
       });
     }
 
     if (error.message && error.message.includes('NO_HOLDINGS_FOUND')) {
-      return res.status(400).json({ 
-        error: "No holdings found. The uploaded PDF might not be a valid CAMS/KFintech CAS statement." 
+      return res.status(400).json({
+        error: "No holdings found. The uploaded PDF might not be a valid CAMS/KFintech CAS statement."
       });
     }
 
-    res.status(500).json({ 
-      error: error.message || "An unexpected error occurred during statement ingestion." 
+    res.status(500).json({
+      error: error.message || "An unexpected error occurred during statement ingestion."
     });
   }
 });
