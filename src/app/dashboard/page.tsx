@@ -372,8 +372,7 @@ export default function DashboardPage() {
 			}
 
 			if ((activePortfolio.id === 'overall' || activePortfolio.id === 'mf_overall' || activePortfolio.id === 'total') && data) {
-				// Aggregate multi-portfolio history by financial day
-				// Group by DateKey (YYYY-MM-DD) and PortfolioId/isMF combination to prevent collisions
+				// Aggregate multi-portfolio history by financial day using chronological carry-forward logic
 				const dayPortMap = new Map<string, Map<string, any>>();
 
 				data.forEach(h => {
@@ -401,12 +400,32 @@ export default function DashboardPage() {
 					}
 				});
 
-				// Now sum up all portfolios for each day
-				const aggregatedHistory = Array.from(dayPortMap.entries()).map(([dateKey, portMap]) => {
-					const snapshots = Array.from(portMap.values());
-					const firstSnapshot = snapshots[0];
-					const total_market_value = snapshots.reduce((sum, s) => sum + (Number(s.total_market_value) || 0), 0);
-					const total_investment = snapshots.reduce((sum, s) => sum + (Number(s.total_investment) || 0), 0);
+				// Sort the dates chronologically
+				const sortedDates = Array.from(dayPortMap.keys()).sort();
+
+				// Keep a running map of the latest known snapshots for each portfolio
+				const latestPortSnapshots = new Map<string, any>();
+
+				const aggregatedHistory = sortedDates.map(dateKey => {
+					const daySnapshots = dayPortMap.get(dateKey)!;
+
+					// Update running latest snapshots with today's data
+					daySnapshots.forEach((snap, portKey) => {
+						latestPortSnapshots.set(portKey, snap);
+					});
+
+					// Sum values of all portfolios up to this day
+					let total_market_value = 0;
+					let total_investment = 0;
+					let firstSnapshot: any = null;
+
+					latestPortSnapshots.forEach(snap => {
+						total_market_value += Number(snap.total_market_value) || 0;
+						total_investment += Number(snap.total_investment) || 0;
+						if (!firstSnapshot) {
+							firstSnapshot = snap;
+						}
+					});
 
 					return {
 						...firstSnapshot,
@@ -415,7 +434,7 @@ export default function DashboardPage() {
 						total_market_value,
 						total_investment
 					};
-				}).sort((a, b) => a.timestamp.localeCompare(b.timestamp));
+				});
 
 				setHistory(aggregatedHistory);
 			} else {
@@ -997,6 +1016,230 @@ export default function DashboardPage() {
 		return sortableItems;
 	}, [filteredMfHoldings, mfSortConfig]);
 
+	const sortedCombinedHoldings = useMemo(() => {
+		if (activePortfolio?.id !== 'total') return [];
+
+		// 1. Map Equities
+		const mappedEquities = holdings.map(asset => {
+			const quantity = Number(asset.quantity) || 0;
+			const averagePrice = Number(asset.average_price) || 0;
+			const investedValue = Number(asset.invested_value) || (quantity * averagePrice);
+			const marketValue = Number(asset.market_value) || 0;
+			const dayChange = Number(asset.day_change) || 0;
+			const dayChangePercentage = Number(asset.day_change_percentage) || 0;
+			const p_l = Number(asset.p_l) || 0;
+			const p_l_percentage = Number(asset.p_l_percentage) || 0;
+			const weight = totalNetWorth > 0 ? (marketValue / totalNetWorth) * 100 : 0;
+
+			return {
+				id: asset.id || asset.trading_symbol,
+				type: 'STOCK' as const,
+				symbol: asset.trading_symbol,
+				name: asset.trading_symbol.replace('.NS', '').replace('.BO', ''),
+				category: asset.trading_symbol.endsWith('.NS') ? 'NSE' : (asset.trading_symbol.endsWith('.BO') ? 'BSE' : 'EQUITY'),
+				quantity,
+				averagePrice,
+				investedValue,
+				marketValue,
+				dayChange,
+				dayChangePercentage,
+				weight,
+				p_l,
+				p_l_percentage,
+				link: `/stocks/${asset.trading_symbol}`,
+				portfolioName: asset.user_portfolios?.name
+			};
+		});
+
+		// 2. Map Mutual Funds
+		const mappedMFs = mfHoldings.map((h, idx) => {
+			const quantity = Number(h.quantity) || 0;
+			const averagePrice = Number(h.average_price) || 0;
+			const investedValue = Number(h.invested_value) || (quantity * averagePrice);
+			const marketValue = Number(h.market_value) || 0;
+			const dayChange = Number(h.day_change) || 0;
+
+			const prevDayValue = marketValue - dayChange;
+			const dayChangePercentage = prevDayValue > 0 ? (dayChange / prevDayValue) * 100 : 0;
+
+			const p_l = Number(h.p_l) || 0;
+			const p_l_percentage = Number(h.p_l_percentage) || 0;
+			const weight = totalNetWorth > 0 ? (marketValue / totalNetWorth) * 100 : 0;
+
+			return {
+				id: h.id || `mf-${idx}`,
+				type: 'MUTUAL_FUND' as const,
+				symbol: h.isin || h.symbol || 'MF',
+				name: h.fund_name || 'Mutual Fund',
+				category: h.category || 'Mutual Fund',
+				quantity,
+				averagePrice,
+				investedValue,
+				marketValue,
+				dayChange,
+				dayChangePercentage,
+				weight,
+				p_l,
+				p_l_percentage,
+				link: `/mutual-funds/${h.isin || h.scheme_code}`,
+				portfolioName: h.user_portfolios?.name
+			};
+		});
+
+		const combined = [...mappedEquities, ...mappedMFs];
+
+		// Filter
+		const query = searchQuery.toLowerCase().trim();
+		const filtered = combined.filter(item =>
+			item.name.toLowerCase().includes(query) ||
+			item.symbol.toLowerCase().includes(query) ||
+			item.category.toLowerCase().includes(query) ||
+			(item.portfolioName || '').toLowerCase().includes(query)
+		);
+
+		// Sort
+		if (sortConfig.key && sortConfig.direction) {
+			filtered.sort((a, b) => {
+				let aValue: any;
+				let bValue: any;
+				const key = sortConfig.key;
+
+				if (key === 'trading_symbol' || key === 'fund_name' || key === 'name') {
+					aValue = a.name.toLowerCase();
+					bValue = b.name.toLowerCase();
+				} else if (key === 'average_price') {
+					aValue = a.averagePrice;
+					bValue = b.averagePrice;
+				} else if (key === 'invested_value') {
+					aValue = a.investedValue;
+					bValue = b.investedValue;
+				} else if (key === 'market_value') {
+					aValue = a.marketValue;
+					bValue = b.marketValue;
+				} else if (key === 'day_change') {
+					aValue = a.dayChange;
+					bValue = b.dayChange;
+				} else if (key === 'p_l') {
+					aValue = a.p_l;
+					bValue = b.p_l;
+				} else if (key === 'weight') {
+					aValue = a.weight;
+					bValue = b.weight;
+				} else if (key === 'quantity') {
+					aValue = a.quantity;
+					bValue = b.quantity;
+				} else {
+					aValue = (a as any)[key];
+					bValue = (b as any)[key];
+				}
+
+				if (aValue < bValue) return sortConfig.direction === 'asc' ? -1 : 1;
+				if (aValue > bValue) return sortConfig.direction === 'asc' ? 1 : -1;
+				return 0;
+			});
+		}
+
+		return filtered;
+	}, [holdings, mfHoldings, searchQuery, sortConfig, totalNetWorth, activePortfolio]);
+
+	const consolidatedStats = useMemo(() => {
+		if (activePortfolio?.id !== 'total') return null;
+		let totalInvested = 0;
+		let totalMarket = 0;
+		let totalDayPL = 0;
+		let totalPLSum = 0;
+
+		sortedCombinedHoldings.forEach(item => {
+			totalInvested += item.investedValue;
+			totalMarket += item.marketValue;
+			totalDayPL += item.dayChange;
+			totalPLSum += item.p_l;
+		});
+
+		const dayChangePercentage = (totalMarket - totalDayPL) > 0 ? (totalDayPL / (totalMarket - totalDayPL)) * 100 : 0;
+		const totalPLPercentage = totalInvested > 0 ? (totalPLSum / totalInvested) * 100 : 0;
+
+		return {
+			totalInvested,
+			totalMarket,
+			totalDayPL,
+			dayChangePercentage,
+			totalPLSum,
+			totalPLPercentage,
+			stocksCount: sortedCombinedHoldings.filter(i => i.type === 'STOCK').length,
+			fundsCount: sortedCombinedHoldings.filter(i => i.type === 'MUTUAL_FUND').length
+		};
+	}, [sortedCombinedHoldings, activePortfolio]);
+
+	const mfStats = useMemo(() => {
+		let totalInvested = 0;
+		let totalMarket = 0;
+		let totalDayPL = 0;
+		let totalPLSum = 0;
+
+		sortedMfHoldings.forEach(h => {
+			const qty = Number(h.quantity) || 0;
+			const avg = Number(h.average_price) || 0;
+			const invested = Number(h.invested_value) || (qty * avg);
+			const market = Number(h.market_value) || 0;
+			const dayPL = Number(h.day_change) || 0;
+			const p_l = Number(h.p_l) || 0;
+
+			totalInvested += invested;
+			totalMarket += market;
+			totalDayPL += dayPL;
+			totalPLSum += p_l;
+		});
+
+		const dayChangePercentage = (totalMarket - totalDayPL) > 0 ? (totalDayPL / (totalMarket - totalDayPL)) * 100 : 0;
+		const totalPLPercentage = totalInvested > 0 ? (totalPLSum / totalInvested) * 100 : 0;
+
+		return {
+			totalInvested,
+			totalMarket,
+			totalDayPL,
+			dayChangePercentage,
+			totalPLSum,
+			totalPLPercentage,
+			count: sortedMfHoldings.length
+		};
+	}, [sortedMfHoldings]);
+
+	const equityStats = useMemo(() => {
+		let totalInvested = 0;
+		let totalMarket = 0;
+		let totalDayPL = 0;
+		let totalPLSum = 0;
+
+		sortedHoldings.forEach(h => {
+			const invested = Number(h.invested_value) || 0;
+			const market = Number(h.market_value) || 0;
+			const dayPL = Number(h.day_change) || 0;
+			const p_l = Number(h.p_l) || 0;
+
+			totalInvested += invested;
+			totalMarket += market;
+			totalDayPL += dayPL;
+			totalPLSum += p_l;
+		});
+
+		const dayChangePercentage = (totalMarket - totalDayPL) > 0 ? (totalDayPL / (totalMarket - totalDayPL)) * 100 : 0;
+		const totalPLPercentage = totalInvested > 0 ? (totalPLSum / totalInvested) * 100 : 0;
+
+		return {
+			totalInvested,
+			totalMarket,
+			totalDayPL,
+			dayChangePercentage,
+			totalPLSum,
+			totalPLPercentage,
+			count: sortedHoldings.length
+		};
+	}, [sortedHoldings]);
+
+
+
+
 	const requestSort = (key: string) => {
 		let direction: 'asc' | 'desc' | null = 'desc';
 		if (sortConfig.key === key && sortConfig.direction === 'desc') {
@@ -1241,6 +1484,51 @@ export default function DashboardPage() {
 			"min-h-screen bg-transparent text-on-surface font-ui-body selection:bg-emerald-500/30 relative overflow-x-hidden transition-opacity duration-700",
 			!mounted ? "opacity-0" : "opacity-100"
 		)}>
+
+			{/* Dynamic Ambient Background Atmosphere */}
+			<div className="absolute inset-0 pointer-events-none overflow-hidden select-none z-0">
+				<AnimatePresence mode="wait">
+					{activePortfolio?.id === 'total' ? (
+						<motion.div
+							key="total-glow"
+							initial={{ opacity: 0 }}
+							animate={{ opacity: 0.15 }}
+							exit={{ opacity: 0 }}
+							transition={{ duration: 1.2 }}
+							className="absolute inset-0"
+						>
+							<div className="absolute top-0 right-1/4 w-[600px] h-[600px] rounded-full bg-amber-500/10 blur-[150px]" />
+							<div className="absolute bottom-1/4 left-1/4 w-[700px] h-[700px] rounded-full bg-yellow-500/5 blur-[180px]" />
+						</motion.div>
+					) : isMFActive ? (
+						<motion.div
+							key="mf-glow"
+							initial={{ opacity: 0 }}
+							animate={{ opacity: 1 }}
+							exit={{ opacity: 0 }}
+							transition={{ duration: 1.2 }}
+							className="absolute inset-0"
+						>
+							<div className="absolute -top-32 right-1/4 w-[700px] h-[700px] rounded-full bg-emerald-500/[0.09] blur-[160px]" />
+							<div className="absolute bottom-0 left-0 w-[600px] h-[600px] rounded-full bg-teal-500/[0.06] blur-[180px]" />
+							<div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[1000px] h-[300px] rounded-full bg-emerald-600/[0.04] blur-[200px]" />
+						</motion.div>
+					) : (
+						<motion.div
+							key="equity-glow"
+							initial={{ opacity: 0 }}
+							animate={{ opacity: 1 }}
+							exit={{ opacity: 0 }}
+							transition={{ duration: 1.2 }}
+							className="absolute inset-0"
+						>
+							<div className="absolute -top-32 left-1/4 w-[700px] h-[700px] rounded-full bg-blue-500/[0.09] blur-[160px]" />
+							<div className="absolute bottom-0 right-0 w-[600px] h-[600px] rounded-full bg-indigo-500/[0.07] blur-[180px]" />
+							<div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[1000px] h-[300px] rounded-full bg-blue-600/[0.04] blur-[200px]" />
+						</motion.div>
+					)}
+				</AnimatePresence>
+			</div>
 
 			{/* Main Dashboard Layout Stack */}
 			<div className="pt-[130px] pb-24 px-12 max-w-full mx-auto w-full flex flex-col gap-6">
@@ -1817,8 +2105,22 @@ export default function DashboardPage() {
 						<div className="grid grid-cols-1 md:grid-cols-[2fr_1.2fr_1.2fr] gap-6 lg:gap-10 mb-0 items-end px-2">
 							{/* Metric 1: Total Net Worth */}
 							<div className="flex flex-col gap-1 min-w-[240px]">
-								<span className="font-terminal-label uppercase tracking-widest text-[11px] text-zinc-400 block mb-1 font-bold">Total Net Worth</span>
-								<h1 className="font-headline font-bold text-4xl md:text-5xl tracking-tighter text-white tabular-nums leading-none">
+								<div className="flex items-center gap-2 mb-1">
+									<span className="font-terminal-label uppercase tracking-widest text-[11px] text-zinc-400 font-bold">
+										{activePortfolio?.id === 'total' ? 'Unified Net Worth' : 'Total Net Worth'}
+									</span>
+									{activePortfolio?.id === 'total' && (
+										<span className="text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded bg-amber-500/10 border border-amber-500/20 text-amber-400 shadow-[0_0_10px_rgba(245,158,11,0.15)] leading-none">
+											Global
+										</span>
+									)}
+								</div>
+								<h1 className={cn(
+									"font-headline font-bold text-4xl md:text-5xl tracking-tighter text-white tabular-nums leading-none transition-all duration-500",
+									activePortfolio?.id === 'total' && "text-transparent bg-clip-text bg-gradient-to-r from-white via-amber-200 to-white drop-shadow-[0_0_30px_rgba(245,158,11,0.2)]",
+									isMFActive && "text-transparent bg-clip-text bg-gradient-to-r from-white via-emerald-300 to-white drop-shadow-[0_0_30px_rgba(16,185,129,0.25)]",
+									(!isMFActive && activePortfolio?.id !== 'total') && "text-transparent bg-clip-text bg-gradient-to-r from-white via-blue-300 to-white drop-shadow-[0_0_30px_rgba(99,102,241,0.25)]"
+								)}>
 									<RollingNumber value={totalNetWorth} currency prefix="₹" decimals={0} />
 								</h1>
 							</div>
@@ -1960,7 +2262,7 @@ export default function DashboardPage() {
 								holdingsHash={mfHoldings.map(h => `${h.id}-${h.quantity}`).join(',')}
 							/>
 						) : (
-							<PortfolioAnalyzer holdings={holdings} onRefresh={handleAnalyzerRefresh} />
+							<PortfolioAnalyzer holdings={holdings} mfHoldings={mfHoldings} activePortfolio={activePortfolio} onRefresh={handleAnalyzerRefresh} />
 						)}
 					</motion.aside>
 				</div>
@@ -1968,10 +2270,534 @@ export default function DashboardPage() {
 				{/* BOTTOM ROW: Asset Allocation Console */}
 				<div className="flex flex-col gap-6">
 
-					{/* MUTUAL FUNDS SECTION */}
-					{/* MUTUAL FUNDS SECTION */}
-					{mfHoldings.length > 0 && (activePortfolio?.id === 'total' || isMFActive) && (
+					{/* CONSOLIDATED HOLDINGS SECTION (TOTAL WEALTH ONLY) */}
+					{activePortfolio?.id === 'total' && (holdings.length > 0 || mfHoldings.length > 0) && (
 						<motion.div
+							initial={{ opacity: 0, y: 20 }}
+							animate={{ opacity: 1, y: 0 }}
+							transition={{ duration: 0.8, ease: [0.16, 1, 0.3, 1], delay: 0.2 }}
+							className="w-full"
+						>
+							<section className="glass-panel rounded-3xl overflow-hidden flex flex-col border border-white/10 shadow-2xl bg-gradient-to-b from-white/[0.02] to-transparent relative">
+								<AnimatePresence>
+									{isPortfolioDropdownOpen && (
+										<motion.div
+											initial={{ opacity: 0 }}
+											animate={{ opacity: 1 }}
+											exit={{ opacity: 0 }}
+											className="absolute inset-0 backdrop-blur-[4px] bg-black/10 z-50 pointer-events-none rounded-3xl"
+										/>
+									)}
+								</AnimatePresence>
+
+								<div className="px-6 py-4 border-b border-white/5 flex justify-between items-center bg-white/[0.01]">
+									<h3 className="font-terminal-label text-[11px] uppercase tracking-wider text-zinc-300 font-bold">Consolidated Portfolio Holdings</h3>
+									<div className="relative group">
+										<Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-emerald-500/50 group-focus-within:text-emerald-400 transition-colors w-3.5 h-3.5" />
+										<input
+											type="text"
+											placeholder="FILTER CONSOLIDATED HOLDINGS..."
+											value={searchQuery}
+											onChange={(e) => setSearchQuery(e.target.value)}
+											className="bg-white/[0.02] border border-white/10 text-[10px] tracking-[0.1em] font-terminal-label pl-10 pr-4 py-2.5 w-72 rounded-full focus:ring-1 focus:ring-emerald-500/40 focus:bg-white/[0.04] focus:outline-none placeholder:text-zinc-600 transition-all uppercase"
+										/>
+									</div>
+								</div>
+
+								<div className="overflow-x-auto overflow-y-auto max-h-[500px] custom-scrollbar">
+									<table className="w-full text-left border-collapse min-w-[1100px]">
+										<thead>
+											<tr className="bg-white/[0.02]">
+												<th
+													className="min-w-[240px] px-6 py-5 font-terminal-label text-[10px] uppercase tracking-[0.2em] text-zinc-500 font-black cursor-pointer hover:bg-white/[0.02] transition-colors group/header"
+													onClick={() => requestSort('trading_symbol')}
+												>
+													<div className="flex items-center gap-3">
+														Asset Details
+														<div className={cn(
+															"flex items-center justify-center size-5 rounded-md transition-all duration-300 relative overflow-hidden",
+															(sortConfig.key === 'trading_symbol' || sortConfig.key === 'fund_name') && sortConfig.direction ? "bg-emerald-500/15 text-emerald-400 shadow-[0_0_15px_rgba(16,185,129,0.15)]" : "text-zinc-600 group-hover/header:text-zinc-400"
+														)}>
+															<AnimatePresence mode="wait">
+																<motion.div
+																	key={`${sortConfig.key}-${sortConfig.direction}`}
+																	initial={{ opacity: 0, scale: 0.5, rotate: -10 }}
+																	animate={{ opacity: 1, scale: 1, rotate: 0 }}
+																	exit={{ opacity: 0, scale: 0.5, rotate: 10 }}
+																	transition={{ duration: 0.15, ease: "easeOut" }}
+																>
+																	{(sortConfig.key === 'trading_symbol' || sortConfig.key === 'fund_name') && sortConfig.direction === 'asc' ? (
+																		<ChevronUp className="size-3" />
+																	) : (sortConfig.key === 'trading_symbol' || sortConfig.key === 'fund_name') && sortConfig.direction === 'desc' ? (
+																		<ChevronDown className="size-3" />
+																	) : (
+																		<ArrowUpDown className="size-3 opacity-40" />
+																	)}
+																</motion.div>
+															</AnimatePresence>
+														</div>
+													</div>
+												</th>
+												<th
+													className="min-w-[110px] px-6 py-5 font-terminal-label text-[10px] uppercase tracking-[0.2em] text-zinc-500 text-right font-black cursor-pointer hover:bg-white/[0.02] transition-colors group/header"
+													onClick={() => requestSort('quantity')}
+												>
+													<div className="flex items-center justify-end gap-3">
+														Quantity
+														<div className={cn(
+															"flex items-center justify-center size-5 rounded-md transition-all duration-300 relative overflow-hidden",
+															sortConfig.key === 'quantity' && sortConfig.direction ? "bg-emerald-500/15 text-emerald-400 shadow-[0_0_15px_rgba(16,185,129,0.15)]" : "text-zinc-600 group-hover/header:text-zinc-400"
+														)}>
+															<AnimatePresence mode="wait">
+																<motion.div
+																	key={`${sortConfig.key === 'quantity'}-${sortConfig.direction}`}
+																	initial={{ opacity: 0, scale: 0.5, rotate: -10 }}
+																	animate={{ opacity: 1, scale: 1, rotate: 0 }}
+																	exit={{ opacity: 0, scale: 0.5, rotate: 10 }}
+																	transition={{ duration: 0.15, ease: "easeOut" }}
+																>
+																	{sortConfig.key === 'quantity' && sortConfig.direction === 'asc' ? (
+																		<ChevronUp className="size-3" />
+																	) : sortConfig.key === 'quantity' && sortConfig.direction === 'desc' ? (
+																		<ChevronDown className="size-3" />
+																	) : (
+																		<ArrowUpDown className="size-3 opacity-40" />
+																	)}
+																</motion.div>
+															</AnimatePresence>
+														</div>
+													</div>
+												</th>
+												<th
+													className="min-w-[120px] px-6 py-5 font-terminal-label text-[10px] uppercase tracking-[0.2em] text-zinc-500 text-right font-black cursor-pointer hover:bg-white/[0.02] transition-colors group/header"
+													onClick={() => requestSort('average_price')}
+												>
+													<div className="flex items-center justify-end gap-3">
+														Avg. Cost
+														<div className={cn(
+															"flex items-center justify-center size-5 rounded-md transition-all duration-300 relative overflow-hidden",
+															sortConfig.key === 'average_price' && sortConfig.direction ? "bg-emerald-500/15 text-emerald-400 shadow-[0_0_15px_rgba(16,185,129,0.15)]" : "text-zinc-600 group-hover/header:text-zinc-400"
+														)}>
+															<AnimatePresence mode="wait">
+																<motion.div
+																	key={`${sortConfig.key === 'average_price'}-${sortConfig.direction}`}
+																	initial={{ opacity: 0, scale: 0.5, rotate: -10 }}
+																	animate={{ opacity: 1, scale: 1, rotate: 0 }}
+																	exit={{ opacity: 0, scale: 0.5, rotate: 10 }}
+																	transition={{ duration: 0.15, ease: "easeOut" }}
+																>
+																	{sortConfig.key === 'average_price' && sortConfig.direction === 'asc' ? (
+																		<ChevronUp className="size-3" />
+																	) : sortConfig.key === 'average_price' && sortConfig.direction === 'desc' ? (
+																		<ChevronDown className="size-3" />
+																	) : (
+																		<ArrowUpDown className="size-3 opacity-40" />
+																	)}
+																</motion.div>
+															</AnimatePresence>
+														</div>
+													</div>
+												</th>
+												<th
+													className="min-w-[130px] px-6 py-5 font-terminal-label text-[10px] uppercase tracking-[0.2em] text-zinc-500 text-right font-black cursor-pointer hover:bg-white/[0.02] transition-colors group/header"
+													onClick={() => requestSort('invested_value')}
+												>
+													<div className="flex items-center justify-end gap-3">
+														Invested Value
+														<div className={cn(
+															"flex items-center justify-center size-5 rounded-md transition-all duration-300 relative overflow-hidden",
+															sortConfig.key === 'invested_value' && sortConfig.direction ? "bg-emerald-500/15 text-emerald-400 shadow-[0_0_15px_rgba(16,185,129,0.15)]" : "text-zinc-600 group-hover/header:text-zinc-400"
+														)}>
+															<AnimatePresence mode="wait">
+																<motion.div
+																	key={`${sortConfig.key === 'invested_value'}-${sortConfig.direction}`}
+																	initial={{ opacity: 0, scale: 0.5, rotate: -10 }}
+																	animate={{ opacity: 1, scale: 1, rotate: 0 }}
+																	exit={{ opacity: 0, scale: 0.5, rotate: 10 }}
+																	transition={{ duration: 0.15, ease: "easeOut" }}
+																>
+																	{sortConfig.key === 'invested_value' && sortConfig.direction === 'asc' ? (
+																		<ChevronUp className="size-3" />
+																	) : sortConfig.key === 'invested_value' && sortConfig.direction === 'desc' ? (
+																		<ChevronDown className="size-3" />
+																	) : (
+																		<ArrowUpDown className="size-3 opacity-40" />
+																	)}
+																</motion.div>
+															</AnimatePresence>
+														</div>
+													</div>
+												</th>
+												<th
+													className="min-w-[130px] px-6 py-5 font-terminal-label text-[10px] uppercase tracking-[0.2em] text-zinc-500 text-right font-black cursor-pointer hover:bg-white/[0.02] transition-colors group/header"
+													onClick={() => requestSort('market_value')}
+												>
+													<div className="flex items-center justify-end gap-3">
+														Current Value
+														<div className={cn(
+															"flex items-center justify-center size-5 rounded-md transition-all duration-300 relative overflow-hidden",
+															sortConfig.key === 'market_value' && sortConfig.direction ? "bg-emerald-500/15 text-emerald-400 shadow-[0_0_15px_rgba(16,185,129,0.15)]" : "text-zinc-600 group-hover/header:text-zinc-400"
+														)}>
+															<AnimatePresence mode="wait">
+																<motion.div
+																	key={`${sortConfig.key === 'market_value'}-${sortConfig.direction}`}
+																	initial={{ opacity: 0, scale: 0.5, rotate: -10 }}
+																	animate={{ opacity: 1, scale: 1, rotate: 0 }}
+																	exit={{ opacity: 0, scale: 0.5, rotate: 10 }}
+																	transition={{ duration: 0.15, ease: "easeOut" }}
+																>
+																	{sortConfig.key === 'market_value' && sortConfig.direction === 'asc' ? (
+																		<ChevronUp className="size-3" />
+																	) : sortConfig.key === 'market_value' && sortConfig.direction === 'desc' ? (
+																		<ChevronDown className="size-3" />
+																	) : (
+																		<ArrowUpDown className="size-3 opacity-40" />
+																	)}
+																</motion.div>
+															</AnimatePresence>
+														</div>
+													</div>
+												</th>
+												<th
+													className="min-w-[120px] px-6 py-5 font-terminal-label text-[10px] uppercase tracking-[0.2em] text-zinc-500 text-right font-black cursor-pointer hover:bg-white/[0.02] transition-colors group/header"
+													onClick={() => requestSort('day_change')}
+												>
+													<div className="flex items-center justify-end gap-3">
+														Day Change
+														<div className={cn(
+															"flex items-center justify-center size-5 rounded-md transition-all duration-300 relative overflow-hidden",
+															sortConfig.key === 'day_change' && sortConfig.direction ? "bg-emerald-500/15 text-emerald-400 shadow-[0_0_15px_rgba(16,185,129,0.15)]" : "text-zinc-600 group-hover/header:text-zinc-400"
+														)}>
+															<AnimatePresence mode="wait">
+																<motion.div
+																	key={`${sortConfig.key === 'day_change'}-${sortConfig.direction}`}
+																	initial={{ opacity: 0, scale: 0.5, rotate: -10 }}
+																	animate={{ opacity: 1, scale: 1, rotate: 0 }}
+																	exit={{ opacity: 0, scale: 0.5, rotate: 10 }}
+																	transition={{ duration: 0.15, ease: "easeOut" }}
+																>
+																	{sortConfig.key === 'day_change' && sortConfig.direction === 'asc' ? (
+																		<ChevronUp className="size-3" />
+																	) : sortConfig.key === 'day_change' && sortConfig.direction === 'desc' ? (
+																		<ChevronDown className="size-3" />
+																	) : (
+																		<ArrowUpDown className="size-3 opacity-40" />
+																	)}
+																</motion.div>
+															</AnimatePresence>
+														</div>
+													</div>
+												</th>
+												<th
+													className="min-w-[100px] px-6 py-5 font-terminal-label text-[10px] uppercase tracking-[0.2em] text-zinc-500 text-right font-black cursor-pointer hover:bg-white/[0.02] transition-colors group/header"
+													onClick={() => requestSort('weight')}
+												>
+													<div className="flex items-center justify-end gap-3">
+														Weight
+														<div className={cn(
+															"flex items-center justify-center size-5 rounded-md transition-all duration-300 relative overflow-hidden",
+															sortConfig.key === 'weight' && sortConfig.direction ? "bg-emerald-500/15 text-emerald-400 shadow-[0_0_15px_rgba(16,185,129,0.15)]" : "text-zinc-600 group-hover/header:text-zinc-400"
+														)}>
+															<AnimatePresence mode="wait">
+																<motion.div
+																	key={`${sortConfig.key === 'weight'}-${sortConfig.direction}`}
+																	initial={{ opacity: 0, scale: 0.5, rotate: -10 }}
+																	animate={{ opacity: 1, scale: 1, rotate: 0 }}
+																	exit={{ opacity: 0, scale: 0.5, rotate: 10 }}
+																	transition={{ duration: 0.15, ease: "easeOut" }}
+																>
+																	{sortConfig.key === 'weight' && sortConfig.direction === 'asc' ? (
+																		<ChevronUp className="size-3" />
+																	) : sortConfig.key === 'weight' && sortConfig.direction === 'desc' ? (
+																		<ChevronDown className="size-3" />
+																	) : (
+																		<ArrowUpDown className="size-3 opacity-40" />
+																	)}
+																</motion.div>
+															</AnimatePresence>
+														</div>
+													</div>
+												</th>
+												<th
+													className="min-w-[170px] px-6 py-5 font-terminal-label text-[10px] uppercase tracking-[0.2em] text-zinc-500 text-right font-black cursor-pointer hover:bg-white/[0.02] transition-colors group/header"
+													onClick={() => requestSort('p_l')}
+												>
+													<div className="flex items-center justify-end gap-3">
+														Total Returns
+														<div className={cn(
+															"flex items-center justify-center size-5 rounded-md transition-all duration-300 relative overflow-hidden",
+															sortConfig.key === 'p_l' && sortConfig.direction ? "bg-emerald-500/15 text-emerald-400 shadow-[0_0_15px_rgba(16,185,129,0.15)]" : "text-zinc-600 group-hover/header:text-zinc-400"
+														)}>
+															<AnimatePresence mode="wait">
+																<motion.div
+																	key={`${sortConfig.key === 'p_l'}-${sortConfig.direction}`}
+																	initial={{ opacity: 0, scale: 0.5, rotate: -10 }}
+																	animate={{ opacity: 1, scale: 1, rotate: 0 }}
+																	exit={{ opacity: 0, scale: 0.5, rotate: 10 }}
+																	transition={{ duration: 0.15, ease: "easeOut" }}
+																>
+																	{sortConfig.key === 'p_l' && sortConfig.direction === 'asc' ? (
+																		<ChevronUp className="size-3" />
+																	) : sortConfig.key === 'p_l' && sortConfig.direction === 'desc' ? (
+																		<ChevronDown className="size-3" />
+																	) : (
+																		<ArrowUpDown className="size-3 opacity-40" />
+																	)}
+																</motion.div>
+															</AnimatePresence>
+														</div>
+													</div>
+												</th>
+											</tr>
+										</thead>
+										<tbody className="divide-y divide-white/[0.03]">
+											{sortedCombinedHoldings.length === 0 ? (
+												<tr>
+													<td colSpan={8} className="py-24 text-center">
+														<div className="flex flex-col items-center gap-4 opacity-40">
+															<div className="w-12 h-12 rounded-full border border-emerald-500/20 flex items-center justify-center animate-pulse">
+																<Database className="w-5 h-5 text-emerald-500/50" />
+															</div>
+															<div className="flex flex-col gap-1">
+																<span className="font-terminal-label text-[10px] uppercase tracking-[0.4em] text-emerald-500">
+																	No Matching Assets Found
+																</span>
+																<span className="font-data-sm text-[11px] text-zinc-500 uppercase tracking-widest">
+																	Try a different search term
+																</span>
+															</div>
+														</div>
+													</td>
+												</tr>
+											) : (
+												<AnimatePresence>
+													{sortedCombinedHoldings.map((item) => (
+														<motion.tr
+															layout="position"
+															key={item.id}
+															initial={{ opacity: 0 }}
+															animate={{ opacity: 1 }}
+															exit={{ opacity: 0, scale: 0.98 }}
+															whileHover={{
+																backgroundColor: 'rgba(255, 255, 255, 0.02)',
+																transition: { duration: 0.2 }
+															}}
+															transition={{
+																layout: { duration: 0.4, ease: [0.16, 1, 0.3, 1] },
+																opacity: { duration: 0.3 }
+															}}
+															onClick={() => router.push(item.link)}
+															className="group cursor-pointer border-b border-white/[0.02] relative overflow-hidden"
+														>
+															<td className="min-w-[240px] px-6 py-6 relative">
+																<div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-700 pointer-events-none bg-[radial-gradient(circle_at_var(--mouse-x,50%)_var(--mouse-y,50%),rgba(16,185,129,0.05)_0%,transparent_70%)]" />
+																<div className="flex items-center gap-4 relative z-10">
+																	<div className={cn(
+																		"w-1 h-8 rounded-full transition-all duration-500 shrink-0",
+																		item.p_l >= 0 ? "bg-emerald-500/40" : "bg-red-500/40"
+																	)} />
+																	<AssetLogo
+																		symbol={item.symbol}
+																		name={item.name}
+																		size="sm"
+																		className="shrink-0"
+																	/>
+																	<div className="flex flex-col min-w-0">
+																		<div className="flex items-center gap-2">
+																			<span className="font-headline font-bold text-[14px] text-white tracking-tight group-hover:text-emerald-400 transition-colors leading-tight truncate max-w-[140px]">
+																				{item.name}
+																			</span>
+																			<span className={cn(
+																				"text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded border leading-none transition-all shrink-0",
+																				item.type === 'STOCK'
+																					? "bg-blue-500/10 border-blue-500/20 text-blue-400 shadow-[0_0_10px_rgba(59,130,246,0.15)]"
+																					: "bg-emerald-500/10 border-emerald-500/20 text-emerald-400 shadow-[0_0_10px_rgba(16,185,129,0.15)]"
+																			)}>
+																				{item.type === 'STOCK' ? 'Stock' : 'Fund'}
+																			</span>
+																		</div>
+																		<span className="font-terminal-label text-[9px] text-zinc-600 uppercase tracking-[0.1em] mt-0.5 truncate max-w-[180px]">
+																			<span className="flex items-center gap-1.5">
+																				{item.portfolioName && (
+																					<>
+																						<span className="text-zinc-400 font-black">{item.portfolioName}</span>
+																						<span className="opacity-30">•</span>
+																					</>
+																				)}
+																				<span className="text-zinc-500">{item.category}</span>
+																			</span>
+																		</span>
+																	</div>
+																</div>
+															</td>
+															<td className="min-w-[110px] px-6 py-6 text-right">
+																<span className="font-data-md text-sm text-zinc-400 tabular-nums">
+																	<RollingNumber value={item.quantity} decimals={item.type === 'STOCK' ? 0 : 3} />
+																	<span className="text-[9px] ml-1 text-zinc-600 uppercase">Unit</span>
+																</span>
+															</td>
+															<td className="min-w-[120px] px-6 py-6 text-right">
+																<span className="font-data-md text-sm text-zinc-400 tabular-nums">
+																	<RollingNumber value={item.averagePrice} currency prefix="₹" decimals={2} />
+																</span>
+															</td>
+															<td className="min-w-[130px] px-6 py-6 text-right">
+																<span className="font-data-md text-sm text-zinc-500/60 tabular-nums">
+																	<RollingNumber value={item.investedValue} currency prefix="₹" decimals={0} />
+																</span>
+															</td>
+															<td className="min-w-[130px] px-6 py-6 text-right">
+																<span className="font-data-md text-base text-white tabular-nums drop-shadow-sm font-bold">
+																	<RollingNumber value={item.marketValue} currency prefix="₹" decimals={0} />
+																</span>
+															</td>
+															<td className="min-w-[120px] px-6 py-6 text-right">
+																<div className="flex flex-col items-end">
+																	<span className={cn(
+																		"font-data-md text-[13px] font-bold tabular-nums",
+																		item.dayChange >= 0 ? "text-emerald-400" : "text-rose-400"
+																	)}>
+																		<RollingNumber value={Math.abs(item.dayChange)} currency prefix={item.dayChange >= 0 ? "+₹" : "-₹"} decimals={0} />
+																	</span>
+																	<span className={cn(
+																		"text-[10px] font-black tracking-tighter opacity-50",
+																		item.dayChange >= 0 ? "text-emerald-500" : "text-rose-500"
+																	)}>
+																		<RollingNumber value={item.dayChangePercentage} suffix="%" decimals={2} />
+																	</span>
+																</div>
+															</td>
+															<td className="min-w-[100px] px-6 py-6 text-right">
+																<div className="flex flex-col items-end gap-1.5">
+																	<span className="font-terminal-label text-[11px] text-zinc-500 font-bold">
+																		<RollingNumber value={item.weight} suffix="%" decimals={1} />
+																	</span>
+																	<div className="w-16 h-1 bg-white/[0.03] rounded-full overflow-hidden border border-white/5">
+																		<motion.div
+																			initial={{ width: 0 }}
+																			animate={{ width: `${Math.min(item.weight, 100)}%` }}
+																			transition={{ duration: 1, ease: "easeOut" }}
+																			className={cn(
+																				"h-full",
+																				item.type === 'STOCK' ? "bg-blue-500/40" : "bg-emerald-500/40"
+																			)}
+																		/>
+																	</div>
+																</div>
+															</td>
+															<td className="min-w-[170px] px-6 py-6 text-right">
+																<div className="flex flex-col items-end gap-1">
+																	<div className={cn(
+																		"px-2.5 py-1 rounded-lg flex items-center gap-1.5 transition-all",
+																		item.p_l >= 0 ? "bg-emerald-500/10 border border-emerald-500/20" : "bg-red-500/10 border border-red-500/20"
+																	)}>
+																		<span className={cn(
+																			"font-data-md text-sm font-black tabular-nums",
+																			item.p_l >= 0 ? "text-emerald-400" : "text-rose-400"
+																		)}>
+																			<RollingNumber value={Math.abs(item.p_l)} currency prefix={item.p_l >= 0 ? "+₹" : "-₹"} decimals={0} />
+																		</span>
+																	</div>
+																	<span className={cn(
+																		"font-terminal-label text-[11px] font-black tabular-nums opacity-40",
+																		item.p_l >= 0 ? "text-emerald-500" : "text-rose-500"
+																	)}>
+																		<RollingNumber value={item.p_l_percentage} suffix="%" decimals={2} />
+																	</span>
+																</div>
+															</td>
+														</motion.tr>
+													))}
+												</AnimatePresence>
+											)}
+										</tbody>
+									</table>
+								</div>
+
+								{consolidatedStats && (
+									<div className="px-8 py-5 bg-black/40 flex flex-col md:flex-row justify-between items-center border-t border-white/5 gap-4 relative">
+										{/* Glassmorphic Ambient Glow */}
+										<div className="absolute inset-0 bg-gradient-to-r from-blue-500/[0.01] to-emerald-500/[0.01] pointer-events-none" />
+
+										<div className="flex flex-col gap-1 z-10 shrink-0">
+											<span className="font-terminal-label text-[10px] text-white/30 uppercase tracking-[0.2em]">
+												Showing {sortedCombinedHoldings.length} of {holdings.length + mfHoldings.length} Assets
+											</span>
+											<span className="font-terminal-label text-[9px] text-zinc-500 uppercase tracking-wider flex items-center gap-2 mt-0.5">
+												<span className="text-blue-400/80 font-black">{consolidatedStats.stocksCount} Stocks</span>
+												<span className="opacity-20">•</span>
+												<span className="text-emerald-400/80 font-black">{consolidatedStats.fundsCount} Mutual Funds</span>
+											</span>
+										</div>
+
+										{/* Consolidated Totals Grid */}
+										<div className="flex flex-wrap items-center justify-end gap-x-8 gap-y-3 z-10 text-right w-full md:w-auto">
+											<div className="flex flex-col">
+												<span className="text-[9px] font-black text-zinc-500 uppercase tracking-widest leading-none mb-1">Total Invested</span>
+												<span className="font-data-md text-sm text-zinc-400 tabular-nums">
+													<RollingNumber value={consolidatedStats.totalInvested} currency prefix="₹" decimals={0} />
+												</span>
+											</div>
+
+											<div className="flex flex-col">
+												<span className="text-[9px] font-black text-zinc-500 uppercase tracking-widest leading-none mb-1">Current Worth</span>
+												<span className="font-data-md text-sm text-white font-black tabular-nums">
+													<RollingNumber value={consolidatedStats.totalMarket} currency prefix="₹" decimals={0} />
+												</span>
+											</div>
+
+											<div className="flex flex-col items-end">
+												<span className="text-[9px] font-black text-zinc-500 uppercase tracking-widest leading-none mb-1">Day Performance</span>
+												<div className="flex items-center gap-1.5">
+													<span className={cn(
+														"font-data-md text-xs font-bold tabular-nums",
+														consolidatedStats.totalDayPL >= 0 ? "text-emerald-400" : "text-rose-400"
+													)}>
+														<RollingNumber value={Math.abs(consolidatedStats.totalDayPL)} currency prefix={consolidatedStats.totalDayPL >= 0 ? "+₹" : "-₹"} decimals={0} />
+													</span>
+													<span className={cn(
+														"text-[9px] font-black tracking-tighter px-1 rounded-sm leading-none py-0.5 border shrink-0",
+														consolidatedStats.totalDayPL >= 0 ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-400" : "bg-rose-500/10 border-rose-500/20 text-rose-400"
+													)}>
+														<RollingNumber value={consolidatedStats.dayChangePercentage} suffix="%" decimals={2} />
+													</span>
+												</div>
+											</div>
+
+											<div className="flex flex-col items-end border-l border-white/5 pl-8">
+												<span className="text-[9px] font-black text-zinc-500 uppercase tracking-widest leading-none mb-1">Consolidated Returns</span>
+												<div className="flex items-center gap-2">
+													<div className={cn(
+														"px-2 py-0.5 rounded-lg flex items-center transition-all",
+														consolidatedStats.totalPLSum >= 0 ? "bg-emerald-500/10 border border-emerald-500/20" : "bg-red-500/10 border border-red-500/20"
+													)}>
+														<span className={cn(
+															"font-data-md text-xs font-black tabular-nums",
+															consolidatedStats.totalPLSum >= 0 ? "text-emerald-400" : "text-rose-400"
+														)}>
+															<RollingNumber value={Math.abs(consolidatedStats.totalPLSum)} currency prefix={consolidatedStats.totalPLSum >= 0 ? "+₹" : "-₹"} decimals={0} />
+														</span>
+													</div>
+													<span className={cn(
+														"font-terminal-label text-[10px] font-black tabular-nums opacity-55",
+														consolidatedStats.totalPLSum >= 0 ? "text-emerald-500" : "text-rose-500"
+													)}>
+														<RollingNumber value={consolidatedStats.totalPLPercentage} suffix="%" decimals={2} />
+													</span>
+												</div>
+											</div>
+										</div>
+									</div>
+								)}
+							</section>
+						</motion.div>
+					)}
+
+					{/* MUTUAL FUNDS SECTION */}
+					{/* MUTUAL FUNDS SECTION */}
+					{mfHoldings.length > 0 && isMFActive && activePortfolio?.id !== 'total' && (
+						<motion.div
+
 							initial={{ opacity: 0, y: 20 }}
 							animate={{ opacity: 1, y: 0 }}
 							transition={{ duration: 0.8, ease: [0.16, 1, 0.3, 1], delay: 0.2 }}
@@ -2435,12 +3261,86 @@ export default function DashboardPage() {
 										</tbody>
 									</table>
 								</div>
+
+								{mfStats && (
+									<div className="px-8 py-5 bg-black/40 flex flex-col md:flex-row justify-between items-center border-t border-white/5 gap-4 relative">
+										{/* Glassmorphic Ambient Glow */}
+										<div className="absolute inset-0 bg-gradient-to-r from-emerald-500/[0.01] to-transparent pointer-events-none" />
+
+										<div className="flex flex-col gap-1 z-10 shrink-0">
+											<span className="font-terminal-label text-[10px] text-white/30 uppercase tracking-[0.2em]">
+												Showing {sortedMfHoldings.length} of {mfHoldings.length} Mutual Funds
+											</span>
+											<span className="font-terminal-label text-[9px] text-zinc-500 uppercase tracking-wider flex items-center gap-2 mt-0.5">
+												<span className="text-emerald-400/80 font-black">{mfStats.count} Funds Active</span>
+											</span>
+										</div>
+
+										{/* Consolidated Totals Grid */}
+										<div className="flex flex-wrap items-center justify-end gap-x-8 gap-y-3 z-10 text-right w-full md:w-auto">
+											<div className="flex flex-col">
+												<span className="text-[9px] font-black text-zinc-500 uppercase tracking-widest leading-none mb-1">Total Invested</span>
+												<span className="font-data-md text-sm text-zinc-400 tabular-nums">
+													<RollingNumber value={mfStats.totalInvested} currency prefix="₹" decimals={0} />
+												</span>
+											</div>
+
+											<div className="flex flex-col">
+												<span className="text-[9px] font-black text-zinc-500 uppercase tracking-widest leading-none mb-1">Current Worth</span>
+												<span className="font-data-md text-sm text-white font-black tabular-nums">
+													<RollingNumber value={mfStats.totalMarket} currency prefix="₹" decimals={0} />
+												</span>
+											</div>
+
+											<div className="flex flex-col items-end">
+												<span className="text-[9px] font-black text-zinc-500 uppercase tracking-widest leading-none mb-1">NAV Change</span>
+												<div className="flex items-center gap-1.5">
+													<span className={cn(
+														"font-data-md text-xs font-bold tabular-nums",
+														mfStats.totalDayPL >= 0 ? "text-emerald-400" : "text-rose-400"
+													)}>
+														<RollingNumber value={Math.abs(mfStats.totalDayPL)} currency prefix={mfStats.totalDayPL >= 0 ? "+₹" : "-₹"} decimals={0} />
+													</span>
+													<span className={cn(
+														"text-[9px] font-black tracking-tighter px-1 rounded-sm leading-none py-0.5 border shrink-0",
+														mfStats.totalDayPL >= 0 ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-400" : "bg-rose-500/10 border-rose-500/20 text-rose-400"
+													)}>
+														<RollingNumber value={mfStats.dayChangePercentage} suffix="%" decimals={2} />
+													</span>
+												</div>
+											</div>
+
+											<div className="flex flex-col items-end border-l border-white/5 pl-8">
+												<span className="text-[9px] font-black text-zinc-500 uppercase tracking-widest leading-none mb-1">Total Returns</span>
+												<div className="flex items-center gap-2">
+													<div className={cn(
+														"px-2 py-0.5 rounded-lg flex items-center transition-all",
+														mfStats.totalPLSum >= 0 ? "bg-emerald-500/10 border border-emerald-500/20" : "bg-red-500/10 border border-red-500/20"
+													)}>
+														<span className={cn(
+															"font-data-md text-xs font-black tabular-nums",
+															mfStats.totalPLSum >= 0 ? "text-emerald-400" : "text-rose-400"
+														)}>
+															<RollingNumber value={Math.abs(mfStats.totalPLSum)} currency prefix={mfStats.totalPLSum >= 0 ? "+₹" : "-₹"} decimals={0} />
+														</span>
+													</div>
+													<span className={cn(
+														"font-terminal-label text-[10px] font-black tabular-nums opacity-55",
+														mfStats.totalPLSum >= 0 ? "text-emerald-500" : "text-rose-500"
+													)}>
+														<RollingNumber value={mfStats.totalPLPercentage} suffix="%" decimals={2} />
+													</span>
+												</div>
+											</div>
+										</div>
+									</div>
+								)}
 							</section>
 						</motion.div>
 					)}
 
 
-					{holdings.length > 0 && (activePortfolio?.id === 'total' || activePortfolio?.id === 'overall' || !isMFActive) && (
+					{holdings.length > 0 && activePortfolio?.id !== 'total' && (activePortfolio?.id === 'overall' || !isMFActive) && (
 						<motion.div
 							className="w-full"
 						>
@@ -2780,7 +3680,6 @@ export default function DashboardPage() {
 																	)} />
 																	<AssetLogo
 																		symbol={asset.trading_symbol}
-																		name={asset.trading_symbol}
 																		size="sm"
 																		className="shrink-0"
 																	/>
@@ -2884,69 +3783,79 @@ export default function DashboardPage() {
 									</table>
 								</div>
 
-								<div className="px-8 py-5 bg-black/40 flex justify-between items-center border-t border-white/5">
-									<span className="font-terminal-label text-[10px] text-white/30 uppercase tracking-[0.2em]">Showing {filteredHoldings.length} of {holdings.length} holdings</span>
-									<div className="group relative">
-										<button
-											onClick={() => {
-												const now = new Date();
-												const ist = new Date(now.toLocaleString("en-US", { timeZone: "Asia/Kolkata" }));
-												const day = ist.getDay(); // 0 = Sunday, 6 = Saturday
-												const totalMinutes = ist.getHours() * 60 + ist.getMinutes();
-												const isRestricted = day >= 1 && day <= 5 && totalMinutes >= 540 && totalMinutes < 960; // Weekdays 9:00 AM to 4:00 PM IST
+								{equityStats && (
+									<div className="px-8 py-5 bg-black/40 flex flex-col md:flex-row justify-between items-center border-t border-white/5 gap-4 relative">
+										{/* Glassmorphic Ambient Glow */}
+										<div className="absolute inset-0 bg-gradient-to-r from-indigo-500/[0.01] to-transparent pointer-events-none" />
 
-												if (isRestricted) return;
-												setIsResyncMode(true);
-												setAddPortfolioModalOpen(true);
-											}}
-											className={cn(
-												"font-terminal-label text-[10px] uppercase tracking-[0.25em] font-bold flex items-center gap-2 transition-all",
-												(() => {
-													const now = new Date();
-													const ist = new Date(now.toLocaleString("en-US", { timeZone: "Asia/Kolkata" }));
-													const day = ist.getDay();
-													const mins = ist.getHours() * 60 + ist.getMinutes();
-													return day >= 1 && day <= 5 && mins >= 540 && mins < 960;
-												})()
-													? "text-zinc-700 cursor-not-allowed"
-													: "text-emerald-500/60 hover:text-emerald-500"
-											)}
-										>
-											<RefreshCcw className={cn("w-3.5 h-3.5", isRefreshing && "animate-spin")} />
-											Resync Portfolio
-										</button>
-										{(() => {
-											const now = new Date();
-											const ist = new Date(now.toLocaleString("en-US", { timeZone: "Asia/Kolkata" }));
-											const day = ist.getDay();
-											const mins = ist.getHours() * 60 + ist.getMinutes();
-											const isRestricted = day >= 1 && day <= 5 && mins >= 540 && mins < 960;
+										<div className="flex flex-col gap-1 z-10 shrink-0">
+											<span className="font-terminal-label text-[10px] text-white/30 uppercase tracking-[0.2em]">
+												Showing {sortedHoldings.length} of {holdings.length} holdings
+											</span>
+											<span className="font-terminal-label text-[9px] text-zinc-500 uppercase tracking-wider flex items-center gap-2 mt-0.5">
+												<span className="text-indigo-400/80 font-black">{equityStats.count} Stocks Active</span>
+											</span>
+										</div>
 
-											return (
-												<div className="absolute bottom-full right-0 mb-3 px-4 py-2 bg-zinc-950/90 backdrop-blur-md border border-white/5 rounded-lg whitespace-nowrap opacity-0 group-hover:opacity-100 transition-all duration-300 pointer-events-none z-[100] shadow-[0_0_20px_rgba(0,0,0,0.5)]">
-													<div className="flex items-center gap-2">
-														<div className={cn(
-															"w-1.5 h-1.5 rounded-full animate-pulse",
-															isRestricted ? "bg-amber-500" : "bg-emerald-500"
-														)} />
-														<p className="text-[9px] font-bold uppercase tracking-[0.12em]">
-															<span className="text-white/60">Purchased or sold any stock?</span>{" "}
-															{isRestricted ? (
-																<span className="text-amber-500/90">Resync will be available after 4PM IST...</span>
-															) : (
-																<span className="text-emerald-500">Resync portfolio now...</span>
-															)}
-														</p>
-													</div>
-													<div className={cn(
-														"absolute top-full right-4 w-2 h-2 bg-zinc-950/90 border-r border-b rotate-45 -translate-y-1",
-														isRestricted ? "border-amber-500/20" : "border-emerald-500/20"
-													)} />
+										{/* Consolidated Totals Grid */}
+										<div className="flex flex-wrap items-center justify-end gap-x-8 gap-y-3 z-10 text-right w-full md:w-auto">
+											<div className="flex flex-col">
+												<span className="text-[9px] font-black text-zinc-500 uppercase tracking-widest leading-none mb-1">Total Invested</span>
+												<span className="font-data-md text-sm text-zinc-400 tabular-nums">
+													<RollingNumber value={equityStats.totalInvested} currency prefix="₹" decimals={0} />
+												</span>
+											</div>
+
+											<div className="flex flex-col">
+												<span className="text-[9px] font-black text-zinc-500 uppercase tracking-widest leading-none mb-1">Current Worth</span>
+												<span className="font-data-md text-sm text-white font-black tabular-nums">
+													<RollingNumber value={equityStats.totalMarket} currency prefix="₹" decimals={0} />
+												</span>
+											</div>
+
+											<div className="flex flex-col items-end">
+												<span className="text-[9px] font-black text-zinc-500 uppercase tracking-widest leading-none mb-1">Day Change</span>
+												<div className="flex items-center gap-1.5">
+													<span className={cn(
+														"font-data-md text-xs font-bold tabular-nums",
+														equityStats.totalDayPL >= 0 ? "text-emerald-400" : "text-rose-400"
+													)}>
+														<RollingNumber value={Math.abs(equityStats.totalDayPL)} currency prefix={equityStats.totalDayPL >= 0 ? "+₹" : "-₹"} decimals={0} />
+													</span>
+													<span className={cn(
+														"text-[9px] font-black tracking-tighter px-1 rounded-sm leading-none py-0.5 border shrink-0",
+														equityStats.totalDayPL >= 0 ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-400" : "bg-rose-500/10 border-rose-500/20 text-rose-400"
+													)}>
+														<RollingNumber value={equityStats.dayChangePercentage} suffix="%" decimals={2} />
+													</span>
 												</div>
-											);
-										})()}
+											</div>
+
+											<div className="flex flex-col items-end border-l border-white/5 pl-8">
+												<span className="text-[9px] font-black text-zinc-500 uppercase tracking-widest leading-none mb-1">Total Returns</span>
+												<div className="flex items-center gap-2">
+													<div className={cn(
+														"px-2 py-0.5 rounded-lg flex items-center transition-all",
+														equityStats.totalPLSum >= 0 ? "bg-emerald-500/10 border border-emerald-500/20" : "bg-red-500/10 border border-red-500/20"
+													)}>
+														<span className={cn(
+															"font-data-md text-xs font-black tabular-nums",
+															equityStats.totalPLSum >= 0 ? "text-emerald-400" : "text-rose-400"
+														)}>
+															<RollingNumber value={Math.abs(equityStats.totalPLSum)} currency prefix={equityStats.totalPLSum >= 0 ? "+₹" : "-₹"} decimals={0} />
+														</span>
+													</div>
+													<span className={cn(
+														"font-terminal-label text-[10px] font-black tabular-nums opacity-55",
+														equityStats.totalPLSum >= 0 ? "text-emerald-500" : "text-rose-500"
+													)}>
+														<RollingNumber value={equityStats.totalPLPercentage} suffix="%" decimals={2} />
+													</span>
+												</div>
+											</div>
+										</div>
 									</div>
-								</div>
+								)}
 							</motion.section>
 						</motion.div>
 					)}

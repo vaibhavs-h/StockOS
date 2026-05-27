@@ -201,7 +201,7 @@ export class CASImportService {
       const isinList = uniqueParsedHoldings.map(h => h.isin);
       const { data: dbMaster } = await supabase
         .from('mutual_funds_master')
-        .select('scheme_code, isin, symbol, risk_level, logo_url')
+        .select('scheme_code, isin, symbol, risk_level, logo_url, current_price, prev_close')
         .in('isin', isinList);
 
       const dbMap = new Map<string, any>();
@@ -293,6 +293,11 @@ export class CASImportService {
         const p_l = parsed.marketValue - parsed.investedValue;
         const p_l_percentage = parsed.investedValue > 0 ? (p_l / parsed.investedValue) * 100 : 0.00;
 
+        const currentPrice = existingMaster ? (Number(existingMaster.current_price) || parsed.lastPrice) : parsed.lastPrice;
+        const prevClose = existingMaster ? (Number(existingMaster.prev_close) || currentPrice) : currentPrice;
+        const dayChange = (currentPrice - prevClose) * parsed.quantity;
+        const dayChangePct = prevClose > 0 ? ((currentPrice - prevClose) / prevClose) * 100 : 0.00;
+
         finalHoldings.push({
           id: deterministicId,
           user_id: userId,
@@ -306,8 +311,8 @@ export class CASImportService {
           market_value: parsed.marketValue,
           p_l: p_l,
           p_l_percentage: p_l_percentage,
-          day_change: 0.00, // Calculated dynamically on next reval cron
-          day_change_percentage: 0.00,
+          day_change: dayChange,
+          day_change_percentage: dayChangePct,
           last_statement_date: statementDateStr,
           updated_at: nowTs
         });

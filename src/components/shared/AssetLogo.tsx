@@ -44,12 +44,13 @@ export const AssetLogo: React.FC<AssetLogoProps> = ({
   size = 'md'
 }) => {
   // Determine if it is a mutual fund or ETF
-  const amcKey = name ? resolveMFKey(name) : null;
+  const isEquity = symbol.endsWith('.NS') || symbol.endsWith('.BO');
+  const amcKey = (!isEquity && name) ? resolveMFKey(name) : null;
   
   // 12-character ISIN check or matching an AMC keyword or symbol/name containing mutual fund clues
   const isMF = (symbol.length === 12 && (symbol.toUpperCase().startsWith('INF') || /^[A-Z0-9]{12}$/.test(symbol.toUpperCase()))) ||
                !!amcKey ||
-               (name && (name.toUpperCase().includes('MUTUAL FUND') || name.toUpperCase().includes('ETF') || name.toUpperCase().includes('INDEX FUND')));
+               (!isEquity && name && (name.toUpperCase().includes('MUTUAL FUND') || name.toUpperCase().includes('ETF') || name.toUpperCase().includes('INDEX FUND')));
 
   const cleanSymbol = isMF && amcKey 
     ? amcKey 

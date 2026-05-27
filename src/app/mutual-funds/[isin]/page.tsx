@@ -67,7 +67,7 @@ export default function MutualFundDetailPage() {
   const { data: session } = useSession();
   const rawUserId = (session?.user as any)?.id;
   const userId = rawUserId ? getDbUserId(rawUserId) : null;
-  
+
   const [data, setData] = useState<any>(null);
   const [holding, setHolding] = useState<any>(null);
   const [history, setHistory] = useState<any[]>([]);
@@ -164,7 +164,7 @@ export default function MutualFundDetailPage() {
           .select("*")
           .eq("scheme_code", data.scheme_code)
           .eq("user_id", userId);
-        
+
         if (!error && holdings && holdings.length > 0) {
           setHolding(holdings[0]);
         } else {
@@ -192,7 +192,7 @@ export default function MutualFundDetailPage() {
         const res = await fetch(`${baseUrl}/api/sync/burst/mf?scheme_code=${data.scheme_code}`);
         const result = await res.json();
         console.log(`[BURST] Targeted MF sync result for ${data.scheme_code}:`, result);
-        
+
         // Re-fetch details immediately to update page state dynamically
         if (result.success) {
           console.log("[BURST] Sync succeeded, re-fetching latest details from database...");
@@ -261,7 +261,7 @@ export default function MutualFundDetailPage() {
       try {
         const res = await fetch(`https://api.mfapi.in/mf/${data.scheme_code}`);
         const json = await res.json();
-        
+
         if (json && Array.isArray(json.data)) {
           // mfapi.in returns reverse chronological (newest first).
           // We need chronological (oldest first) for lightweight-charts.
@@ -348,17 +348,17 @@ export default function MutualFundDetailPage() {
   // Helper to compute yields/CAGR dynamically from entire historical NAV coordinates
   const calculateYieldFromHistory = (years: number, isCagr: boolean = false): number | null => {
     if (!fullHistory || fullHistory.length < 10) return null;
-    
+
     const latestItem = fullHistory[fullHistory.length - 1];
     const latestDate = new Date(latestItem.time);
-    
+
     const targetDate = new Date(latestDate);
     targetDate.setFullYear(targetDate.getFullYear() - years);
-    
+
     // Find closest coordinate in fullHistory to targetDate
     let closestPoint = fullHistory[0];
     let minDiff = Math.abs(new Date(fullHistory[0].time).getTime() - targetDate.getTime());
-    
+
     for (let i = 1; i < fullHistory.length; i++) {
       const diff = Math.abs(new Date(fullHistory[i].time).getTime() - targetDate.getTime());
       if (diff < minDiff) {
@@ -366,16 +366,16 @@ export default function MutualFundDetailPage() {
         closestPoint = fullHistory[i];
       }
     }
-    
+
     // Ensure data exists within a reasonable boundary (e.g. 15 days from target date)
     const diffDays = minDiff / (1000 * 60 * 60 * 24);
     if (diffDays > 15) return null;
-    
+
     const begVal = closestPoint.value;
     const endVal = latestItem.value;
-    
+
     if (begVal <= 0 || endVal <= 0) return null;
-    
+
     if (isCagr) {
       return (Math.pow(endVal / begVal, 1 / years) - 1) * 100;
     } else {
@@ -399,10 +399,10 @@ export default function MutualFundDetailPage() {
       initial="hidden"
       animate="visible"
       variants={{ hidden: { opacity: 0 }, visible: { opacity: 1 } }}
-      className="relative min-h-screen w-full bg-transparent text-white pt-12 pb-28"
+      className="relative min-h-screen w-full bg-transparent text-white pt-24 pb-28"
     >
       <div className="relative z-10 max-w-[1700px] mx-auto px-6">
-        
+
         {/* HERO HEADER PANELS */}
         <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-4 mb-4">
           <div>
@@ -425,7 +425,7 @@ export default function MutualFundDetailPage() {
                 </span>
               )}
             </div>
-            
+
             <div className="flex items-center gap-4 mb-4">
               <AssetLogo
                 symbol={data.isin || data.symbol || 'MF'}
@@ -433,7 +433,7 @@ export default function MutualFundDetailPage() {
                 size="xl"
                 className="shrink-0 border border-white/10"
               />
-              
+
               <div className="space-y-1">
                 <h1 className="text-4xl md:text-5xl font-black tracking-tighter bg-clip-text text-transparent bg-gradient-to-b from-white to-white/70">
                   {data.name}
@@ -444,7 +444,7 @@ export default function MutualFundDetailPage() {
 
             {/* STAR RATING PANEL */}
             {data.rating != null && data.rating > 0 && (
-              <motion.div 
+              <motion.div
                 whileHover={{ scale: 1.02 }}
                 className="flex items-center gap-2 bg-gradient-to-r from-amber-500/15 via-amber-500/[0.03] to-transparent border border-amber-500/30 px-4 py-2 rounded-xl w-fit shadow-[0_0_25px_rgba(245,158,11,0.06)] backdrop-blur-md relative overflow-hidden group transition-all duration-300"
               >
@@ -494,15 +494,15 @@ export default function MutualFundDetailPage() {
 
         {/* MAIN BENTO GRID */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
-          
+
           {/* LEFT COLUMN: CHARTS, HOLDINGS, CALENDAR */}
           <div className="lg:col-span-2 space-y-3">
-            
+
             {/* CHART CONTAINER */}
             <div className={cn(
               "glass-panel rounded-2xl pt-4 px-5 pb-3 shadow-2xl relative overflow-hidden group backdrop-blur-2xl transition-all duration-500",
-              rangeIsPositive 
-                ? "bg-gradient-to-br from-white/[0.04] via-transparent to-emerald-500/[0.02] border-emerald-500/10 hover:border-emerald-500/20" 
+              rangeIsPositive
+                ? "bg-gradient-to-br from-white/[0.04] via-transparent to-emerald-500/[0.02] border-emerald-500/10 hover:border-emerald-500/20"
                 : "bg-gradient-to-br from-white/[0.04] via-transparent to-rose-500/[0.02] border-rose-500/10 hover:border-rose-500/20"
             )}>
               <div className="flex justify-between items-center mb-2 relative z-10">
@@ -588,7 +588,7 @@ export default function MutualFundDetailPage() {
                   </div>
                 )}
               </div>
-              
+
               {Array.isArray(topHoldings) && topHoldings.length > 0 ? (
                 <div className="overflow-x-auto">
                   <table className="w-full text-left text-xs border-collapse">
@@ -624,7 +624,7 @@ export default function MutualFundDetailPage() {
                             </td>
                             <td className="py-2.5">
                               {cleanTicker ? (
-                                <span 
+                                <span
                                   onClick={() => router.push(`/stocks/${cleanTicker.toLowerCase()}`)}
                                   className="font-mono text-zinc-500 cursor-pointer hover:text-emerald-400 hover:underline transition-colors font-bold"
                                 >
@@ -639,7 +639,7 @@ export default function MutualFundDetailPage() {
                                 <span className="text-zinc-100">{h.percent != null ? `${h.percent.toFixed(2)}%` : '-'}</span>
                                 {h.percent != null && (
                                   <div className="w-12 h-1.5 bg-white/[0.02] rounded-full overflow-hidden hidden sm:block">
-                                    <div 
+                                    <div
                                       style={{ width: `${Math.min(h.percent * 3, 100)}%` }}
                                       className="h-full rounded-full bg-gradient-to-r from-emerald-500/60 to-emerald-400"
                                     />
@@ -669,7 +669,7 @@ export default function MutualFundDetailPage() {
                   </h3>
                   <p className="text-[9px] font-bold text-zinc-600 uppercase tracking-wider mt-0.5">Granular historical yield audit</p>
                 </div>
-                
+
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                   {/* Annual Returns Table */}
                   <div>
@@ -701,13 +701,13 @@ export default function MutualFundDetailPage() {
                               <span className="text-xs font-black font-mono text-zinc-400 tracking-wider mb-0.5">{q.year}</span>
                               <span className="text-[8px] font-black uppercase text-zinc-600 tracking-[0.2em]">CALENDAR</span>
                             </div>
-                            
+
                             <div className="flex-1 grid grid-cols-4 gap-3 text-center ml-6">
                               {['q1', 'q2', 'q3', 'q4'].map((quarterKey) => {
                                 const val = q[quarterKey];
                                 const quarterLabel = quarterKey.toUpperCase();
                                 const isValPositive = val >= 0;
-                                
+
                                 return (
                                   <div key={quarterKey} className="group">
                                     <span className="block text-[8px] font-black uppercase text-zinc-600 tracking-widest mb-1.5 group-hover:text-zinc-500 transition-colors">{quarterLabel}</span>
@@ -741,18 +741,18 @@ export default function MutualFundDetailPage() {
           <div className="space-y-3">
             {/* YOUR POSITION CARD */}
             {holding ? (
-              <motion.div 
-                initial={{ opacity: 0, scale: 0.98 }} 
-                animate={{ opacity: 1, scale: 1 }} 
+              <motion.div
+                initial={{ opacity: 0, scale: 0.98 }}
+                animate={{ opacity: 1, scale: 1 }}
                 className="glass-panel rounded-2xl pt-4 px-5 pb-5 bg-gradient-to-b from-emerald-500/[0.08] to-transparent border-emerald-500/20 backdrop-blur-2xl relative overflow-hidden shadow-2xl"
               >
                 <div className="absolute -right-16 -top-16 w-32 h-32 bg-emerald-500/15 blur-2xl rounded-full" />
-                
+
                 <h3 className="text-xs font-black uppercase tracking-[0.4em] text-emerald-400 mb-3 flex items-center gap-2">
                   <Activity className="size-3.5 text-emerald-400 shadow-[0_0_10px_rgba(16,185,129,0.5)]" />
                   Your Position
                 </h3>
-                
+
                 <div className="space-y-3">
                   <div className="bg-white/[0.02] p-3 rounded-xl border border-white/5 flex justify-between items-center">
                     <div>
@@ -776,7 +776,7 @@ export default function MutualFundDetailPage() {
                         {safeFormat(holding.quantity, 'number', 3)}
                       </p>
                     </div>
-                    
+
                     <div>
                       <p className="text-[8px] font-black text-zinc-500 uppercase tracking-widest mb-1">Avg. Purchase NAV</p>
                       <p className="text-sm font-black text-zinc-100 font-mono">
@@ -829,7 +829,7 @@ export default function MutualFundDetailPage() {
               <h3 className="text-xs uppercase tracking-[0.3em] text-zinc-500 font-black mb-2 flex items-center gap-2">
                 <Shield className="w-4 h-4 text-emerald-500/60" /> Scheme Profile
               </h3>
-              
+
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <p className="text-[9px] font-black text-zinc-500 uppercase tracking-[0.2em] mb-1">AUM (Assets)</p>
@@ -837,7 +837,7 @@ export default function MutualFundDetailPage() {
                     {data.aum != null ? `₹${data.aum.toFixed(2)} Cr` : '-'}
                   </p>
                 </div>
-                
+
                 <div>
                   <p className="text-[9px] font-black text-zinc-500 uppercase tracking-[0.2em] mb-1">Expense Ratio</p>
                   <p className="text-lg font-black text-emerald-400 font-mono">
@@ -851,7 +851,7 @@ export default function MutualFundDetailPage() {
                     {data.min_initial_investment != null ? `₹${data.min_initial_investment.toLocaleString('en-IN')}` : '-'}
                   </p>
                 </div>
-                
+
                 <div>
                   <p className="text-[9px] font-black text-zinc-500 uppercase tracking-[0.2em] mb-1">Min SIP/Subseq</p>
                   <p className="text-lg font-black text-zinc-100 font-mono">
@@ -955,7 +955,7 @@ export default function MutualFundDetailPage() {
                         stroke="rgba(255, 255, 255, 0.03)"
                         strokeWidth="3.5"
                       />
-                      
+
                       {/* Equity Glow Layer */}
                       {allocations.equity > 0 && (
                         <circle
@@ -971,7 +971,7 @@ export default function MutualFundDetailPage() {
                           className="blur-[1.5px] opacity-75"
                         />
                       )}
-                      
+
                       {/* Equity Crisp Foreground */}
                       {allocations.equity > 0 && (
                         <circle
@@ -1064,7 +1064,7 @@ export default function MutualFundDetailPage() {
                   <h3 className="text-xs uppercase tracking-[0.3em] text-zinc-500 font-black flex items-center gap-2">
                     <Zap className="w-4 h-4 text-emerald-500/60" /> Volatility Diagnostics
                   </h3>
-                  
+
                   <div className="flex gap-1 bg-white/5 rounded-lg p-0.5 border border-white/5">
                     {(['3y', '5y'] as const).map((hor) => (
                       <button
@@ -1114,7 +1114,7 @@ export default function MutualFundDetailPage() {
                 <h3 className="text-xs uppercase tracking-[0.3em] text-zinc-500 font-black flex items-center gap-2">
                   <Globe className="w-4 h-4 text-emerald-500/60" /> Industry Sectors
                 </h3>
-                
+
                 <div className="space-y-3">
                   {Object.entries(sectorAllocations)
                     .sort(([, a]: any, [, b]: any) => b - a)
@@ -1131,15 +1131,16 @@ export default function MutualFundDetailPage() {
                             className="h-full rounded-full bg-gradient-to-r from-emerald-500 via-teal-400 to-emerald-300 shadow-[0_0_8px_rgba(16,185,129,0.4)] relative overflow-hidden transition-all duration-1000 ease-out"
                           >
                             {/* Micro-animated shimmer sweep */}
-                            <div 
-                              className="absolute inset-0 bg-[linear-gradient(90deg,transparent_0%,rgba(255,255,255,0.18)_50%,transparent_100%)] -translate-x-full" 
+                            <div
+                              className="absolute inset-0 bg-[linear-gradient(90deg,transparent_0%,rgba(255,255,255,0.18)_50%,transparent_100%)] -translate-x-full"
                               style={{ animation: 'shimmer-sweep 3s infinite' }}
                             />
                           </div>
                         </div>
                       </div>
                     ))}
-                  <style dangerouslySetInnerHTML={{ __html: `
+                  <style dangerouslySetInnerHTML={{
+                    __html: `
                     @keyframes shimmer-sweep {
                       0% { transform: translateX(-100%) skewX(-15deg); }
                       50% { transform: translateX(100%) skewX(-15deg); }

@@ -41,6 +41,20 @@ const tabs = [
   { label: "Saved Articles", value: "saved", icon: <Save className="size-4" /> },
 ];
 
+const DOW_30 = [
+  'AAPL', 'MSFT', 'AMZN', 'NVDA', 'WMT', 'JPM', 'UNH', 'HD', 'PG', 'DIS',
+  'VZ', 'KO', 'MCD', 'CRM', 'INTC', 'JNJ', 'AXP', 'MRK', 'GS', 'HON',
+  'CAT', 'BA', 'CVX', 'CSCO', 'IBM', 'AMGN', 'NKE', 'TRV', 'MMM', 'DOW'
+];
+
+const NIFTY_50 = [
+  'RELIANCE', 'TCS', 'HDFCBANK', 'INFY', 'ICICIBANK', 'BHARTIARTL', 'SBIN', 'ITC', 'HINDUNILVR', 'LT',
+  'BAJFINANCE', 'KOTAKBANK', 'HCLTECH', 'AXISBANK', 'SUNPHARMA', 'ASIANPAINT', 'TITAN', 'ULTRACEMCO', 'NTPC', 'ONGC',
+  'TATASTEEL', 'ADANIENT', 'ADANIPORTS', 'POWERGRID', 'JSWSTEEL', 'COALINDIA', 'HINDALCO', 'MARUTI', 'INDUSINDBK', 'GRASIM',
+  'TECHM', 'NESTLEIND', 'BAJAJFINSV', 'SBILIFE', 'EICHERMOT', 'BPCL', 'CIPLA', 'TATACONSUM', 'DRREDDY', 'BRITANNIA',
+  'HEROMOTOCO', 'APOLLOHOSP', 'BEL', 'HAL', 'WIPRO', 'JIOFIN', 'SHRIRAMFIN'
+];
+
 const impactMeta = {
   HIGH: {
     label: "High Impact",
@@ -362,31 +376,79 @@ function JournalPageContent() {
   // can restore it after React re-renders and avoid the page jumping to the bottom.
   const scrollAnchorY = React.useRef<number>(0);
 
-  const fetchNewsCategory = async (category: string, pageNum: number = 1) => {
-    const response = await fetch(`${API_BASE_URL}/api/news?category=${category}&userId=${userId}&page=${pageNum}&limit=30`);
+  const fetchNewsCategory = async (
+    category: string,
+    pageNum: number = 1,
+    filters?: { ticker?: string | null; sentiment?: string; impact?: string; search?: string }
+  ) => {
+    const params = new URLSearchParams({
+      category,
+      userId,
+      page: String(pageNum),
+      limit: "30"
+    });
+
+    if (filters) {
+      if (filters.ticker) params.append("ticker", filters.ticker);
+      if (filters.sentiment && filters.sentiment !== "all") params.append("sentiment", filters.sentiment);
+      if (filters.impact && filters.impact !== "all") params.append("impact", filters.impact);
+      if (filters.search && filters.search.trim()) params.append("search", filters.search.trim());
+    }
+
+    const response = await fetch(`${API_BASE_URL}/api/news?${params.toString()}`);
     if (!response.ok) throw new Error(`Request failed: ${response.status}`);
     const data = await response.json();
     
-    // Support both old array response and new paginated object response
-    if (Array.isArray(data)) {
-      return { news: data, hasMore: data.length === 30 };
-    }
     return {
       news: data.news || [],
       hasMore: data.hasMore !== undefined ? data.hasMore : false
     };
   };
 
+  // Reset all filters when the active tab changes
+  useEffect(() => {
+    setSelectedTicker(null);
+    setSearchQuery("");
+    setSentimentFilter("all");
+    setImpactFilter("all");
+  }, [activeTab]);
+
+  // Load monthly news metrics (totals, composition, active stocks list) on tab change
+  useEffect(() => {
+    let ignore = false;
+    const loadMonthlyNews = async () => {
+      try {
+        const response = await fetch(`${API_BASE_URL}/api/news/monthly-metrics?category=${activeTab}&userId=${userId}`);
+        if (response.ok) {
+          const data = await response.json();
+          if (!ignore) {
+            setMonthlyNews(data.news || []);
+          }
+        }
+      } catch (err) {
+        console.warn("[NEWS-METRICS] Failed to fetch monthly news metrics:", err);
+      }
+    };
+
+    loadMonthlyNews();
+    return () => { ignore = true; };
+  }, [activeTab, userId]);
+
+  // Load active news stream with limit/offset and filters applied on the server
   useEffect(() => {
     let ignore = false;
     const load = async () => {
       setLoading(true);
       setError("");
-      setSelectedTicker(null);
       setPage(1);
       setHasMore(true);
       try {
-        const { news: items, hasMore: more } = await fetchNewsCategory(activeTab, 1);
+        const { news: items, hasMore: more } = await fetchNewsCategory(activeTab, 1, {
+          ticker: selectedTicker,
+          sentiment: sentimentFilter,
+          impact: impactFilter,
+          search: searchQuery
+        });
         if (!ignore) {
           setNews(items);
           setHasMore(more);
@@ -402,24 +464,9 @@ function JournalPageContent() {
       }
     };
 
-    const loadMonthlyNews = async () => {
-      try {
-        const response = await fetch(`${API_BASE_URL}/api/news/monthly-metrics?category=${activeTab}&userId=${userId}`);
-        if (response.ok) {
-          const data = await response.json();
-          if (!ignore) {
-            setMonthlyNews(data.news || []);
-          }
-        }
-      } catch (err) {
-        console.warn("[NEWS-METRICS] Failed to fetch monthly news metrics:", err);
-      }
-    };
-
     load();
-    loadMonthlyNews();
     return () => { ignore = true; };
-  }, [activeTab, userId]);
+  }, [activeTab, userId, selectedTicker, sentimentFilter, impactFilter, searchQuery]);
  
   // Real-time news updates: Poll page 1 every 10 seconds to merge newly synced articles
   useEffect(() => {
@@ -469,7 +516,12 @@ function JournalPageContent() {
     setError("");
     const nextPage = page + 1;
     try {
-      const { news: items, hasMore: more } = await fetchNewsCategory(activeTab, nextPage);
+      const { news: items, hasMore: more } = await fetchNewsCategory(activeTab, nextPage, {
+        ticker: selectedTicker,
+        sentiment: sentimentFilter,
+        impact: impactFilter,
+        search: searchQuery
+      });
       // Append new items — React will re-render and the layout will grow downward
       setNews(prev => [...prev, ...items]);
       setPage(nextPage);
@@ -544,7 +596,62 @@ function JournalPageContent() {
 
   // Extract all tickers mentioned in monthly news and calculate their custom frequency & aggregate sentiment score
   const tickerMetrics = useMemo(() => {
+    const isSaved = activeTab === "saved";
     const map: Record<string, { count: number; totalScore: number; scoreCount: number }> = {};
+
+    if (isSaved) {
+      // Dynamic Extraction: Only pull stocks actually mentioned inside Saved Articles
+      news.forEach(item => {
+        const itemScore = typeof item.sentimentScore === 'number' ? item.sentimentScore : parseFloat(item.sentimentScore);
+        const stocks = Array.isArray(item.stocks) ? item.stocks : [];
+        const tickSent = Array.isArray(item.tickerSentiment) ? item.tickerSentiment : [];
+
+        stocks.forEach((s: string) => {
+          const symbol = s.trim().toUpperCase();
+          if (!symbol) return;
+          const cleanSymbol = symbol.replace(/\.(NS|BO)$/, '');
+          
+          if (!map[cleanSymbol]) {
+            map[cleanSymbol] = { count: 0, totalScore: 0, scoreCount: 0 };
+          }
+          map[cleanSymbol].count += 1;
+
+          const match = tickSent.find((t: any) => {
+            const tSymbol = String(t.ticker).toUpperCase().replace(/\.(NS|BO)$/, '');
+            return tSymbol === cleanSymbol;
+          });
+          if (match && match.ticker_sentiment_score) {
+            const sScore = parseFloat(match.ticker_sentiment_score);
+            if (!Number.isNaN(sScore)) {
+              map[cleanSymbol].totalScore += sScore;
+              map[cleanSymbol].scoreCount += 1;
+              return;
+            }
+          }
+
+          if (!Number.isNaN(itemScore) && itemScore !== null && itemScore !== undefined) {
+            map[cleanSymbol].totalScore += itemScore;
+            map[cleanSymbol].scoreCount += 1;
+          }
+        });
+      });
+
+      return Object.entries(map)
+        .map(([symbol, data]) => {
+          const avg = data.scoreCount > 0 ? data.totalScore / data.scoreCount : 0;
+          return { symbol, count: data.count, avgSentiment: avg };
+        })
+        .sort((a, b) => b.count - a.count || a.symbol.localeCompare(b.symbol));
+    }
+
+    const isIndia = activeTab === "india";
+    const benchmarkList = isIndia ? NIFTY_50 : DOW_30;
+
+    // Initialize benchmark list
+    benchmarkList.forEach(symbol => {
+      map[symbol] = { count: 0, totalScore: 0, scoreCount: 0 };
+    });
+
     monthlyNews.forEach(item => {
       const itemScore = typeof item.sentimentScore === 'number' ? item.sentimentScore : parseFloat(item.sentimentScore);
       const stocks = Array.isArray(item.stocks) ? item.stocks : [];
@@ -553,26 +660,32 @@ function JournalPageContent() {
       stocks.forEach((s: string) => {
         const symbol = s.trim().toUpperCase();
         if (!symbol) return;
-        if (!map[symbol]) {
-          map[symbol] = { count: 0, totalScore: 0, scoreCount: 0 };
-        }
-        map[symbol].count += 1;
+        
+        // Strip suffixes like .NS / .BO for matching benchmarks
+        const cleanSymbol = symbol.replace(/\.(NS|BO)$/, '');
+        
+        if (map[cleanSymbol] !== undefined) {
+          map[cleanSymbol].count += 1;
 
-        // Try to fetch precise ticker sentiment score from Alpha Vantage array
-        const match = tickSent.find((t: any) => String(t.ticker).toUpperCase() === symbol);
-        if (match && match.ticker_sentiment_score) {
-          const sScore = parseFloat(match.ticker_sentiment_score);
-          if (!Number.isNaN(sScore)) {
-            map[symbol].totalScore += sScore;
-            map[symbol].scoreCount += 1;
-            return;
+          // Try to fetch precise ticker sentiment score
+          const match = tickSent.find((t: any) => {
+            const tSymbol = String(t.ticker).toUpperCase().replace(/\.(NS|BO)$/, '');
+            return tSymbol === cleanSymbol;
+          });
+          if (match && match.ticker_sentiment_score) {
+            const sScore = parseFloat(match.ticker_sentiment_score);
+            if (!Number.isNaN(sScore)) {
+              map[cleanSymbol].totalScore += sScore;
+              map[cleanSymbol].scoreCount += 1;
+              return;
+            }
           }
-        }
 
-        // Fallback to article overall score
-        if (!Number.isNaN(itemScore) && itemScore !== null && itemScore !== undefined) {
-          map[symbol].totalScore += itemScore;
-          map[symbol].scoreCount += 1;
+          // Fallback to article overall score
+          if (!Number.isNaN(itemScore) && itemScore !== null && itemScore !== undefined) {
+            map[cleanSymbol].totalScore += itemScore;
+            map[cleanSymbol].scoreCount += 1;
+          }
         }
       });
     });
@@ -582,9 +695,8 @@ function JournalPageContent() {
         const avg = data.scoreCount > 0 ? data.totalScore / data.scoreCount : 0;
         return { symbol, count: data.count, avgSentiment: avg };
       })
-      .sort((a, b) => b.count - a.count)
-      .slice(0, 16); // Top 16 active tickers for terminal visual layout
-  }, [monthlyNews]);
+      .sort((a, b) => b.count - a.count || a.symbol.localeCompare(b.symbol));
+  }, [monthlyNews, activeTab, news]);
 
   // Extract top active macroeconomic topic matrices across monthly news
   const topicMetrics = useMemo(() => {
@@ -671,8 +783,12 @@ function JournalPageContent() {
     return sortedNews.filter(item => {
       // 1. Ticker Filter
       if (selectedTicker) {
+        const cleanSelected = selectedTicker.trim().toUpperCase().replace(/\.(NS|BO)$/, '');
         const hasTicker = Array.isArray(item.stocks) &&
-          item.stocks.some((s: string) => s.trim().toUpperCase() === selectedTicker);
+          item.stocks.some((s: string) => {
+            const cleanS = s.trim().toUpperCase().replace(/\.(NS|BO)$/, '');
+            return cleanS === cleanSelected;
+          });
         if (!hasTicker) return false;
       }
 
@@ -1150,14 +1266,30 @@ function JournalPageContent() {
           {/* Column 1: Institutional Intelligence Sidebar HUD (Left side, 25% desktop) */}
           <div className="xl:col-span-1 space-y-3.5 xl:sticky xl:top-24 self-start max-h-[calc(100vh-140px)] overflow-y-auto pr-2 custom-scrollbar">
 
-            {/* Widget: Ticker Focus Stream list with aggregate sentiments */}
-            {tickerMetrics.length > 0 && (
-              <motion.div
-                initial={{ opacity: 0, x: -20 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ duration: 0.6, delay: 0.1 }}
-                className="rounded-xl p-4 bg-[#080c14]/30 backdrop-blur-xl border border-white/[0.08] shadow-[0_8px_32px_0_rgba(0,0,0,0.37)]"
-              >
+             {/* Widget: Ticker Focus Stream list with aggregate sentiments */}
+             {activeTab === "saved" && tickerMetrics.length === 0 ? (
+               <motion.div
+                 initial={{ opacity: 0, x: -20 }}
+                 animate={{ opacity: 1, x: 0 }}
+                 transition={{ duration: 0.6, delay: 0.1 }}
+                 className="rounded-xl p-5 bg-[#080c14]/30 backdrop-blur-xl border border-white/[0.08] shadow-[0_8px_32px_0_rgba(0,0,0,0.37)] text-center relative overflow-hidden group"
+               >
+                 <div className="absolute -right-4 -top-4 w-12 h-12 bg-cyan-500/10 rounded-full filter blur-xl pointer-events-none group-hover:scale-150 transition-transform duration-700" />
+                 <Bookmark className="size-8 text-cyan-400/60 mx-auto mb-3 animate-pulse" />
+                 <h4 className="text-xs font-black uppercase tracking-wider text-zinc-300 mb-1.5 font-sans">
+                   No Saved Tickers
+                 </h4>
+                 <p className="text-[10px] text-zinc-500 leading-normal font-sans font-medium">
+                   Bookmark articles to dynamically extract and monitor specific stocks of interest here.
+                 </p>
+               </motion.div>
+             ) : tickerMetrics.length > 0 && (
+               <motion.div
+                 initial={{ opacity: 0, x: -20 }}
+                 animate={{ opacity: 1, x: 0 }}
+                 transition={{ duration: 0.6, delay: 0.1 }}
+                 className="rounded-xl p-4 bg-[#080c14]/30 backdrop-blur-xl border border-white/[0.08] shadow-[0_8px_32px_0_rgba(0,0,0,0.37)]"
+               >
                 <div className="flex justify-between items-center mb-3">
                   <div className="flex items-center gap-2 mb-2">
                     <Cpu className="size-4 text-emerald-400" />
@@ -1170,7 +1302,7 @@ function JournalPageContent() {
                 </p>
 
                 {/* Ticker vertical stream with aggregate sentiments */}
-                <div className="space-y-2 max-h-[200px] overflow-y-auto pr-1 no-scrollbar">
+                <div className="space-y-2 max-h-[360px] overflow-y-auto pr-1 no-scrollbar">
                   {tickerMetrics.map(item => {
                     const isSelected = selectedTicker === item.symbol;
                     

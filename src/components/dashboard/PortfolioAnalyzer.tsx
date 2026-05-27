@@ -8,13 +8,18 @@ import {
   Scan,
   Compass,
   Globe2,
-  RefreshCw
+  RefreshCw,
+  Activity,
+  Award,
+  Layers
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { supabase } from "@/services/DatabaseClient"
 
 interface PortfolioAnalyzerProps {
   holdings: any[];
+  mfHoldings?: any[];
+  activePortfolio?: any;
   onRefresh?: () => Promise<void>;
 }
 
@@ -24,7 +29,7 @@ interface AssetMetadata {
   market_cap: number | null;
 }
 
-export function PortfolioAnalyzer({ holdings, onRefresh }: PortfolioAnalyzerProps) {
+export function PortfolioAnalyzer({ holdings, mfHoldings = [], activePortfolio, onRefresh }: PortfolioAnalyzerProps) {
   const [metadata, setMetadata] = useState<Record<string, AssetMetadata>>({});
   const [isLoadingMetadata, setIsLoadingMetadata] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -101,10 +106,20 @@ export function PortfolioAnalyzer({ holdings, onRefresh }: PortfolioAnalyzerProp
 
   // 2. LOGIC LAYER: Mathematical Recomputation
   const analytics = useMemo(() => {
-    if (holdings.length === 0) return null;
+    const isTotalMode = activePortfolio?.id === 'total';
+    const totalHoldingsCount = holdings.length + (isTotalMode ? mfHoldings.length : 0);
+    
+    if (holdings.length === 0 && (!isTotalMode || mfHoldings.length === 0)) return null;
 
-    const totalPortfolioValue = holdings.reduce((sum, h) => sum + (Number(h.market_value) || 0), 0);
+    const totalEquityValue = holdings.reduce((sum, h) => sum + (Number(h.market_value) || 0), 0);
+    const totalMfValue = isTotalMode ? mfHoldings.reduce((sum, h) => sum + (Number(h.market_value) || 0), 0) : 0;
+    const totalPortfolioValue = totalEquityValue + totalMfValue;
+
     if (totalPortfolioValue === 0) return null;
+
+    // --- ASSET SPLIT (Equities vs Mutual Funds) ---
+    const equityPct = totalPortfolioValue > 0 ? (totalEquityValue / totalPortfolioValue) * 100 : 0;
+    const mfPct = totalPortfolioValue > 0 ? (totalMfValue / totalPortfolioValue) * 100 : 0;
 
     // --- ALLOCATION ANALYSIS ---
     const sectorMap: Record<string, number> = {};
@@ -131,8 +146,32 @@ export function PortfolioAnalyzer({ holdings, onRefresh }: PortfolioAnalyzerProp
       if (mCap > largeThreshold) capBuckets.large += val;
       else if (mCap > midThreshold) capBuckets.mid += val;
       else capBuckets.small += val;
-
     });
+
+    if (isTotalMode) {
+      mfHoldings.forEach(h => {
+        const val = Number(h.market_value) || 0;
+        const category = h.category || 'Other';
+        
+        // Add to Sector Map as a separate asset class block or category
+        const sectorName = `MF - ${category}`;
+        sectorMap[sectorName] = (sectorMap[sectorName] || 0) + val;
+
+        // Bucket Market Cap based on fund category heuristics
+        const lowerCat = category.toLowerCase();
+        if (lowerCat.includes('large')) {
+          capBuckets.large += val;
+        } else if (lowerCat.includes('mid') || lowerCat.includes('flexi') || lowerCat.includes('multi') || lowerCat.includes('growth')) {
+          capBuckets.mid += val;
+        } else if (lowerCat.includes('small')) {
+          capBuckets.small += val;
+        } else {
+          // Default fallback: 50% large / 50% mid for other mutual funds
+          capBuckets.large += val * 0.5;
+          capBuckets.mid += val * 0.5;
+        }
+      });
+    }
 
     const sectorAllocation = Object.entries(sectorMap)
       .map(([name, value]) => ({ name, weight: (value / totalPortfolioValue) * 100 }))
@@ -146,14 +185,24 @@ export function PortfolioAnalyzer({ holdings, onRefresh }: PortfolioAnalyzerProp
 
     const usExposure = (usValue / totalPortfolioValue) * 100;
 
-    const topHoldings = [...holdings]
-      .sort((a, b) => (Number(b.market_value) || 0) - (Number(a.market_value) || 0))
-      .slice(0, 5)
-      .map(h => ({
-        symbol: h.trading_symbol.split('.')[0],
+    const combinedList = [
+      ...holdings.map(h => ({
+        symbol: h.trading_symbol.replace('.NS', '').replace('.BO', ''),
         weight: ((Number(h.market_value) || 0) / totalPortfolioValue) * 100,
-        value: Number(h.market_value) || 0
-      }));
+        value: Number(h.market_value) || 0,
+        type: 'STOCK' as const
+      })),
+      ...(isTotalMode ? mfHoldings.map(h => ({
+        symbol: h.fund_name || 'Mutual Fund',
+        weight: ((Number(h.market_value) || 0) / totalPortfolioValue) * 100,
+        value: Number(h.market_value) || 0,
+        type: 'FUND' as const
+      })) : [])
+    ];
+
+    const topHoldings = combinedList
+      .sort((a, b) => b.value - a.value)
+      .slice(0, 5);
 
     // --- RISK ENGINE ---
     let weightedBetaSum = 0;
@@ -168,6 +217,16 @@ export function PortfolioAnalyzer({ holdings, onRefresh }: PortfolioAnalyzerProp
       }
     });
 
+    if (isTotalMode) {
+      mfHoldings.forEach(h => {
+        const weight = (Number(h.market_value) || 0) / totalPortfolioValue;
+        const category = (h.category || '').toLowerCase();
+        const beta = category.includes('debt') ? 0.2 : 0.9;
+        weightedBetaSum += weight * beta;
+        betaWeightTotal += weight;
+      });
+    }
+
     const portfolioBeta = betaWeightTotal > 0 ? (weightedBetaSum / betaWeightTotal) : 1.0;
     const largestHoldingWeight = topHoldings[0]?.weight || 0;
     const largestSectorWeight = sectorAllocation[0]?.weight || 0;
@@ -177,9 +236,14 @@ export function PortfolioAnalyzer({ holdings, onRefresh }: PortfolioAnalyzerProp
     let score = 100;
     if (largestHoldingWeight > 30) score -= 20;
     if (largestSectorWeight > 45) score -= 15;
-    if (holdings.length < 5) score -= 15;
+    if (totalHoldingsCount < 5) score -= 15;
     if (portfolioBeta > 1.5) score -= 10;
     if (top3HoldingsPct > 60) score -= 10;
+
+    if (isTotalMode && mfHoldings.length > 0) {
+      score += Math.min(15, mfHoldings.length * 5);
+    }
+
     const diversificationScore = Math.max(0, Math.min(100, score));
 
     // Volatility Indicator
@@ -193,7 +257,15 @@ export function PortfolioAnalyzer({ holdings, onRefresh }: PortfolioAnalyzerProp
     else if (portfolioBeta > 1.3 || largestHoldingWeight > 35) riskProfile = 'Aggressive';
     else if (portfolioBeta > 1.1) riskProfile = 'Moderately Aggressive';
 
+    const uniqueAmcs = isTotalMode ? new Set(mfHoldings.map(h => h.amc_name || 'Other').filter(Boolean)) : new Set();
+    const amcCount = uniqueAmcs.size;
+
     return {
+      isTotalMode,
+      equityValue: totalEquityValue,
+      mfValue: totalMfValue,
+      equityPct,
+      mfPct,
       sectorAllocation,
       capWeights,
       topHoldings,
@@ -203,12 +275,13 @@ export function PortfolioAnalyzer({ holdings, onRefresh }: PortfolioAnalyzerProp
       riskProfile,
       largestHoldingWeight,
       largestSectorWeight,
-      totalHoldings: holdings.length,
+      totalHoldings: totalHoldingsCount,
       totalSectors: Object.keys(sectorMap).length,
       usExposure,
-      topAsset: topHoldings[0]?.symbol || 'N/A'
+      topAsset: topHoldings[0]?.symbol || 'N/A',
+      amcCount
     };
-  }, [holdings, metadata]);
+  }, [holdings, mfHoldings, activePortfolio, metadata]);
 
   if (!analytics) {
     return (
@@ -296,6 +369,36 @@ export function PortfolioAnalyzer({ holdings, onRefresh }: PortfolioAnalyzerProp
           </div>
         </div>
 
+        {/* 2.5 ASSET CLASS SPLIT (TOTAL WEALTH HUD ONLY) */}
+        {analytics.isTotalMode && (
+          <div className="space-y-3.5 p-4 rounded-xl bg-gradient-to-br from-blue-500/[0.02] to-emerald-500/[0.02] border border-white/[0.05] backdrop-blur-md shadow-md hover:border-white/10 transition-all duration-300">
+            <div className="flex items-center gap-2">
+              <Briefcase className="size-3.5 text-amber-500 drop-shadow-[0_0_8px_rgba(245,158,11,0.5)]" />
+              <h4 className="text-[11px] font-black uppercase tracking-[0.3em] text-white/80">Asset Allocation Split</h4>
+            </div>
+            <div className="flex justify-between items-center text-[10px] font-black uppercase tracking-widest">
+              <span className="text-blue-400 drop-shadow-[0_0_8px_rgba(59,130,246,0.3)]">Stocks: {analytics.equityPct.toFixed(1)}%</span>
+              <span className="text-emerald-400 drop-shadow-[0_0_8px_rgba(16,185,129,0.3)]">Funds: {analytics.mfPct.toFixed(1)}%</span>
+            </div>
+            <div className="relative h-2 w-full bg-black/40 rounded-full overflow-hidden border border-white/[0.05] p-[1.5px] shadow-inner">
+              <div className="h-full w-full flex rounded-full overflow-hidden">
+                <motion.div
+                  initial={{ width: 0 }}
+                  animate={{ width: `${analytics.equityPct}%` }}
+                  transition={{ type: "spring", stiffness: 80, damping: 14 }}
+                  className="h-full bg-gradient-to-r from-blue-600 to-blue-400 shadow-[0_0_10px_rgba(59,130,246,0.35)]"
+                />
+                <motion.div
+                  initial={{ width: 0 }}
+                  animate={{ width: `${analytics.mfPct}%` }}
+                  transition={{ type: "spring", stiffness: 80, damping: 14 }}
+                  className="h-full bg-gradient-to-r from-emerald-600 to-emerald-400 shadow-[0_0_10px_rgba(16,185,129,0.35)]"
+                />
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* 3. ALLOCATION */}
         <div className="space-y-4 p-4 rounded-xl bg-white/[0.01] border border-white/[0.03] backdrop-blur-md hover:bg-white/[0.03] hover:border-white/10 transition-all duration-300 group/helix">
           <div className="flex items-center justify-between mb-0.5">
@@ -380,6 +483,8 @@ export function PortfolioAnalyzer({ holdings, onRefresh }: PortfolioAnalyzerProp
           </div>
         </div>
 
+
+
         {/* 5. DIAGNOSTICS */}
         <div className="space-y-3.5">
           <div className="flex items-center gap-2">
@@ -388,56 +493,135 @@ export function PortfolioAnalyzer({ holdings, onRefresh }: PortfolioAnalyzerProp
           </div>
 
           <div className="grid grid-cols-2 gap-4">
-            <motion.div
-              whileHover={{ scale: 1.02, transition: { duration: 0.2 } }}
-              className="p-4 rounded-xl bg-white/[0.03] border border-white/[0.05] shadow-[0_8px_32px_rgba(0,0,0,0.3)] backdrop-blur-2xl group/diag overflow-hidden relative cursor-default"
-            >
-              <div className="absolute inset-0 bg-gradient-to-br from-blue-500/5 to-transparent pointer-events-none group-hover/diag:from-blue-500/10 transition-colors" />
-              <span className="text-[9px] font-black text-zinc-500 uppercase tracking-[0.2em] relative z-10">Volatility Index</span>
-              <div className="flex items-baseline justify-between relative z-10 mt-1">
-                <span className="text-2xl font-headline font-black text-white tracking-tighter drop-shadow-[0_0_10px_rgba(255,255,255,0.4)]">
-                  {analytics.volatilityScore.toFixed(0)}
-                </span>
-                <div className={cn(
-                  "px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-tighter transition-all",
-                  analytics.volatilityScore > 140 ? "text-rose-500 drop-shadow-[0_0_8px_rgba(244,63,94,0.6)] bg-rose-500/10" : "text-emerald-500 drop-shadow-[0_0_8px_rgba(16,185,129,0.6)] bg-emerald-500/10"
-                )}>
-                  {analytics.volatilityScore > 160 ? 'Extreme' : 'Stable'}
+            {analytics.isTotalMode ? (
+              <motion.div
+                whileHover={{ scale: 1.02, transition: { duration: 0.2 } }}
+                className="p-4 rounded-xl bg-white/[0.03] border border-white/[0.05] shadow-[0_8px_32px_rgba(0,0,0,0.3)] backdrop-blur-2xl group/diag overflow-hidden relative cursor-default"
+              >
+                <div className="absolute inset-0 bg-gradient-to-br from-blue-500/5 to-transparent pointer-events-none group-hover/diag:from-blue-500/10 transition-colors" />
+                <div className="flex justify-between items-start relative z-10">
+                  <span className="text-[9px] font-black text-zinc-500 uppercase tracking-[0.2em]">Risk Analytics</span>
+                  <div className="flex items-center gap-1.5">
+                    <div className={cn(
+                      "px-1.5 py-0.5 rounded text-[8px] font-black uppercase tracking-tighter transition-all",
+                      analytics.volatilityScore > 140 ? "text-rose-500 bg-rose-500/10 drop-shadow-[0_0_8px_rgba(244,63,94,0.6)]" : "text-emerald-500 bg-emerald-500/10 drop-shadow-[0_0_8px_rgba(16,185,129,0.6)]"
+                    )}>
+                      {analytics.volatilityScore > 160 ? 'Extreme' : 'Stable'}
+                    </div>
+                  </div>
                 </div>
-              </div>
-            </motion.div>
 
-            <motion.div
-              whileHover={{ scale: 1.02, transition: { duration: 0.2 } }}
-              className="p-4 rounded-xl bg-white/[0.03] border border-white/[0.05] shadow-[0_8px_32px_rgba(0,0,0,0.3)] backdrop-blur-2xl group/sync overflow-hidden relative cursor-default"
-            >
-              <div className="absolute inset-0 bg-gradient-to-br from-emerald-500/5 to-transparent pointer-events-none group-hover/sync:from-emerald-500/10 transition-colors" />
-              <div className="flex justify-between items-start relative z-10">
-                <span className="text-[9px] font-black text-zinc-500 uppercase tracking-[0.2em]">Market Exposure</span>
-                <div className="flex items-center gap-1.5">
-                  <Globe2 className="size-2.5 text-blue-400" />
-                  <span className="text-[11px] font-headline font-black text-white drop-shadow-[0_0_10px_rgba(255,255,255,0.4)]">
-                    {analytics.usExposure > 0 ? 'Hybrid' : 'Domestic'}
+                {/* Risk Analytics Breakdown */}
+                <div className="mt-2.5 space-y-1.5 relative z-10">
+                  <div className="flex items-center justify-between text-[8px] font-black uppercase tracking-widest text-zinc-500">
+                    <span>Volatility Index</span>
+                    <span className="text-zinc-200">{analytics.volatilityScore.toFixed(0)}</span>
+                  </div>
+                  <div className="flex items-center justify-between text-[8px] font-black uppercase tracking-widest text-zinc-500">
+                    <span>Portfolio Beta</span>
+                    <span className="text-zinc-200">{analytics.portfolioBeta.toFixed(2)}</span>
+                  </div>
+                  <div className="flex items-center justify-between text-[8px] font-black uppercase tracking-widest text-zinc-500">
+                    <span>Asset Concentration</span>
+                    <span className="text-zinc-200">{analytics.largestHoldingWeight.toFixed(1)}% Max</span>
+                  </div>
+                  <div className="flex items-center justify-between text-[8px] font-black uppercase tracking-widest text-zinc-500 border-t border-white/5 pt-1 mt-1">
+                    <span>Sector Concentration</span>
+                    <span className="text-blue-400 truncate max-w-[70px]">{analytics.largestSectorWeight.toFixed(1)}% Max</span>
+                  </div>
+                </div>
+              </motion.div>
+            ) : (
+              <motion.div
+                whileHover={{ scale: 1.02, transition: { duration: 0.2 } }}
+                className="p-4 rounded-xl bg-white/[0.03] border border-white/[0.05] shadow-[0_8px_32px_rgba(0,0,0,0.3)] backdrop-blur-2xl group/diag overflow-hidden relative cursor-default"
+              >
+                <div className="absolute inset-0 bg-gradient-to-br from-blue-500/5 to-transparent pointer-events-none group-hover/diag:from-blue-500/10 transition-colors" />
+                <span className="text-[9px] font-black text-zinc-500 uppercase tracking-[0.2em] relative z-10">Volatility Index</span>
+                <div className="flex items-baseline justify-between relative z-10 mt-1">
+                  <span className="text-2xl font-headline font-black text-white tracking-tighter drop-shadow-[0_0_10px_rgba(255,255,255,0.4)]">
+                    {analytics.volatilityScore.toFixed(0)}
                   </span>
+                  <div className={cn(
+                    "px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-tighter transition-all",
+                    analytics.volatilityScore > 140 ? "text-rose-500 drop-shadow-[0_0_8px_rgba(244,63,94,0.6)] bg-rose-500/10" : "text-emerald-500 drop-shadow-[0_0_8px_rgba(16,185,129,0.6)] bg-emerald-500/10"
+                  )}>
+                    {analytics.volatilityScore > 160 ? 'Extreme' : 'Stable'}
+                  </div>
                 </div>
-              </div>
+              </motion.div>
+            )}
 
-              {/* Exposure Breakdown */}
-              <div className="mt-2.5 space-y-1.5 relative z-10">
-                <div className="flex items-center justify-between text-[8px] font-black uppercase tracking-widest text-zinc-500">
-                  <span>NSE/BSE (India)</span>
-                  <span className="text-zinc-200">{(100 - analytics.usExposure).toFixed(0)}%</span>
+
+            {analytics.isTotalMode ? (
+              <motion.div
+                whileHover={{ scale: 1.02, transition: { duration: 0.2 } }}
+                className="p-4 rounded-xl bg-white/[0.03] border border-white/[0.05] shadow-[0_8px_32px_rgba(0,0,0,0.3)] backdrop-blur-2xl group/sync overflow-hidden relative cursor-default"
+              >
+                <div className="absolute inset-0 bg-gradient-to-br from-emerald-500/5 to-transparent pointer-events-none group-hover/sync:from-emerald-500/10 transition-colors" />
+                <div className="flex justify-between items-start relative z-10">
+                  <span className="text-[9px] font-black text-zinc-500 uppercase tracking-[0.2em]">Investment Mix</span>
+                  <div className="flex items-center gap-1.5">
+                    <Globe2 className="size-2.5 text-blue-400" />
+                    <span className="text-[11px] font-headline font-black text-white drop-shadow-[0_0_10px_rgba(255,255,255,0.4)]">
+                      {analytics.mfPct > 0 ? 'Blended' : 'Pure Equity'}
+                    </span>
+                  </div>
                 </div>
-                <div className="flex items-center justify-between text-[8px] font-black uppercase tracking-widest text-zinc-500">
-                  <span>NYSE/NAS (USA)</span>
-                  <span className="text-zinc-200">{analytics.usExposure.toFixed(0)}%</span>
+
+                {/* Investment Mix Breakdown */}
+                <div className="mt-2.5 space-y-1.5 relative z-10">
+                  <div className="flex items-center justify-between text-[8px] font-black uppercase tracking-widest text-zinc-500">
+                    <span>Direct Stocks</span>
+                    <span className="text-zinc-200">{analytics.equityPct.toFixed(0)}%</span>
+                  </div>
+                  <div className="flex items-center justify-between text-[8px] font-black uppercase tracking-widest text-zinc-500">
+                    <span>Mutual Funds</span>
+                    <span className="text-zinc-200">{analytics.mfPct.toFixed(0)}%</span>
+                  </div>
+                  <div className="flex items-center justify-between text-[8px] font-black uppercase tracking-widest text-zinc-500">
+                    <span>Professional AMCs</span>
+                    <span className="text-zinc-200">{analytics.amcCount} AMCs</span>
+                  </div>
+                  <div className="flex items-center justify-between text-[8px] font-black uppercase tracking-widest text-zinc-500 border-t border-white/5 pt-1 mt-1">
+                    <span className="flex items-center gap-1">Core Position</span>
+                    <span className="text-blue-400 truncate max-w-[70px]">{analytics.topAsset}</span>
+                  </div>
                 </div>
-                <div className="flex items-center justify-between text-[8px] font-black uppercase tracking-widest text-zinc-500">
-                  <span className="flex items-center gap-1">Top Asset</span>
-                  <span className="text-blue-400">{analytics.topAsset}</span>
+              </motion.div>
+            ) : (
+              <motion.div
+                whileHover={{ scale: 1.02, transition: { duration: 0.2 } }}
+                className="p-4 rounded-xl bg-white/[0.03] border border-white/[0.05] shadow-[0_8px_32px_rgba(0,0,0,0.3)] backdrop-blur-2xl group/sync overflow-hidden relative cursor-default"
+              >
+                <div className="absolute inset-0 bg-gradient-to-br from-emerald-500/5 to-transparent pointer-events-none group-hover/sync:from-emerald-500/10 transition-colors" />
+                <div className="flex justify-between items-start relative z-10">
+                  <span className="text-[9px] font-black text-zinc-500 uppercase tracking-[0.2em]">Market Exposure</span>
+                  <div className="flex items-center gap-1.5">
+                    <Globe2 className="size-2.5 text-blue-400" />
+                    <span className="text-[11px] font-headline font-black text-white drop-shadow-[0_0_10px_rgba(255,255,255,0.4)]">
+                      {analytics.usExposure > 0 ? 'Hybrid' : 'Domestic'}
+                    </span>
+                  </div>
                 </div>
-              </div>
-            </motion.div>
+
+                {/* Exposure Breakdown */}
+                <div className="mt-2.5 space-y-1.5 relative z-10">
+                  <div className="flex items-center justify-between text-[8px] font-black uppercase tracking-widest text-zinc-500">
+                    <span>NSE/BSE (India)</span>
+                    <span className="text-zinc-200">{(100 - analytics.usExposure).toFixed(0)}%</span>
+                  </div>
+                  <div className="flex items-center justify-between text-[8px] font-black uppercase tracking-widest text-zinc-500">
+                    <span>NYSE/NAS (USA)</span>
+                    <span className="text-zinc-200">{analytics.usExposure.toFixed(0)}%</span>
+                  </div>
+                  <div className="flex items-center justify-between text-[8px] font-black uppercase tracking-widest text-zinc-500">
+                    <span className="flex items-center gap-1">Top Asset</span>
+                    <span className="text-blue-400">{analytics.topAsset}</span>
+                  </div>
+                </div>
+              </motion.div>
+            )}
           </div>
         </div>
 

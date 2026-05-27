@@ -175,7 +175,7 @@ export class MutualFundSyncJob extends BaseJob<string[]> {
     const activeKeys = Array.from(parsedRecords.keys());
     const { data: dbMaster } = await supabase
       .from('mutual_funds_master')
-      .select('scheme_code, symbol, current_price, risk_level, logo_url, category, sub_category, isin, isin_reinvest')
+      .select('scheme_code, symbol, current_price, prev_close, risk_level, logo_url, category, sub_category, isin, isin_reinvest')
       .in('scheme_code', activeKeys);
 
     const dbMap = new Map<string, any>();
@@ -200,7 +200,11 @@ export class MutualFundSyncJob extends BaseJob<string[]> {
       }
 
       if (existing && Number(existing.current_price) > 0) {
-        prevClose = Number(existing.current_price);
+        if (Number(record.current_price) === Number(existing.current_price)) {
+          prevClose = Number(existing.prev_close) || Number(existing.current_price);
+        } else {
+          prevClose = Number(existing.current_price);
+        }
       }
 
       const dayChange = record.current_price - prevClose;

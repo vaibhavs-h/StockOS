@@ -63,7 +63,7 @@ export class MFYahooEnrichJob extends BaseJob<void> {
     // 2. Fetch master records for these active schemes
     const { data: activeFunds, error } = await supabase
       .from('mutual_funds_master')
-      .select('scheme_code, isin, name, amc_name, symbol, updated_at, aum')
+      .select('scheme_code, isin, name, amc_name, symbol, updated_at, aum, current_price, prev_close')
       .in('scheme_code', activeCodes)
       .order('scheme_code', { ascending: true });
 
@@ -109,6 +109,32 @@ export class MFYahooEnrichJob extends BaseJob<void> {
           // Fetch summary modules for enrichment
           const enrichData = await this.fetchEnrichmentData(symbol);
 
+          // Reconcile AMFI price (fund.current_price) with Yahoo quote prices
+          const amfiPrice = Number(fund.current_price) || 0;
+          const yahooPrice = Number(enrichData.current_price) || 0;
+          const yahooPrevClose = Number(enrichData.prev_close) || 0;
+
+          let currentPrice = amfiPrice || yahooPrice;
+          let prevClose = Number(fund.prev_close) || currentPrice;
+
+          if (yahooPrice && amfiPrice) {
+            if (Math.abs(amfiPrice - yahooPrice) > 0.01) {
+              // Yahoo price is from a previous day. So it is the prev_close for AMFI's new price
+              prevClose = yahooPrice;
+              currentPrice = amfiPrice;
+            } else {
+              // Yahoo is fully synced, so prev_close is Yahoo's previous close
+              prevClose = yahooPrevClose || yahooPrice;
+              currentPrice = amfiPrice;
+            }
+          } else if (yahooPrice) {
+            currentPrice = yahooPrice;
+            prevClose = yahooPrevClose || yahooPrice;
+          }
+
+          const dayChange = currentPrice - prevClose;
+          const dayChangePct = prevClose > 0 ? (dayChange / prevClose) * 100 : 0.00;
+
           await supabase
             .from('mutual_funds_master')
             .update({
@@ -131,6 +157,10 @@ export class MFYahooEnrichJob extends BaseJob<void> {
               top_holdings:               enrichData.top_holdings               ?? null,
               risk_statistics:            enrichData.risk_statistics            ?? null,
               performance_history:        enrichData.performance_history        ?? null,
+              current_price:              currentPrice,
+              prev_close:                 prevClose,
+              day_change:                 dayChange,
+              day_change_percentage:      dayChangePct,
               updated_at:                 new Date().toISOString()
             })
             .eq('scheme_code', fund.scheme_code);
@@ -217,8 +247,19 @@ export class MFYahooEnrichJob extends BaseJob<void> {
     top_holdings?: any | null;
     risk_statistics?: any | null;
     performance_history?: any | null;
+    current_price?: number | null;
+    prev_close?: number | null;
+    day_change?: number | null;
+    day_change_percentage?: number | null;
   }> {
     try {
+      let quote: any = null;
+      try {
+        quote = await yahooFinance.quote(symbol);
+      } catch (err: any) {
+        console.warn(`Failed to fetch live quote for ${symbol}: ${err.message}`);
+      }
+
       const summary = await yahooFinance.quoteSummary(symbol, {
         modules: [
           'defaultKeyStatistics',
@@ -375,7 +416,11 @@ export class MFYahooEnrichJob extends BaseJob<void> {
         credit_ratings,
         top_holdings,
         risk_statistics,
-        performance_history
+        performance_history,
+        current_price:              quote?.regularMarketPrice             ?? null,
+        prev_close:                 quote?.regularMarketPreviousClose     ?? null,
+        day_change:                 quote?.regularMarketChange            ?? null,
+        day_change_percentage:      quote?.regularMarketChangePercent     ?? null
       };
     } catch (e: any) {
       return {};

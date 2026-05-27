@@ -74,12 +74,12 @@ export const WealthPerformanceChart: React.FC<WealthChartProps> = ({
       : (displayData.length >= 2 ? displayData[displayData.length - 1].value >= displayData[0].value : true);
       
     const color = theme === 'purple'
-      ? '#a855f7'
-      : (isProfit ? '#10b981' : '#ef4444');
+      ? '#c084fc'
+      : (isProfit ? '#00e676' : '#ff3366');
       
     const rgba = theme === 'purple'
-      ? '168, 85, 247'
-      : (isProfit ? '16, 185, 129' : '239, 68, 68');
+      ? '192, 132, 252'
+      : (isProfit ? '0, 230, 118' : '255, 51, 102');
 
 
     const chart = createChart(chartContainerRef.current, {
@@ -138,7 +138,7 @@ export const WealthPerformanceChart: React.FC<WealthChartProps> = ({
 
     const areaSeries = chart.addSeries(AreaSeries, {
       lineColor: color,
-      topColor: `rgba(${rgba}, 0.15)`,
+      topColor: `rgba(${rgba}, 0.25)`,
       bottomColor: `rgba(${rgba}, 0)`,
       lineWidth: 2,
       priceFormat: {

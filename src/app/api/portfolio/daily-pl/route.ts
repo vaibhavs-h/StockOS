@@ -28,8 +28,8 @@ export async function GET(req: NextRequest) {
   // Step 1: Get holdings (either for a specific portfolio or all portfolios for a user)
   let query = supabase.from('holdings').select('trading_symbol, quantity, invested_value, market_value, day_change, last_price');
 
-  if (portfolioId === 'overall') {
-    if (!userId) return NextResponse.json({ error: 'user_id is required for overall view' }, { status: 400 });
+  if (portfolioId === 'overall' || portfolioId === 'total') {
+    if (!userId) return NextResponse.json({ error: 'user_id is required for overall/total view' }, { status: 400 });
     query = query.eq('user_id', userId);
   } else {
     query = query.eq('portfolio_id', portfolioId);

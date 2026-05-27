@@ -606,8 +606,6 @@ app.get('/api/news/monthly-metrics', async (req, res) => {
           .from('news')
           .select('*')
           .in('id', bookmarkedIds)
-          .gte('published_at', startISO)
-          .lte('published_at', endISO)
           .order('published_at', { ascending: false })
           .range(sFrom, sFrom + CHUNK_SIZE - 1);
 
@@ -737,9 +735,12 @@ app.get('/api/news', async (req, res) => {
   const limit = parseInt(req.query.limit as string) || 30;
   const offset = (page - 1) * limit;
   const impact = req.query.impact as string;
+  const ticker = req.query.ticker as string;
+  const sentiment = req.query.sentiment as string;
+  const search = req.query.search as string;
 
   try {
-    console.log(`[NEWS] Fetching news. Category: ${category}, User: ${userId || 'guest'}, Page: ${page}, Limit: ${limit}, Impact: ${impact || 'all'}`);
+    console.log(`[NEWS] Fetching news. Category: ${category}, User: ${userId || 'guest'}, Page: ${page}, Limit: ${limit}, Impact: ${impact || 'all'}, Ticker: ${ticker || 'none'}, Sentiment: ${sentiment || 'all'}, Search: ${search || 'none'}`);
 
     let newsItems: any[] = [];
 
@@ -772,9 +773,37 @@ app.get('/api/news', async (req, res) => {
         .in('id', bookmarkedIds)
         .order('published_at', { ascending: false });
 
-      if (impact) {
+      if (impact && impact !== 'all') {
         query = query.eq('impact', impact);
       }
+
+      // Apply shared filters
+      if (ticker) {
+        const cleanTicker = ticker.replace(/\.(NS|BO)$/, '').toUpperCase();
+        query = query.or(`stocks.cs.{"${cleanTicker}"},stocks.cs.{"${cleanTicker}.NS"},stocks.cs.{"${cleanTicker}.BO"}`);
+      }
+
+      if (sentiment === 'bullish') {
+        query = query.gte('sentiment_score', 0.1);
+      } else if (sentiment === 'bearish') {
+        query = query.lte('sentiment_score', -0.1);
+      } else if (sentiment === 'neutral') {
+        query = query.gt('sentiment_score', -0.1).lt('sentiment_score', 0.1);
+      }
+
+      if (search) {
+        const cleanSearch = search.trim();
+        const searchVal = `%${cleanSearch}%`;
+        if (cleanSearch.length <= 6 && !cleanSearch.includes(' ')) {
+          const uSearch = cleanSearch.toUpperCase();
+          query = query.or(`title.ilike.${searchVal},summary.ilike.${searchVal},source.ilike.${searchVal},stocks.cs.{"${uSearch}"},stocks.cs.{"${uSearch}.NS"},stocks.cs.{"${uSearch}.BO"}`);
+        } else {
+          query = query.or(`title.ilike.${searchVal},summary.ilike.${searchVal},source.ilike.${searchVal}`);
+        }
+      }
+
+      // Add pagination range
+      query = query.range(offset, offset + limit - 1);
 
       const { data: items, error: newsErr } = await query;
 
@@ -795,8 +824,33 @@ app.get('/api/news', async (req, res) => {
         query = query.eq('category', category);
       }
 
-      if (impact) {
+      if (impact && impact !== 'all') {
         query = query.eq('impact', impact);
+      }
+
+      // Apply shared filters
+      if (ticker) {
+        const cleanTicker = ticker.replace(/\.(NS|BO)$/, '').toUpperCase();
+        query = query.or(`stocks.cs.{"${cleanTicker}"},stocks.cs.{"${cleanTicker}.NS"},stocks.cs.{"${cleanTicker}.BO"}`);
+      }
+
+      if (sentiment === 'bullish') {
+        query = query.gte('sentiment_score', 0.1);
+      } else if (sentiment === 'bearish') {
+        query = query.lte('sentiment_score', -0.1);
+      } else if (sentiment === 'neutral') {
+        query = query.gt('sentiment_score', -0.1).lt('sentiment_score', 0.1);
+      }
+
+      if (search) {
+        const cleanSearch = search.trim();
+        const searchVal = `%${cleanSearch}%`;
+        if (cleanSearch.length <= 6 && !cleanSearch.includes(' ')) {
+          const uSearch = cleanSearch.toUpperCase();
+          query = query.or(`title.ilike.${searchVal},summary.ilike.${searchVal},source.ilike.${searchVal},stocks.cs.{"${uSearch}"},stocks.cs.{"${uSearch}.NS"},stocks.cs.{"${uSearch}.BO"}`);
+        } else {
+          query = query.or(`title.ilike.${searchVal},summary.ilike.${searchVal},source.ilike.${searchVal}`);
+        }
       }
 
       // Add pagination range
@@ -849,7 +903,7 @@ app.get('/api/news', async (req, res) => {
 
     res.json({
       news: formattedNews,
-      hasMore: category === 'saved' ? false : newsItems.length === limit
+      hasMore: newsItems.length === limit
     });
   } catch (err: any) {
     console.error('[NEWS] Route failed:', err.message);

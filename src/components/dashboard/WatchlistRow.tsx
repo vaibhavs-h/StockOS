@@ -67,18 +67,18 @@ export const WatchlistRow: React.FC<WatchlistRowProps> = ({ asset, onRemove }) =
                 size="md"
                 className="shrink-0"
               />
-              <div className="flex flex-col min-w-0">
-                <div className="flex items-center gap-1.5">
+              <div className="flex flex-col min-w-0 flex-1">
+                <div className="flex items-center gap-1.5 w-full">
                   <h3 className={cn(
-                    "text-[16px] font-black text-white tracking-tighter uppercase leading-none drop-shadow-2xl truncate",
-                    isMF && "text-[13px] max-w-[130px]"
-                  )}>
-                    {displaySymbolStr}
+                    "text-[16px] font-black text-white tracking-tighter uppercase leading-none drop-shadow-2xl truncate flex-1",
+                    isMF && "max-w-[140px]"
+                  )} title={isMF ? asset.name : displaySymbolStr}>
+                    {isMF ? asset.name : displaySymbolStr}
                   </h3>
                   {hasHolding && <div className="size-1 rounded-full bg-cyan-400 shadow-[0_0_10px_rgba(34,211,238,0.6)] animate-pulse shrink-0" />}
                 </div>
-                <p className="text-[10px] text-zinc-400 font-bold uppercase tracking-[0.15em] truncate max-w-[110px] opacity-60 mt-1">
-                  {asset.name}
+                <p className="text-[10px] text-zinc-400 font-bold uppercase tracking-[0.15em] truncate max-w-[110px] opacity-60 mt-1.5" title={isMF ? displaySymbolStr : asset.name}>
+                  {isMF ? displaySymbolStr : asset.name}
                 </p>
               </div>
             </div>

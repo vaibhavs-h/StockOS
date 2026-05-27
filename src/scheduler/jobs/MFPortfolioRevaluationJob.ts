@@ -114,7 +114,7 @@ export class MFPortfolioRevaluationJob extends BaseJob {
         const currentPrice = Number(master.current_price) || avgPrice;
         const prevClose = Number(master.prev_close) || currentPrice;
 
-        const investedValue = qty * avgPrice;
+        const investedValue = Number(holding.invested_value) || (qty * avgPrice);
         const marketValue = qty * currentPrice;
         const p_l = marketValue - investedValue;
         const p_l_percentage = investedValue > 0 ? (p_l / investedValue) * 100 : 0.00;
