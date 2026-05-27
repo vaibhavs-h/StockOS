@@ -1,7 +1,7 @@
 import YahooFinance from 'yahoo-finance2';
 import { yahooRequestQueue } from '../core/YahooRequestQueue';
 
-const yahooFinance = new YahooFinance();
+const yahooFinance = new YahooFinance({ suppressNotices: ['yahooSurvey'] });
 
 /**
  * YahooProvider: The Institutional Data Gateway.

@@ -4,7 +4,7 @@ import { JobMetadata, RefreshTier, MarketRegion, QueuePriority } from '../../cor
 import YahooFinance from 'yahoo-finance2';
 import axios from 'axios';
 
-const yahooFinance = new YahooFinance();
+const yahooFinance = new YahooFinance({ suppressNotices: ['yahooSurvey'] });
 
 /**
  * MFYahooEnrichJob: Yahoo Finance Symbol Matcher & Enricher.

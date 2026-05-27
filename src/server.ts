@@ -24,6 +24,17 @@ import { YahooProvider } from './scheduler/providers/YahooProvider';
 import { SymbolSyncStateService } from './scheduler/core/SymbolSyncStateService';
 import { getDbUserId } from './lib/user';
 
+// ---------------------------------------------------------
+// GLOBAL RESILIENCE HANDLERS (Institutional Shielding)
+// ---------------------------------------------------------
+process.on('unhandledRejection', (reason: any, promise: Promise<any>) => {
+  console.error('[CRITICAL-SHIELD] Unhandled Promise Rejection caught:', reason);
+});
+
+process.on('uncaughtException', (error: Error) => {
+  console.error('[CRITICAL-SHIELD] Uncaught Exception caught:', error.message, error.stack);
+});
+
 const upload = multer({ storage: multer.memoryStorage() });
 
 
@@ -75,7 +86,7 @@ const axiosConfig = {
 };
 
 import YahooFinance from 'yahoo-finance2';
-const yahooFinance = new YahooFinance();
+const yahooFinance = new YahooFinance({ suppressNotices: ['yahooSurvey'] });
 
 // ---------------------------------------------------------
 // MARKET INTELLIGENCE (Indices & Stock History)
