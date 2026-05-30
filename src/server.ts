@@ -86,24 +86,17 @@ const axiosConfig = {
 };
 
 import YahooFinance from 'yahoo-finance2';
-import { ProxyAgent } from 'undici';
+import { ProxyAgent, setGlobalDispatcher } from 'undici';
 
 const proxyUrl = process.env.PROXY_URL;
-const proxyAgent = proxyUrl ? new ProxyAgent(proxyUrl) : undefined;
-
-const customFetch = (url: any, options: any) => {
-  if (proxyAgent) {
-    options = {
-      ...options,
-      dispatcher: proxyAgent
-    };
-  }
-  return globalThis.fetch(url, options);
-};
+if (proxyUrl) {
+  console.log(`[PROXY] Initializing global proxy dispatcher: ${proxyUrl.replace(/:[^:@]+@/, ':****@')}`);
+  const proxyAgent = new ProxyAgent(proxyUrl);
+  setGlobalDispatcher(proxyAgent);
+}
 
 const yahooFinance = new YahooFinance({
   suppressNotices: ['yahooSurvey'],
-  fetch: customFetch,
   fetchOptions: {
     headers: {
       'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
@@ -111,7 +104,7 @@ const yahooFinance = new YahooFinance({
       'Accept-Language': 'en-US,en;q=0.9',
       'Cache-Control': 'max-age=0'
     }
-  } as any
+  }
 });
 
 // ---------------------------------------------------------
