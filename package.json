@@ -28,6 +28,7 @@
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
     "framer-motion": "^11.0.3",
+    "https-proxy-agent": "^9.0.0",
     "lightweight-charts": "^5.2.0",
     "lucide-react": "^0.330.0",
     "multer": "^2.1.1",

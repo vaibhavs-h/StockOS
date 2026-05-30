@@ -1,21 +1,48 @@
 import YahooFinance from 'yahoo-finance2';
 import { yahooRequestQueue } from '../core/YahooRequestQueue';
+import axios from 'axios';
+import { HttpsProxyAgent } from 'https-proxy-agent';
+
+const proxyUrl = process.env.PROXY_URL;
+const proxyAgent = proxyUrl ? new HttpsProxyAgent(proxyUrl) : undefined;
 
 const yahooFinance = new YahooFinance({
   suppressNotices: ['yahooSurvey'],
   fetchOptions: {
+    agent: proxyAgent,
     headers: {
       'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
       'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
       'Accept-Language': 'en-US,en;q=0.9',
       'Cache-Control': 'max-age=0'
     }
-  }
+  } as any
 });
+
+function toTwelveDataSymbol(symbol: string): string {
+  // If it's an Indian stock
+  if (symbol.endsWith('.NS')) {
+    return `${symbol.slice(0, -3)}:NSE`;
+  }
+  if (symbol.endsWith('.BO')) {
+    return `${symbol.slice(0, -3)}:BSE`;
+  }
+  // US indices, currencies, general mapping
+  if (symbol === '^GSPC') return 'SPX';
+  if (symbol === '^IXIC') return 'IXIC';
+  if (symbol === '^DJI') return 'DJI';
+  if (symbol === '^VIX') return 'VIX';
+  if (symbol === '^RUT') return 'RUT';
+  if (symbol === '^NSEI') return 'NIFTY';
+  if (symbol === 'USDINR=X') return 'USD/INR';
+  
+  return symbol;
+}
 
 /**
  * YahooProvider: The Institutional Data Gateway.
  * Interfaces with yahoo-finance2 via the prioritized YahooRequestQueue.
+ * Falling back seamlessly to Twelve Data API if Yahoo rate limits or errors.
  */
 export class YahooProvider {
   /**
@@ -30,11 +57,98 @@ export class YahooProvider {
           const results = await yahooFinance.quote(symbols, {}, { validateResult: false } as any);
           return results;
         } catch (error: any) {
-          throw error;
+          console.warn(`[YahooProvider] Yahoo Finance quote fetch failed. Attempting Twelve Data fallback... Reason: ${error.message}`);
+          
+          const apiKey = process.env.TWELVE_DATA_API_KEY;
+          if (!apiKey) {
+            console.error('[YahooProvider] Twelve Data fallback failed: TWELVE_DATA_API_KEY is not configured in environment variables.');
+            throw error;
+          }
+
+          try {
+            return await this.fetchQuotesFromTwelveData(symbols, apiKey);
+          } catch (tdError: any) {
+            console.error('[YahooProvider] Twelve Data fallback failed entirely:', tdError.message);
+            throw error; // throw original Yahoo error if fallback also fails
+          }
         }
       },
       1 // Priority P1: High priority for live market data
     );
+  }
+
+  /**
+   * Helper to fetch and map quotes from Twelve Data
+   */
+  private static async fetchQuotesFromTwelveData(symbols: string[], apiKey: string) {
+    const symbolMap = new Map<string, string>();
+    const mappedSymbols = symbols.map(s => {
+      const tdSym = toTwelveDataSymbol(s);
+      symbolMap.set(tdSym.toLowerCase(), s);
+      // Map base ticker as backup
+      const base = tdSym.split(':')[0].toLowerCase();
+      if (!symbolMap.has(base)) {
+        symbolMap.set(base, s);
+      }
+      return tdSym;
+    });
+
+    const symbolString = mappedSymbols.join(',');
+    const url = `https://api.twelvedata.com/quote?symbol=${encodeURIComponent(symbolString)}&apikey=${apiKey}`;
+    
+    console.log(`[TwelveData] Fetching quotes for symbols: ${symbolString}`);
+    const response = await axios.get(url);
+    const data = response.data;
+
+    if (data.status === 'error') {
+      throw new Error(data.message || 'Twelve Data API returned error status');
+    }
+
+    const results: any[] = [];
+    const parseItem = (item: any, queryKey?: string) => {
+      if (!item || item.status === 'error') return;
+
+      const responseSym = item.symbol || '';
+      // Find matching Yahoo symbol
+      let originalSymbol = '';
+      if (queryKey) {
+        originalSymbol = symbolMap.get(queryKey.toLowerCase()) || '';
+      }
+      if (!originalSymbol) {
+        originalSymbol = symbolMap.get(responseSym.toLowerCase()) || symbolMap.get(responseSym.split(':')[0].toLowerCase()) || responseSym;
+      }
+
+      const price = parseFloat(item.close);
+      if (isNaN(price)) return;
+
+      results.push({
+        symbol: originalSymbol,
+        regularMarketPrice: price,
+        regularMarketChange: parseFloat(item.change || '0'),
+        regularMarketChangePercent: parseFloat(item.percent_change || '0'),
+        regularMarketPreviousClose: parseFloat(item.previous_close || '0'),
+        regularMarketVolume: parseInt(item.volume || '0', 10),
+        regularMarketDayHigh: parseFloat(item.high || '0'),
+        regularMarketDayLow: parseFloat(item.low || '0'),
+        marketState: item.is_market_open ? 'REGULAR' : 'CLOSED',
+        // Fallbacks for detail pages
+        displayName: item.name,
+        shortName: item.name
+      });
+    };
+
+    if (data.symbol) {
+      // Single symbol response
+      parseItem(data, mappedSymbols[0]);
+    } else {
+      // Multi-symbol response
+      for (const [key, value] of Object.entries(data)) {
+        parseItem(value, key);
+      }
+    }
+
+    console.log(`[TwelveData] Successfully resolved ${results.length}/${symbols.length} quotes.`);
+    return results;
   }
 
   /**
@@ -58,7 +172,6 @@ export class YahooProvider {
       postMarketPrice: q.postMarketPrice,
       postMarketChangePercent: q.postMarketChangePercent
     };
-
   }
 
   /**
@@ -83,3 +196,4 @@ export class YahooProvider {
     );
   }
 }
+
