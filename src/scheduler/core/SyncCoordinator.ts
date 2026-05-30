@@ -47,15 +47,20 @@ export class SyncCoordinator {
       }
 
       // Adaptive Pacing: 
-      // 1. 10s if any market is open
-      // 2. 60s if market is closed BUT we have active views (Weekend Research mode)
-      // 3. 15m if all closed and no active demand
+      // 1. 15s if any market is open AND we have active views (live trading session)
+      // 2. 5m if any market is open BUT no active views (idle background session - saves rate limits!)
+      // 3. 60s if market is closed BUT we have active views (Weekend Research mode)
+      // 4. 15m if all closed and no active demand
       const isAnyOpen = MarketSessionService.isIndianMarketOpen() || MarketSessionService.isUsMarketOpen();
       const hasActiveViews = marketStateCache.getActiveViews(10 * 60 * 1000).length > 0;
       
-      let delay = 15 * 60 * 1000; // 15m default
+      let delay = 15 * 60 * 1000; // 15m default (closed & idle)
       if (isAnyOpen) {
-        delay = 10000; // 10s high cadence
+        if (hasActiveViews) {
+          delay = 15000; // 15s high cadence for active users
+        } else {
+          delay = 5 * 60 * 1000; // 5m idle background pacing when market is open but no users are online
+        }
       } else if (hasActiveViews) {
         delay = 60000; // 60s weekend research mode
       }
