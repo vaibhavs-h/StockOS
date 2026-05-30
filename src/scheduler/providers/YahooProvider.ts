@@ -1,15 +1,25 @@
 import YahooFinance from 'yahoo-finance2';
 import { yahooRequestQueue } from '../core/YahooRequestQueue';
 import axios from 'axios';
-import { HttpsProxyAgent } from 'https-proxy-agent';
+import { ProxyAgent } from 'undici';
 
 const proxyUrl = process.env.PROXY_URL;
-const proxyAgent = proxyUrl ? new HttpsProxyAgent(proxyUrl) : undefined;
+const proxyAgent = proxyUrl ? new ProxyAgent(proxyUrl) : undefined;
+
+const customFetch = (url: any, options: any) => {
+  if (proxyAgent) {
+    options = {
+      ...options,
+      dispatcher: proxyAgent
+    };
+  }
+  return globalThis.fetch(url, options);
+};
 
 const yahooFinance = new YahooFinance({
   suppressNotices: ['yahooSurvey'],
+  fetch: customFetch,
   fetchOptions: {
-    agent: proxyAgent,
     headers: {
       'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
       'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
