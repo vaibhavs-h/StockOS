@@ -544,7 +544,6 @@ export default function DashboardPage() {
 
 	const refreshAll = async () => {
 		setIsRefreshing(true);
-		setShowSyncConsole(true);
 		setSyncLogs([{ timestamp: new Date().toISOString(), message: ">>> INITIALIZING TACTICAL SYNC SEQUENCE", type: 'info' }]);
 
 		try {
@@ -571,7 +570,6 @@ export default function DashboardPage() {
 
 	const handleAnalyzerRefresh = async () => {
 		setIsRefreshing(true);
-		setShowSyncConsole(true);
 		setSyncLogs([{ timestamp: new Date().toISOString(), message: ">>> INITIALIZING PORTFOLIO REVALUATION PROTOCOL", type: 'info' }]);
 
 		try {

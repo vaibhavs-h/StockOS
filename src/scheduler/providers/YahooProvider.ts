@@ -1,6 +1,7 @@
 import YahooFinance from 'yahoo-finance2';
 import { yahooRequestQueue } from '../core/YahooRequestQueue';
 import axios from 'axios';
+import { proxyRotationManager } from '../core/ProxyRotationManager';
 
 const yahooFinance = new YahooFinance({
   suppressNotices: ['yahooSurvey'],
@@ -48,23 +49,35 @@ export class YahooProvider {
     return yahooRequestQueue.enqueue(
       `quotes-${region}-${symbols.length}-${symbols[0]}`, // ID includes first symbol for basic uniqueness
       async () => {
-        try {
-          const results = await yahooFinance.quote(symbols, {}, { validateResult: false } as any);
-          return results;
-        } catch (error: any) {
-          console.warn(`[YahooProvider] Yahoo Finance quote fetch failed. Attempting Twelve Data fallback... Reason: ${error.message}`);
-          
-          const apiKey = process.env.TWELVE_DATA_API_KEY;
-          if (!apiKey) {
-            console.error('[YahooProvider] Twelve Data fallback failed: TWELVE_DATA_API_KEY is not configured in environment variables.');
-            throw error;
-          }
+        let attempts = 0;
+        const maxAttempts = Math.max(2, proxyRotationManager.getPoolSize());
 
+        while (attempts < maxAttempts) {
           try {
-            return await this.fetchQuotesFromTwelveData(symbols, apiKey);
-          } catch (tdError: any) {
-            console.error('[YahooProvider] Twelve Data fallback failed entirely:', tdError.message);
-            throw error; // throw original Yahoo error if fallback also fails
+            const results = await yahooFinance.quote(symbols, {}, { validateResult: false } as any);
+            return results;
+          } catch (error: any) {
+            attempts++;
+            const wasRotated = proxyRotationManager.handleRequestFailure(error);
+            if (wasRotated && attempts < maxAttempts) {
+              console.log(`[YahooProvider] Proxy rotated. Retrying quote fetch (attempt ${attempts + 1}/${maxAttempts})...`);
+              continue;
+            }
+
+            console.warn(`[YahooProvider] Yahoo Finance quote fetch failed. Attempting Twelve Data fallback... Reason: ${error.message}`);
+            
+            const apiKey = process.env.TWELVE_DATA_API_KEY;
+            if (!apiKey) {
+              console.error('[YahooProvider] Twelve Data fallback failed: TWELVE_DATA_API_KEY is not configured in environment variables.');
+              throw error;
+            }
+
+            try {
+              return await this.fetchQuotesFromTwelveData(symbols, apiKey);
+            } catch (tdError: any) {
+              console.error('[YahooProvider] Twelve Data fallback failed entirely:', tdError.message);
+              throw error; // throw original Yahoo error if fallback also fails
+            }
           }
         }
       },
@@ -177,18 +190,29 @@ export class YahooProvider {
     return yahooRequestQueue.enqueue(
       `summary-${region}-${symbol}`,
       async () => {
-        try {
-          // Note: yahoo-finance2 uses 'validateResult' for quoteSummary as well
-          const result = await yahooFinance.quoteSummary(symbol, { modules: modules as any }, { validateResult: false } as any);
-          return result;
-        } catch (error: any) {
-          console.error(`[YahooProvider] Failed fetchQuoteSummary for ${symbol}:`, error.message);
-          // Return null instead of throwing to prevent global crash
-          return null;
+        let attempts = 0;
+        const maxAttempts = Math.max(2, proxyRotationManager.getPoolSize());
+
+        while (attempts < maxAttempts) {
+          try {
+            // Note: yahoo-finance2 uses 'validateResult' for quoteSummary as well
+            const result = await yahooFinance.quoteSummary(symbol, { modules: modules as any }, { validateResult: false } as any);
+            return result;
+          } catch (error: any) {
+            attempts++;
+            const wasRotated = proxyRotationManager.handleRequestFailure(error);
+            if (wasRotated && attempts < maxAttempts) {
+              console.log(`[YahooProvider] Proxy rotated. Retrying quoteSummary fetch for ${symbol} (attempt ${attempts + 1}/${maxAttempts})...`);
+              continue;
+            }
+
+            console.error(`[YahooProvider] Failed fetchQuoteSummary for ${symbol}:`, error.message);
+            // Return null instead of throwing to prevent global crash
+            return null;
+          }
         }
       },
       4 // Priority P4: Low priority for deep enrichment
     );
   }
 }
-

@@ -86,14 +86,8 @@ const axiosConfig = {
 };
 
 import YahooFinance from 'yahoo-finance2';
-import { ProxyAgent, setGlobalDispatcher } from 'undici';
+import { proxyRotationManager } from './scheduler/core/ProxyRotationManager';
 
-const proxyUrl = process.env.PROXY_URL;
-if (proxyUrl) {
-  console.log(`[PROXY] Initializing global proxy dispatcher: ${proxyUrl.replace(/:[^:@]+@/, ':****@')}`);
-  const proxyAgent = new ProxyAgent(proxyUrl);
-  setGlobalDispatcher(proxyAgent);
-}
 
 const yahooFinance = new YahooFinance({
   suppressNotices: ['yahooSurvey'],
@@ -124,7 +118,7 @@ app.get('/api/indices', async (req, res) => {
     ];
 
     const symbols = indicesConfig.map(item => item.s);
-    const quotes = await YahooProvider.fetchQuotes(symbols, 'GLOBAL' as any);
+    const quotes = await YahooProvider.fetchQuotes(symbols, 'GLOBAL' as any) || [];
 
     const results = indicesConfig.map(config => {
       const q = quotes.find(quote => quote.symbol === config.s);
