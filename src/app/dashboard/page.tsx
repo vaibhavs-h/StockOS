@@ -4257,6 +4257,11 @@ export default function DashboardPage() {
 																				}
 
 																				setImportStatus("Sync Complete...");
+																				try {
+																					await axios.post(`${engineUrl}/api/revalue`);
+																				} catch (revalErr) {
+																					console.warn("[RESYNC-REVAL] Immediate revaluation dispatch failed:", revalErr);
+																				}
 																				await fetchPortfolios();
 																				await fetchHoldings();
 																				await fetchHistory();

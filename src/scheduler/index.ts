@@ -10,6 +10,7 @@ import { IndianMasterSeedJob } from './jobs/internal/IndianMasterSeedJob';
 import { PortfolioRevaluationJob } from './jobs/PortfolioRevaluationJob';
 import { AlphaVantageNewsSyncJob } from './jobs/AlphaVantageNewsSyncJob';
 import { IndianNewsSyncJob } from './jobs/IndianNewsSyncJob';
+import { MFMasterSeedJob } from './jobs/internal/MFMasterSeedJob';
 
 /**
  * initializeScheduler: The Ignition Point for Pulse Engine v2.
@@ -22,18 +23,23 @@ export function initializeScheduler() {
   // This starts the SyncCoordinator pulse loop with jitter and safety offsets.
   StartupRecoveryManager.initiateRecovery();
 
-  // 2. PORTFOLIO HEARTBEAT: Tier 1 (1 Min)
-  // Ensures Total Value, Day Change, and History are recalculated every minute.
-  cron.schedule('* * * * *', () => {
+  // 2. PORTFOLIO HEARTBEAT: Tier 1 (Every 3 Hours)
+  // Ensures Total Value, Day Change, and History are recalculated periodically.
+  cron.schedule('0 */3 * * *', () => {
     syncOrchestrator.dispatch(new PortfolioRevaluationJob());
   });
 
-  // 2. BACKGROUND ANALYTICS: Tier 3 (1 Hour)
-  // Focused exclusively on the Active Universe (Holdings + Active Views)
-  cron.schedule(`0 * * * *`, () => {
+  // 2. BACKGROUND ANALYTICS: Tier 3 (Daily Post-Market)
+  // Focused on Active Universe (Holdings + Active Views) to capture daily moving averages and valuations.
+  // India Analytics (Fires daily at 4:00 PM IST - 30 minutes after market close)
+  cron.schedule(`0 16 * * *`, () => {
     syncOrchestrator.dispatch(new IndianAnalyticsSyncJob());
-    syncOrchestrator.dispatch(new UsAnalyticsSyncJob());
   }, { timezone: 'Asia/Kolkata' });
+
+  // US Analytics (Fires daily at 5:00 PM EST - 60 minutes after market close for final settlements)
+  cron.schedule(`0 17 * * *`, () => {
+    syncOrchestrator.dispatch(new UsAnalyticsSyncJob());
+  }, { timezone: 'America/New_York' });
 
   // 3. POST-SESSION SETTLEMENT: Tier 4 (Deep Sync)
   // Fires 15 minutes after market close to capture final daily metrics.
@@ -48,6 +54,10 @@ export function initializeScheduler() {
     try {
       const { mfSyncCoordinator } = require('./core/MFSyncCoordinator');
       await mfSyncCoordinator.syncActiveMutualFunds();
+      
+      // Revalue all portfolios immediately after mutual fund records are updated at EOD
+      console.log('[SCHEDULER] Mutual Fund Sync complete. Triggering EOD Portfolio Revaluation...');
+      syncOrchestrator.dispatch(new PortfolioRevaluationJob());
     } catch (err: any) {
       console.error('[SCHEDULER] Nightly Mutual Fund Sync failed:', err.message);
     }
@@ -63,16 +73,22 @@ export function initializeScheduler() {
     syncOrchestrator.dispatch(new UsMarketResetJob());
   }, { timezone: 'America/New_York' });
 
-  // 5. MASTER SEEDING: Tier 5 (Low-Priority Discovery Sweep)
-  // Runs every hour to check for unseeded symbols at lowest P5 priority.
-  cron.schedule('0 * * * *', () => {
+  // 5. MASTER SEEDING: Tier 5 (Weekly discovery sweep)
+  // Runs once weekly on Sundays at 1:00 AM IST to check for new discoverable symbols.
+  cron.schedule('0 1 * * 0', () => {
     syncOrchestrator.dispatch(new IndianMasterSeedJob());
   }, { timezone: 'Asia/Kolkata' });
 
-  // 6. INTELLIGENCE NEWS FEED: Alpha Vantage (global) + Indian RSS — every 2 hours
-  //    Alpha Vantage: 12 calls/day — well within 25/day free tier
+  // 5b. MUTUAL FUND SEEDING: Tier 5 (Weekly discovery sweep)
+  // Runs once weekly on Sundays at 2:00 AM IST to check for new mutual fund schemes (very heavy, takes 15-25m).
+  cron.schedule('0 2 * * 0', () => {
+    syncOrchestrator.dispatch(new MFMasterSeedJob());
+  }, { timezone: 'Asia/Kolkata' });
+
+  // 6. INTELLIGENCE NEWS FEED: Alpha Vantage (global) + Indian RSS — every 3 hours
+  //    Alpha Vantage: 8 calls/day — extremely safe, well within 25/day free tier limit
   //    Indian RSS: free, no key required
-  cron.schedule('0 */2 * * *', () => {
+  cron.schedule('0 */3 * * *', () => {
     syncOrchestrator.dispatch(new AlphaVantageNewsSyncJob());
     syncOrchestrator.dispatch(new IndianNewsSyncJob());
   });

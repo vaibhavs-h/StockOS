@@ -80,9 +80,8 @@ export class ActiveRegistryService {
       ...regionalWatchlist.map(wa => SymbolUniverseManager.resolveSymbol(wa.symbol.toUpperCase(), region))
     ]);
 
-    // 2. Get active views from MarketStateCache
-    // Ephemeral views only stay active for 5 mins after last heartbeat
-    const activeViewSymbols = marketStateCache.getActiveViews(5 * 60 * 1000);
+    // Ephemeral views only stay active for 2 mins after last heartbeat
+    const activeViewSymbols = marketStateCache.getActiveViews(2 * 60 * 1000);
     
     // Filter active views by region
     const regionalViews = activeViewSymbols.filter(s => {

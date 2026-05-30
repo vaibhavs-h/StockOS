@@ -16,7 +16,7 @@ export class SyncCoordinator {
   private isRunning: boolean = false;
   private loopInterval: NodeJS.Timeout | null = null;
 
-  private constructor() {}
+  private constructor() { }
 
   public static getInstance(): SyncCoordinator {
     if (!SyncCoordinator.instance) {
@@ -32,14 +32,14 @@ export class SyncCoordinator {
     if (this.isRunning) return;
     this.isRunning = true;
     console.log('[MAESTRO] Pulse Engine v2 Awakening...');
-    
+
     this.runLoop();
   }
 
   private async runLoop() {
     while (this.isRunning) {
       const start = Date.now();
-      
+
       try {
         await this.pulse();
       } catch (error: any) {
@@ -52,8 +52,8 @@ export class SyncCoordinator {
       // 3. 60s if market is closed BUT we have active views (Weekend Research mode)
       // 4. 15m if all closed and no active demand
       const isAnyOpen = MarketSessionService.isIndianMarketOpen() || MarketSessionService.isUsMarketOpen();
-      const hasActiveViews = marketStateCache.getActiveViews(10 * 60 * 1000).length > 0;
-      
+      const hasActiveViews = marketStateCache.getActiveViews(2 * 60 * 1000).length > 0;
+
       let delay = 15 * 60 * 1000; // 15m default (closed & idle)
       if (isAnyOpen) {
         if (hasActiveViews) {
@@ -64,7 +64,7 @@ export class SyncCoordinator {
       } else if (hasActiveViews) {
         delay = 60000; // 60s weekend research mode
       }
-      
+
       await new Promise(resolve => setTimeout(resolve, delay));
     }
   }
@@ -102,7 +102,7 @@ export class SyncCoordinator {
     // 3. Immediate DB Flush & Revaluation
     // We flush every time to ensure the revaluation job sees fresh data
     const updatedCount = await this.flushDirtySnapshots();
-    
+
     if (updatedCount > 0) {
       // Trigger immediate portfolio revaluation
       const { syncOrchestrator } = require('./orchestrator');
@@ -120,12 +120,12 @@ export class SyncCoordinator {
 
     const supabase = SupabaseProvider.getClient();
     const usTickers = new Set(SymbolUniverseManager.getUniqueUsEquities().map((a: any) => a.s.toUpperCase()));
-    
+
     const mapSnapshots = (symbols: string[], region: 'IN' | 'US') => {
       return symbols.map(s => {
         const resolved = SymbolUniverseManager.resolveSymbol(s, region);
         const data = marketStateCache.getSnapshot(s);
-        
+
         // INSTITUTIONAL SHIELDING: Only include fields with high-fidelity data
         const update: any = {
           symbol: resolved,
@@ -155,7 +155,7 @@ export class SyncCoordinator {
       const ticker = s.split('.')[0].toUpperCase();
       return s.endsWith('.NS') || s.endsWith('.BO') || !usTickers.has(ticker);
     });
-    
+
     const usSymbols = dirtySymbols.filter(s => {
       const ticker = s.split('.')[0].toUpperCase();
       return !s.endsWith('.NS') && !s.endsWith('.BO') && usTickers.has(ticker);
@@ -187,14 +187,14 @@ export class SyncCoordinator {
         last_synced_at: now,
         sync_error_count: 0
       }));
-      
+
       await supabase.from('active_market_symbols').upsert(updates, { onConflict: 'symbol' });
     }
 
     metricsService.recordDbFlush();
     const totalUpdated = inSnapshots.length + usSnapshots.length;
     console.log(`[MAESTRO] FLUSH | Updated ${totalUpdated} symbols in DB.`);
-    
+
     return totalUpdated;
   }
 }

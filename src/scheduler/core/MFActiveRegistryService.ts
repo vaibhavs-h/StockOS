@@ -57,8 +57,8 @@ export class MFActiveRegistryService {
     const hotSchemes = new Set([...heldSchemes, ...watchedSchemes]);
 
     // 3. Extract active ephemeral viewed schemes from MarketStateCache
-    // Heartbeats are tracked when a user opens a Fund Detail Page
-    const activeViews = marketStateCache.getActiveViews(5 * 60 * 1000); // 5-minute timeout window
+    // Ephemeral views only stay active for 2 mins after last heartbeat
+    const activeViews = marketStateCache.getActiveViews(2 * 60 * 1000);
     const ephemeralSchemes = new Set<string>();
 
     activeViews.forEach(v => {

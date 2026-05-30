@@ -3,7 +3,7 @@
  * Used by SyncCoordinator for adaptive cadence and survival mode.
  */
 export class MarketSessionService {
-  
+
   /**
    * Checks if the Indian Market (NSE/BSE) is currently open.
    * Trading Hours: 9:15 AM - 3:30 PM IST (Mon-Fri)
@@ -12,7 +12,7 @@ export class MarketSessionService {
     const now = new Date();
     const istOffset = 5.5 * 60 * 60 * 1000;
     const istTime = new Date(now.getTime() + istOffset);
-    
+
     const day = istTime.getUTCDay();
     const hours = istTime.getUTCHours();
     const minutes = istTime.getUTCMinutes();
@@ -21,8 +21,8 @@ export class MarketSessionService {
     // Weekends check
     if (day === 0 || day === 6) return false;
 
-    // 9:15 AM (555 mins) to 3:30 PM (930 mins)
-    return totalMinutes >= 555 && totalMinutes <= 930;
+    // 9:15 AM (555 mins) to 3:35 PM (935 mins) - Extended by 5m to process final EOD revals cleanly
+    return totalMinutes >= 555 && totalMinutes <= 935;
   }
 
   /**
@@ -34,7 +34,7 @@ export class MarketSessionService {
     // Simplified EST check (not accounting for DST jitter here, but close enough for pacing)
     const estOffset = -5 * 60 * 60 * 1000;
     const estTime = new Date(now.getTime() + estOffset);
-    
+
     const day = estTime.getUTCDay();
     const hours = estTime.getUTCHours();
     const minutes = estTime.getUTCMinutes();
