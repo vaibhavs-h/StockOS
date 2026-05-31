@@ -1,7 +1,7 @@
 "use client"
 
 import React, { useRef, useState, useEffect } from "react";
-import { MenuIcon, SearchIcon, User, LogOut } from 'lucide-react';
+import { MenuIcon, SearchIcon, User, LogOut, CreditCard, MessageSquare, Sparkles } from 'lucide-react';
 import { Sheet, SheetContent, SheetFooter } from '@/components/shared/Sheet';
 import { Button } from '@/components/shared/Button';
 import { cn } from '@/lib/utils';
@@ -122,82 +122,104 @@ export function TacticalHeader() {
                   {profileOpen && (
                     <motion.div
                       ref={profileRef}
-                      initial={{ opacity: 0, scale: 0.95, y: 10 }}
-                        animate={{ opacity: 1, scale: 1, y: 0 }}
-                        exit={{ opacity: 0, scale: 0.95, y: 10 }}
-                        className="absolute right-0 mt-3 w-64 bg-white border-2 border-black rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.3)] z-20 overflow-hidden"
-                      >
-                        <div className="p-5 border-b-2 border-black/5 bg-zinc-50 relative">
-                          {/* Tier Badge in Menu */}
-                          {session && (
-                            <div className={cn(
-                              "absolute top-5 right-5 px-2 py-0.5 rounded-full text-[8px] font-black uppercase tracking-widest border",
-                              (session?.user as any)?.subscription_tier === 'pro' ? "bg-emerald-500/10 text-emerald-600 border-emerald-500/20" :
-                              (session?.user as any)?.subscription_tier === 'lite' ? "bg-blue-500/10 text-blue-600 border-blue-500/20" :
-                              "bg-zinc-100 text-zinc-400 border-zinc-200"
-                            )}>
-                              {(session?.user as any)?.subscription_tier || 'FREE'}
-                            </div>
-                          )}
-                          
-                          <p className="text-[10px] font-black uppercase tracking-widest text-zinc-400 mb-1">{session ? "Signed in as" : "Status"}</p>
-                          <p className="font-headline font-bold text-black truncate pr-12">
-                            {session?.user?.name || (session ? session.user?.email : "Guest")}
-                          </p>
-                          <p className="text-[11px] text-zinc-500 font-medium truncate">
-                            {session?.user?.email || "Login to Get Access"}
-                          </p>
-                        </div>
-                        <div className="p-2">
-                          {session ? (
-                            <>
-                              <Link href="/subscription">
-                                <Button
-                                  variant="ghost"
-                                  className="w-full justify-start gap-3 rounded-xl text-black hover:bg-zinc-100 transition-colors mb-1 py-4"
-                                  onClick={() => setProfileOpen(false)}
-                                >
-                                  <div className="size-4 rounded-full bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center">
-                                    <div className="size-1.5 rounded-full bg-emerald-500" />
-                                  </div>
-                                  <span className="font-bold text-xs uppercase tracking-widest">Subscription</span>
-                                </Button>
-                              </Link>
-                              <Link href="/reviews">
-                                <Button
-                                  variant="ghost"
-                                  className="w-full justify-start gap-3 rounded-xl text-black hover:bg-zinc-100 transition-colors mb-1 py-4"
-                                  onClick={() => setProfileOpen(false)}
-                                >
-                                  <div className="size-4 rounded-full bg-blue-500/10 border border-blue-500/20 flex items-center justify-center">
-                                    <div className="size-1.5 rounded-full bg-blue-500" />
-                                  </div>
-                                  <span className="font-bold text-xs uppercase tracking-widest">Reviews</span>
-                                </Button>
-                              </Link>
+                      initial={{ opacity: 0, scale: 0.95, y: 8 }}
+                      animate={{ opacity: 1, scale: 1, y: 0 }}
+                      exit={{ opacity: 0, scale: 0.95, y: 8 }}
+                      transition={{ type: "spring", stiffness: 380, damping: 28 }}
+                      className="absolute right-0 mt-2 w-64 bg-zinc-950 border-2 border-white/20 rounded-2xl shadow-[0_25px_60px_rgba(0,0,0,0.8)] z-20 overflow-hidden"
+                    >
+                      <div className="pt-2.5 pb-2.5 px-4 border-b border-white/10 bg-zinc-900/30 relative">
+                        {/* Tier Badge in Menu */}
+                        {session && (
+                          <div className={cn(
+                            "absolute top-2.5 right-4 px-2 py-0.5 rounded-full text-[8px] font-black uppercase tracking-[0.12em] border shadow-sm",
+                            (session?.user as any)?.subscription_tier === 'pro' ? "bg-gradient-to-r from-emerald-500/20 to-teal-500/20 text-emerald-400 border-emerald-500/30" :
+                            (session?.user as any)?.subscription_tier === 'lite' ? "bg-gradient-to-r from-blue-500/20 to-indigo-500/20 text-blue-400 border-blue-500/30" :
+                            "bg-zinc-800 text-zinc-400 border-zinc-700"
+                          )}>
+                            {(session?.user as any)?.subscription_tier || 'FREE'}
+                          </div>
+                        )}
+                        
+                        <p className="text-[8px] font-bold uppercase tracking-[0.25em] text-zinc-500 mb-0.5">{session ? "SIGNED IN AS" : "STATUS"}</p>
+                        <p className="font-sans font-bold text-[13px] text-white truncate pr-14 tracking-tight">
+                          {session?.user?.name || (session ? session.user?.email : "Guest")}
+                        </p>
+                        <p className="text-[10px] text-zinc-400 font-normal truncate tracking-tight mt-[-1px]">
+                          {session?.user?.email || "Login to get access"}
+                        </p>
+                      </div>
+                      
+                      <div className="p-1.5 space-y-0.5">
+                        {session ? (
+                          <>
+                            <Link href="/subscription">
                               <Button
                                 variant="ghost"
-                                className="w-full justify-start gap-3 rounded-xl text-red-500 hover:text-red-600 hover:bg-red-50 transition-colors py-4"
-                                onClick={() => signOut({ callbackUrl: '/auth/login' })}
-                              >
-                                <LogOut className="size-4" />
-                                <span className="font-bold text-xs uppercase tracking-widest">Logout System</span>
-                              </Button>
-                            </>
-                          ) : (
-                            <Link href="/auth/login">
-                              <Button
-                                variant="ghost"
-                                className="w-full justify-start gap-3 rounded-xl text-emerald-600 hover:bg-emerald-50 transition-colors py-4"
+                                className="w-full justify-start gap-2.5 rounded-xl text-zinc-300 hover:text-white hover:bg-white/5 transition-all duration-200 py-1.5 px-2.5 group h-auto"
                                 onClick={() => setProfileOpen(false)}
                               >
-                                <User className="size-4" />
-                                <span className="font-bold text-xs uppercase tracking-widest">Log in Now~</span>
+                                <div className="size-7 rounded-lg bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center transition-transform group-hover:scale-105 duration-200 shrink-0">
+                                  <CreditCard className="size-3.5 text-emerald-400" />
+                                </div>
+                                <div className="flex flex-col items-start min-w-0">
+                                  <span className="font-bold text-[11px] uppercase tracking-wider text-zinc-200 group-hover:text-white truncate w-full text-left">Subscription</span>
+                                  <span className="text-[9px] text-zinc-500 group-hover:text-zinc-400 font-medium normal-case tracking-normal truncate w-full text-left mt-[-2px] transition-colors">Manage plans & billing</span>
+                                </div>
                               </Button>
                             </Link>
-                          )}
-                        </div>
-                      </motion.div>
+                            
+                            <Link href="/reviews">
+                              <Button
+                                variant="ghost"
+                                className="w-full justify-start gap-2.5 rounded-xl text-zinc-300 hover:text-white hover:bg-white/5 transition-all duration-200 py-1.5 px-2.5 group h-auto"
+                                onClick={() => setProfileOpen(false)}
+                              >
+                                <div className="size-7 rounded-lg bg-blue-500/10 border border-blue-500/20 flex items-center justify-center transition-transform group-hover:scale-105 duration-200 shrink-0">
+                                  <MessageSquare className="size-3.5 text-blue-400" />
+                                </div>
+                                <div className="flex flex-col items-start min-w-0">
+                                  <span className="font-bold text-[11px] uppercase tracking-wider text-zinc-200 group-hover:text-white truncate w-full text-left">Reviews</span>
+                                  <span className="text-[9px] text-zinc-500 group-hover:text-zinc-400 font-medium normal-case tracking-normal truncate w-full text-left mt-[-2px] transition-colors">See user testimonials</span>
+                                </div>
+                              </Button>
+                            </Link>
+                            
+                            <div className="h-px bg-white/5 my-1 mx-1.5" />
+                            
+                            <Button
+                              variant="ghost"
+                              className="w-full justify-start gap-2.5 rounded-xl text-rose-400 hover:text-rose-300 hover:bg-rose-500/10 transition-all duration-200 py-1.5 px-2.5 group h-auto"
+                              onClick={() => signOut({ callbackUrl: '/auth/login' })}
+                            >
+                              <div className="size-7 rounded-lg bg-rose-500/10 border border-rose-500/20 flex items-center justify-center transition-transform group-hover:scale-105 duration-200 shrink-0">
+                                <LogOut className="size-3.5 text-rose-400" />
+                              </div>
+                              <div className="flex flex-col items-start min-w-0">
+                                <span className="font-bold text-[11px] uppercase tracking-wider text-rose-400 text-left">Logout System</span>
+                                <span className="text-[9px] text-rose-500/70 group-hover:text-rose-400 font-medium normal-case tracking-normal truncate w-full text-left mt-[-2px] transition-colors">Sign out of active session</span>
+                              </div>
+                            </Button>
+                          </>
+                        ) : (
+                          <Link href="/auth/login">
+                            <Button
+                              variant="ghost"
+                              className="w-full justify-start gap-2.5 rounded-xl text-emerald-400 hover:bg-white/5 transition-all duration-200 py-1.5 px-2.5 group h-auto"
+                              onClick={() => setProfileOpen(false)}
+                            >
+                              <div className="size-7 rounded-lg bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center transition-transform group-hover:scale-105 duration-200 shrink-0">
+                                <User className="size-3.5 text-emerald-400" />
+                              </div>
+                              <div className="flex flex-col items-start min-w-0">
+                                <span className="font-bold text-[11px] uppercase tracking-wider text-emerald-400 text-left">Log in Now~</span>
+                                <span className="text-[9px] text-zinc-500 group-hover:text-zinc-400 font-medium normal-case tracking-normal truncate w-full text-left mt-[-2px] transition-colors">Access dashboard & assets</span>
+                              </div>
+                            </Button>
+                          </Link>
+                        )}
+                      </div>
+                    </motion.div>
                   )}
                 </AnimatePresence>
               </div>
