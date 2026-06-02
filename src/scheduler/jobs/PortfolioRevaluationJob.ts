@@ -78,9 +78,21 @@ export class PortfolioRevaluationJob extends BaseJob {
       supabase.from('us_market_assets').select('symbol, current_price, prev_close, day_change, day_change_percentage').in('symbol', symbolsList)
     ]);
     
+    const inMarketMap = new Map();
+    const usMarketMap = new Map();
     const marketMap = new Map();
-    (inAssets || []).forEach(a => marketMap.set(a.symbol.trim().toUpperCase(), a));
-    (usAssets || []).forEach(a => marketMap.set(a.symbol.trim().toUpperCase(), a));
+
+    (inAssets || []).forEach(a => {
+      const sym = a.symbol.trim().toUpperCase();
+      inMarketMap.set(sym, a);
+      marketMap.set(sym, a);
+    });
+
+    (usAssets || []).forEach(a => {
+      const sym = a.symbol.trim().toUpperCase();
+      usMarketMap.set(sym, a);
+      marketMap.set(sym, a);
+    });
 
     // 4. Group by portfolio
     const portfolioGroups = new Map<string, { userId: string, holdings: any[] }>();
@@ -113,9 +125,14 @@ export class PortfolioRevaluationJob extends BaseJob {
         const brokerPrice = Number(holding.last_price) || 0;
         const apiPrice = asset ? Number(asset.current_price) : 0;
         
-        // If Yahoo has no current price for this stock right now, PRESERVE existing holding data.
+        // Identify regional asset classification
+        const isIndianAsset = inMarketMap.has(resolved) || inMarketMap.has(symbol) || inMarketMap.has(`${symbol}.NS`) || inMarketMap.has(`${symbol}.BO`);
+        const isUsAsset = usMarketMap.has(symbol) || usMarketMap.has(resolved);
+        const shouldSkipReval = (isIndianAsset && !inOpen) || (isUsAsset && !usOpen);
+
+        // If Yahoo has no current price for this stock right now, or the asset's market is closed (locking in EOD prices), PRESERVE existing holding data.
         // Do NOT compute from brokerPrice - that produces stale/zero day_change.
-        if (apiPrice <= 0) {
+        if (shouldSkipReval || apiPrice <= 0) {
           updatedHoldings.push({
             ...holding,
             updated_at: getISTTimestamp()

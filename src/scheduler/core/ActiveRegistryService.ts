@@ -81,19 +81,20 @@ export class ActiveRegistryService {
     ]);
 
     // Ephemeral views only stay active for 2 mins after last heartbeat
-    const activeViewSymbols = marketStateCache.getActiveViews(2 * 60 * 1000);
-    
-    // Filter active views by region
-    const regionalViews = activeViewSymbols.filter(s => {
-      const ticker = s.includes(':') ? s.split(':')[1] : s;
-      const rawTicker = ticker.split('.')[0];
-      
-      if (s.endsWith('.NS') || s.endsWith('.BO')) return region === 'IN';
-      if (indianTickers.has(rawTicker) || indianTickers.has(ticker)) return region === 'IN';
-      if (usTickers.has(rawTicker) || usTickers.has(ticker)) return region === 'US';
-      
-      return region === 'IN';
-    }).map(s => SymbolUniverseManager.resolveSymbol(s, region));
+    // Query directly from Supabase to bridge Next.js API heartbeats with the separate Engine process
+    const twoMinutesAgo = new Date(Date.now() - 2 * 60 * 1000).toISOString();
+    const { data: dbActiveViews } = await supabase
+      .from('active_market_symbols')
+      .select('symbol')
+      .eq('market', region)
+      .gt('last_viewed_at', twoMinutesAgo);
+
+    const regionalViews = (dbActiveViews || []).map(d => 
+      SymbolUniverseManager.resolveSymbol(d.symbol.toUpperCase(), region)
+    );
+
+    // Sync views into the local Engine process's marketStateCache to activate the 15s adaptive pacing loop
+    regionalViews.forEach(s => marketStateCache.updateHeartbeat(s));
 
     // 3. Reconcile and Deduplicate
     // Force include global indices to ensure they are always live-pulsed

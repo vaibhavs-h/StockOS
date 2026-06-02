@@ -64,8 +64,8 @@ export class SymbolSyncStateService {
     } else {
       record.failureCount += 1;
       
-      // Exponential Smart Cooldown: increases by 60 mins per failure (max 24h)
-      const cooldownMinutes = Math.min(60 * record.failureCount, 24 * 60);
+      // Smart Adaptive Cooldown: 1 min for first failure, scaling up to 10 mins max
+      const cooldownMinutes = Math.min(2 * record.failureCount - 1, 10);
       record.cooldownUntil = Date.now() + cooldownMinutes * 60 * 1000;
     }
 

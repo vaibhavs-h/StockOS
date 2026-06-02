@@ -778,60 +778,6 @@ Zerodha exports don't specify the exchange (NSE vs BSE). The fingerprint approac
 
 ---
 
-## Environment Variables
-
-```env
-# Supabase
-NEXT_PUBLIC_SUPABASE_URL=
-NEXT_PUBLIC_SUPABASE_ANON_KEY=
-
-# Google OAuth (NextAuth)
-GOOGLE_CLIENT_ID=
-GOOGLE_CLIENT_SECRET=
-NEXTAUTH_URL=
-NEXTAUTH_SECRET=
-
-# Market Data Providers
-ALPHA_VANTAGE_API_KEY=      # Free tier: 25 calls/day — we use ~8
-TWELVE_DATA_API_KEY=         # Backup market data provider
-
-# Engine
-NEXT_PUBLIC_ENGINE_URL=      # Default: http://localhost:3003 (Render in prod)
-PORT=3003
-
-# AI Assistant (n8n RAG Pipeline)
-NEXT_PUBLIC_STOCK_ASSISTANT= # n8n webhook URL (ngrok tunnel in dev, cloud URL in prod)
-
-# Feedback
-NEXT_PUBLIC_FEEDBACK_URL=    # Feedback submission endpoint
-```
-
----
-
-## Local Development
-
-```bash
-# Install dependencies
-npm install
-
-# Run both frontend and engine concurrently
-npm run dev
-
-# Frontend only (port 3000)
-npm run frontend
-
-# Pulse Engine only (port 3003)
-npm run engine
-
-# TypeScript type check
-npx tsc --noEmit
-
-# Production build
-npm run build
-```
-
----
-
 ## Project Structure
 
 ```
@@ -937,16 +883,8 @@ StockOS/
 
 ## Subscription Tiers
 
-| Feature | Free | Lite | Pro |
-|---|---|---|---|
-| Portfolios | 1 | 3 | Unlimited |
-| Holdings | Up to 20 | Unlimited | Unlimited |
-| AI Portfolio Analyzer | — | ✓ | ✓ |
-| Mutual Fund Tracking | — | ✓ | ✓ |
-| US Stocks | — | — | ✓ |
-| Journal & Notes | — | ✓ | ✓ |
-| Priority Support | — | — | ✓ |
-| **Price** | **Free** | **₹199/mo** | **₹499/mo** |
+> [!NOTE]
+> The exact feature matrix, tiers, and pricing structures are currently under active design. While the backend Pulse Engine and UI are built to support multi-portfolio routing and premium limits, the commercial tiers are **Yet to be decided**.
 
 ---
 

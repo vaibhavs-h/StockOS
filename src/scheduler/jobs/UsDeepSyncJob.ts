@@ -7,6 +7,18 @@ import { syncOrchestrator } from '../core/orchestrator';
 
 import { JobMetadata, RefreshTier, MarketRegion, QueuePriority } from '../core/types';
 
+function toEpochSeconds(dateVal: any): number | null {
+  if (!dateVal) return null;
+  if (dateVal instanceof Date) {
+    return Math.floor(dateVal.getTime() / 1000);
+  }
+  const parsed = new Date(dateVal);
+  if (!isNaN(parsed.getTime())) {
+    return Math.floor(parsed.getTime() / 1000);
+  }
+  return null;
+}
+
 export class UsDeepSyncJob extends BaseJob {
   public readonly id = 'UsDeepSyncJob';
 
@@ -99,14 +111,14 @@ export class UsDeepSyncJob extends BaseJob {
           recommendation_key: fd.recommendationKey || null,
           payout_ratio: ks.payoutRatio || null,
           dividend_rate: ks.dividendRate || null,
-          ex_dividend_date: ks.exDividendDate || null,
+          ex_dividend_date: toEpochSeconds(ks.exDividendDate),
           trailing_annual_dividend_rate: ks.trailingAnnualDividendRate || sd.trailingAnnualDividendRate || null,
           trailing_annual_dividend_yield: ks.trailingAnnualDividendYield || sd.trailingAnnualDividendYield || null,
 
           // Earnings & EPS
-          earnings_timestamp: ce.earnings?.earningsDate?.[0] || null,
-          earnings_timestamp_start: ce.earnings?.earningsDate?.[0] || null,
-          earnings_timestamp_end: ce.earnings?.earningsDate?.[1] || null,
+          earnings_timestamp: toEpochSeconds(ce.earnings?.earningsDate?.[0]),
+          earnings_timestamp_start: toEpochSeconds(ce.earnings?.earningsDate?.[0]),
+          earnings_timestamp_end: toEpochSeconds(ce.earnings?.earningsDate?.[1]),
           eps_forward: ks.forwardEps || null,
           eps_current_year: ks.epsCurrentYear || null,
 

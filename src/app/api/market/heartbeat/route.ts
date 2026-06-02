@@ -35,9 +35,7 @@ export async function POST(req: NextRequest) {
         const normAsset = a.s.toUpperCase();
         return normAsset.split('.')[0] === rawTicker;
       });
-      if (!market) {
-        resolvedMarket = isIndian ? 'IN' : 'US';
-      }
+      resolvedMarket = isIndian ? 'IN' : 'US';
     }
 
     // Resolve the symbol canonically using the correctly resolved market region
