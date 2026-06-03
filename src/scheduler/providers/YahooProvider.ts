@@ -14,6 +14,8 @@ const yahooFinance = new YahooFinance({
     }
   }
 });
+proxyRotationManager.registerClient(yahooFinance);
+
 
 function toTwelveDataSymbol(symbol: string): string {
   // If it's an Indian stock

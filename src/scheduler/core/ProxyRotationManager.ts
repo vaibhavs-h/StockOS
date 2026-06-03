@@ -1,10 +1,12 @@
-import { ProxyAgent, setGlobalDispatcher } from 'undici';
+import { ProxyAgent } from 'undici';
+import { getCrumbClear } from 'yahoo-finance2/lib/getCrumb';
 
 export class ProxyRotationManager {
   private static instance: ProxyRotationManager;
   private proxies: string[] = [];
   private agents: ProxyAgent[] = [];
   private currentIndex: number = -1;
+  private registeredClients: any[] = [];
 
   private constructor() {
     this.initializePool();
@@ -43,19 +45,49 @@ export class ProxyRotationManager {
   }
 
   /**
-   * Sets the global Undici dispatcher to the currently active proxy.
+   * Registers a YahooFinance instance to be proxied.
+   */
+  public registerClient(client: any) {
+    this.registeredClients.push(client);
+    this.applyProxyToClient(client);
+  }
+
+  /**
+   * Applies the current active proxy to a client instance.
+   */
+  private applyProxyToClient(client: any) {
+    if (this.currentIndex < 0 || this.currentIndex >= this.agents.length) return;
+    const activeAgent = this.agents[this.currentIndex];
+    if (client && client._opts) {
+      if (!client._opts.fetchOptions) {
+        client._opts.fetchOptions = {};
+      }
+      client._opts.fetchOptions.dispatcher = activeAgent;
+
+      // Clear the cookie and crumb cache so a new proxy doesn't use stale session credentials
+      if (client._opts.cookieJar) {
+        getCrumbClear(client._opts.cookieJar).catch(err => {
+          console.warn('[PROXY-MANAGER] Failed to clear crumb cache on client:', err.message);
+        });
+      }
+    }
+  }
+
+  /**
+   * Applies the active proxy agent to all registered clients.
    */
   private applyActiveProxy() {
     if (this.currentIndex < 0 || this.currentIndex >= this.agents.length) return;
     
     const activeUrl = this.proxies[this.currentIndex];
-    const activeAgent = this.agents[this.currentIndex];
 
     // Mask username/password for safe logging
     const maskedUrl = activeUrl.replace(/:[^:@]+@/, ':****@');
     console.log(`[PROXY-MANAGER] Active Proxy Swapped to Index [${this.currentIndex}]: ${maskedUrl}`);
 
-    setGlobalDispatcher(activeAgent);
+    for (const client of this.registeredClients) {
+      this.applyProxyToClient(client);
+    }
   }
 
   /**
@@ -79,16 +111,70 @@ export class ProxyRotationManager {
   public handleRequestFailure(error: any): boolean {
     if (!error) return false;
 
-    const errMsg = String(error.message || '').toLowerCase();
-    const statusCode = error.status || (error.response ? error.response.status : null);
+    const messages: string[] = [];
+    const statusCodes: number[] = [];
+    const codes: string[] = [];
 
-    const isProxyAuthErr = errMsg.includes('407') || errMsg.includes('proxy authentication');
-    const isRateLimit = errMsg.includes('429') || statusCode === 429;
-    const isTimeout = errMsg.includes('timeout') || errMsg.includes('time out') || errMsg.includes('etimedout');
-    const isConnectionDrop = errMsg.includes('econnrefused') || errMsg.includes('econnreset') || errMsg.includes('und_err_connect');
+    let current = error;
+    let depth = 0;
+    while (current && depth < 5) {
+      if (current.message) {
+        messages.push(String(current.message).toLowerCase());
+      }
+      
+      const status = current.status || (current.response ? current.response.status : null);
+      if (status) {
+        statusCodes.push(Number(status));
+      }
+      
+      if (current.message) {
+        const match4xx = String(current.message).match(/\b(4\d{2})\b/);
+        if (match4xx) {
+          statusCodes.push(parseInt(match4xx[1], 10));
+        }
+      }
+
+      if (current.code) {
+        codes.push(String(current.code).toLowerCase());
+      }
+      
+      current = current.cause;
+      depth++;
+    }
+
+    const fullMsg = messages.join(' | ');
+    const fullCode = codes.join(' | ');
+
+    const isProxyAuthErr = fullMsg.includes('407') || fullMsg.includes('proxy authentication') || statusCodes.includes(407);
+    const isRateLimit = 
+      fullMsg.includes('429') || 
+      statusCodes.includes(429) || 
+      fullMsg.includes('402') || 
+      statusCodes.includes(402) || 
+      fullMsg.includes('403') || 
+      statusCodes.includes(403);
+      
+    const isTimeout = 
+      fullMsg.includes('timeout') || 
+      fullMsg.includes('time out') || 
+      fullMsg.includes('etimedout') || 
+      fullCode.includes('timeout') || 
+      fullCode.includes('und_err_connect_timeout');
+      
+    const isConnectionDrop = 
+      fullMsg.includes('econnrefused') || 
+      fullMsg.includes('econnreset') || 
+      fullMsg.includes('und_err_connect') || 
+      fullCode.includes('econnrefused') || 
+      fullCode.includes('econnreset') || 
+      fullCode.includes('und_err_connect') || 
+      fullMsg.includes('request was cancelled') || 
+      fullCode.includes('und_err_aborted') || 
+      fullMsg.includes('http tunneling') ||
+      fullMsg.includes('tunneling socket could not be established');
 
     if (isProxyAuthErr || isRateLimit || isTimeout || isConnectionDrop) {
-      console.warn(`[PROXY-MANAGER] Proxy request failed. Error: ${error.message}. Triggering rotation failover.`);
+      console.warn(`[PROXY-MANAGER] Proxy request failed. Error: ${error.message}. Cause Chain: "${fullMsg}". Triggering rotation failover.`);
       return this.rotate();
     }
 

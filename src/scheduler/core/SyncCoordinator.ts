@@ -15,6 +15,7 @@ export class SyncCoordinator {
   private static instance: SyncCoordinator;
   private isRunning: boolean = false;
   private loopInterval: NodeJS.Timeout | null = null;
+  private lastIndexSyncTimes: Map<string, number> = new Map();
 
   private constructor() { }
 
@@ -33,36 +34,54 @@ export class SyncCoordinator {
     this.isRunning = true;
     console.log('[MAESTRO] Pulse Engine v2 Awakening...');
 
-    this.runLoop();
+    this.runIndianLoop();
+    this.runUsLoop();
   }
 
-  private async runLoop() {
+  private async runIndianLoop() {
     while (this.isRunning) {
-      const start = Date.now();
-
       try {
-        await this.pulse();
+        await this.pulseRegion('IN');
       } catch (error: any) {
-        console.error('[MAESTRO] Pulse Error:', error.message);
+        console.error('[MAESTRO] Indian Pulse Error:', error.message);
       }
 
-      // Adaptive Pacing: 
-      // 1. 15s if any market is open AND we have active views (live trading session)
-      // 2. 5m if any market is open BUT no active views (idle background session - saves rate limits!)
-      // 3. 60s if market is closed BUT we have active views (Weekend Research mode)
-      // 4. 15m if all closed and no active demand
-      const isAnyOpen = MarketSessionService.isIndianMarketOpen() || MarketSessionService.isUsMarketOpen();
-      const hasActiveViews = marketStateCache.getActiveViews(2 * 60 * 1000).length > 0;
+      const isOpen = MarketSessionService.isIndianMarketOpen();
+      const inUniverse = await ActiveRegistryService.getActiveUniverse('IN');
+      const hasActiveViews = inUniverse.ephemeral.length > 0;
 
-      let delay = 15 * 60 * 1000; // 15m default (closed & idle)
-      if (isAnyOpen) {
+      let delay = 15 * 60 * 1000; // 15m default (closed)
+      if (isOpen) {
         if (hasActiveViews) {
           delay = 15000; // 15s high cadence for active users
         } else {
-          delay = 5 * 60 * 1000; // 5m idle background pacing when market is open but no users are online
+          delay = 5 * 60 * 1000; // 5m idle background pacing
         }
-      } else if (hasActiveViews) {
-        delay = 60000; // 60s weekend research mode
+      }
+
+      await new Promise(resolve => setTimeout(resolve, delay));
+    }
+  }
+
+  private async runUsLoop() {
+    while (this.isRunning) {
+      try {
+        await this.pulseRegion('US');
+      } catch (error: any) {
+        console.error('[MAESTRO] US Pulse Error:', error.message);
+      }
+
+      const isOpen = MarketSessionService.isUsMarketOpen();
+      const usUniverse = await ActiveRegistryService.getActiveUniverse('US');
+      const hasActiveViews = usUniverse.ephemeral.length > 0;
+
+      let delay = 15 * 60 * 1000; // 15m default (closed)
+      if (isOpen) {
+        if (hasActiveViews) {
+          delay = 15000; // 15s high cadence for active users
+        } else {
+          delay = 5 * 60 * 1000; // 5m idle background pacing
+        }
       }
 
       await new Promise(resolve => setTimeout(resolve, delay));
@@ -70,38 +89,50 @@ export class SyncCoordinator {
   }
 
   /**
-   * The core pulse logic: Identify demand, Batch, Sync, and Flush.
+   * The core pulse logic for a specific region.
    */
-  private async pulse() {
+  private async pulseRegion(region: 'IN' | 'US') {
     // 1. Identify Active Universe
-    const inUniverse = await ActiveRegistryService.getActiveUniverse('IN');
-    const usUniverse = await ActiveRegistryService.getActiveUniverse('US');
+    const universe = await ActiveRegistryService.getActiveUniverse(region);
 
     // 1b. Filter out Cooldown Symbols (Institutional Shielding)
     const cooldowns = await SymbolSyncStateService.getCooldownSymbols();
-    const activeIn = inUniverse.total.filter(s => !cooldowns.has(s));
-    const activeUs = usUniverse.total.filter(s => !cooldowns.has(s));
-
-    if (activeIn.length > 0 || activeUs.length > 0) {
-      console.log(`[MAESTRO] Pulse Wave | IN: ${activeIn.length} | US: ${activeUs.length} | Total: ${activeIn.length + activeUs.length}`);
-    }
 
     // 2. Batch Sync Quotes (Greedy Aggregation)
-    // Sync if market is open OR if we have active symbols (Holdings/Views) to revalue
-    if (MarketSessionService.isIndianMarketOpen() || activeIn.length > 0) {
-      await BatchAggregationService.fetchQuotesInBatches(activeIn, 'IN');
-      await ActiveRegistryService.persistActiveRegistry(activeIn, 'IN');
-    }
+    const isOpen = region === 'IN' ? MarketSessionService.isIndianMarketOpen() : MarketSessionService.isUsMarketOpen();
+    const hasViews = universe.ephemeral.length > 0;
 
-    if (MarketSessionService.isUsMarketOpen() || activeUs.length > 0) {
-      await BatchAggregationService.fetchQuotesInBatches(activeUs, 'US');
-      await ActiveRegistryService.persistActiveRegistry(activeUs, 'US');
-    }
+    const now = Date.now();
+    const activeSymbols = universe.total.filter(s => {
+      if (cooldowns.has(s)) return false;
 
+      // If the symbol is an index and the market is open, throttle to 1 minute
+      if (s.startsWith('^') && isOpen) {
+        const lastSync = this.lastIndexSyncTimes.get(s) || 0;
+        if (now - lastSync < 60000) {
+          return false;
+        }
+      }
+      return true;
+    });
+
+    if ((isOpen || hasViews) && activeSymbols.length > 0) {
+      console.log(`[MAESTRO] Pulse Wave [${region}] | Symbols: ${activeSymbols.length}`);
+      await BatchAggregationService.fetchQuotesInBatches(activeSymbols, region);
+
+      // Record sync time for indices
+      const syncTime = Date.now();
+      for (const s of activeSymbols) {
+        if (s.startsWith('^')) {
+          this.lastIndexSyncTimes.set(s, syncTime);
+        }
+      }
+
+      await ActiveRegistryService.persistActiveRegistry(activeSymbols, region);
+    }
 
     // 3. Immediate DB Flush & Revaluation
-    // We flush every time to ensure the revaluation job sees fresh data
-    const updatedCount = await this.flushDirtySnapshots();
+    const updatedCount = await this.flushDirtySnapshotsForRegion(region);
 
     if (updatedCount > 0) {
       // Trigger immediate portfolio revaluation
@@ -112,18 +143,26 @@ export class SyncCoordinator {
   }
 
   /**
-   * Flushes modified snapshots from RAM to Supabase.
+   * Flushes modified snapshots for a region from RAM to Supabase.
    */
-  private async flushDirtySnapshots(): Promise<number> {
+  private async flushDirtySnapshotsForRegion(region: 'IN' | 'US'): Promise<number> {
     const dirtySymbols = marketStateCache.getDirtySymbols();
     if (dirtySymbols.length === 0) return 0;
 
     const supabase = SupabaseProvider.getClient();
     const usTickers = new Set(SymbolUniverseManager.getUniqueUsEquities().map((a: any) => a.s.toUpperCase()));
 
-    const mapSnapshots = (symbols: string[], region: 'IN' | 'US') => {
+    const regionSymbols = dirtySymbols.filter(s => {
+      const ticker = s.split('.')[0].toUpperCase();
+      const isIN = s.endsWith('.NS') || s.endsWith('.BO') || !usTickers.has(ticker);
+      return region === 'IN' ? isIN : !isIN;
+    });
+
+    if (regionSymbols.length === 0) return 0;
+
+    const mapSnapshots = (symbols: string[], reg: 'IN' | 'US') => {
       return symbols.map(s => {
-        const resolved = SymbolUniverseManager.resolveSymbol(s, region);
+        const resolved = SymbolUniverseManager.resolveSymbol(s, reg);
         const data = marketStateCache.getSnapshot(s);
 
         // INSTITUTIONAL SHIELDING: Only include fields with high-fidelity data
@@ -137,7 +176,7 @@ export class SyncCoordinator {
         if (data.changePercent !== undefined && data.changePercent !== null) update.day_change_percentage = data.changePercent;
         if (data.prevClose !== undefined && data.prevClose !== null && data.prevClose !== 0) update.prev_close = data.prevClose;
 
-        if (region === 'IN') {
+        if (reg === 'IN') {
           if (data.volume !== undefined && data.volume !== null) update.volume = data.volume;
           if (data.dayHigh !== undefined && data.dayHigh !== null) update.high_price = data.dayHigh;
           if (data.dayLow !== undefined && data.dayLow !== null) update.low_price = data.dayLow;
@@ -151,51 +190,31 @@ export class SyncCoordinator {
       });
     };
 
-    const inSymbols = dirtySymbols.filter(s => {
-      const ticker = s.split('.')[0].toUpperCase();
-      return s.endsWith('.NS') || s.endsWith('.BO') || !usTickers.has(ticker);
-    });
+    const snapshots = mapSnapshots(regionSymbols, region);
+    const table = region === 'IN' ? 'market_assets' : 'us_market_assets';
 
-    const usSymbols = dirtySymbols.filter(s => {
-      const ticker = s.split('.')[0].toUpperCase();
-      return !s.endsWith('.NS') && !s.endsWith('.BO') && usTickers.has(ticker);
-    });
-
-    const inSnapshots = mapSnapshots(inSymbols, 'IN');
-    const usSnapshots = mapSnapshots(usSymbols, 'US');
-
-    const flush = async (table: string, data: any[], conflictColumn: string = 'symbol') => {
-      if (data.length === 0) return;
-      const { error } = await supabase.from(table).upsert(data, { onConflict: conflictColumn });
-      if (error) console.error(`[MAESTRO] Flush failed for ${table}:`, error.message);
-    };
-
-    await Promise.all([
-      flush('market_assets', inSnapshots),
-      flush('us_market_assets', usSnapshots)
-    ]);
-
-    // Clear dirty flags
-    dirtySymbols.forEach(s => marketStateCache.clearDirty(s));
-
-    // Finalize: Update last_synced_at for the active registry
-    const syncedSymbols = [...inSymbols, ...usSymbols];
-    if (syncedSymbols.length > 0) {
-      const now = new Date().toISOString();
-      const updates = syncedSymbols.map(s => ({
-        symbol: s,
-        last_synced_at: now,
-        sync_error_count: 0
-      }));
-
-      await supabase.from('active_market_symbols').upsert(updates, { onConflict: 'symbol' });
+    const { error } = await supabase.from(table).upsert(snapshots, { onConflict: 'symbol' });
+    if (error) {
+      console.error(`[MAESTRO] Flush failed for ${table}:`, error.message);
     }
 
-    metricsService.recordDbFlush();
-    const totalUpdated = inSnapshots.length + usSnapshots.length;
-    console.log(`[MAESTRO] FLUSH | Updated ${totalUpdated} symbols in DB.`);
+    // Clear dirty flags
+    regionSymbols.forEach(s => marketStateCache.clearDirty(s));
 
-    return totalUpdated;
+    // Finalize: Update last_synced_at for the active registry
+    const now = new Date().toISOString();
+    const updates = regionSymbols.map(s => ({
+      symbol: s,
+      last_synced_at: now,
+      sync_error_count: 0
+    }));
+
+    await supabase.from('active_market_symbols').upsert(updates, { onConflict: 'symbol' });
+
+    metricsService.recordDbFlush();
+    console.log(`[MAESTRO] FLUSH [${region}] | Updated ${snapshots.length} symbols in DB.`);
+
+    return snapshots.length;
   }
 }
 

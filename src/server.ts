@@ -100,6 +100,8 @@ const yahooFinance = new YahooFinance({
     }
   }
 });
+proxyRotationManager.registerClient(yahooFinance);
+
 
 // ---------------------------------------------------------
 // MARKET INTELLIGENCE (Indices & Stock History)
