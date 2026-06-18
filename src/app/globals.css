@@ -189,3 +189,21 @@
   pointer-events: none;
   user-select: none;
 }
+
+/* Animated Gradient Background */
+@keyframes gradientBg {
+  0% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0% 50%;
+  }
+}
+
+.animate-moving-gradient {
+  background-size: 200% 200%;
+  animation: gradientBg 12s ease infinite;
+}

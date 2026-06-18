@@ -95,7 +95,7 @@ export class MFYahooEnrichJob extends BaseJob<void> {
       if (fund.symbol === null) return true;
       if (fund.symbol === '') return false; // skip permanently unmatched
       if (fund.aum === null) return true;
-      
+
       const updatedAt = fund.updated_at ? new Date(fund.updated_at).getTime() : 0;
       return updatedAt < oneDayAgoTime;
     }).slice(0, this.batchSize);
@@ -152,29 +152,29 @@ export class MFYahooEnrichJob extends BaseJob<void> {
             .from('mutual_funds_master')
             .update({
               symbol,
-              returns_1y:                 enrichData.returns_1y                 ?? null,
-              returns_3y:                 enrichData.returns_3y                 ?? null,
-              returns_5y:                 enrichData.returns_5y                 ?? null,
-              expense_ratio:              enrichData.expense_ratio              ?? null,
-              aum:                        enrichData.aum                        ?? null,
-              logo_url:                   enrichData.logo_url                   ?? null,
-              min_initial_investment:     enrichData.min_initial_investment     ?? null,
-              min_subsequent_investment:  enrichData.min_subsequent_investment  ?? null,
-              rating:                     enrichData.rating                     ?? null,
-              style_box_url:              enrichData.style_box_url              ?? null,
-              manager_name:               enrichData.manager_name               ?? null,
-              manager_start_date:         enrichData.manager_start_date         ?? null,
-              asset_allocation:           enrichData.asset_allocation           ?? null,
-              sector_allocations:         enrichData.sector_allocations         ?? null,
-              credit_ratings:             enrichData.credit_ratings             ?? null,
-              top_holdings:               enrichData.top_holdings               ?? null,
-              risk_statistics:            enrichData.risk_statistics            ?? null,
-              performance_history:        enrichData.performance_history        ?? null,
-              current_price:              currentPrice,
-              prev_close:                 prevClose,
-              day_change:                 dayChange,
-              day_change_percentage:      dayChangePct,
-              updated_at:                 new Date().toISOString()
+              returns_1y: enrichData.returns_1y ?? null,
+              returns_3y: enrichData.returns_3y ?? null,
+              returns_5y: enrichData.returns_5y ?? null,
+              expense_ratio: enrichData.expense_ratio ?? null,
+              aum: enrichData.aum ?? null,
+              logo_url: enrichData.logo_url ?? null,
+              min_initial_investment: enrichData.min_initial_investment ?? null,
+              min_subsequent_investment: enrichData.min_subsequent_investment ?? null,
+              rating: enrichData.rating ?? null,
+              style_box_url: enrichData.style_box_url ?? null,
+              manager_name: enrichData.manager_name ?? null,
+              manager_start_date: enrichData.manager_start_date ?? null,
+              asset_allocation: enrichData.asset_allocation ?? null,
+              sector_allocations: enrichData.sector_allocations ?? null,
+              credit_ratings: enrichData.credit_ratings ?? null,
+              top_holdings: enrichData.top_holdings ?? null,
+              risk_statistics: enrichData.risk_statistics ?? null,
+              performance_history: enrichData.performance_history ?? null,
+              current_price: currentPrice,
+              prev_close: prevClose,
+              day_change: dayChange,
+              day_change_percentage: dayChangePct,
+              updated_at: new Date().toISOString()
             })
             .eq('scheme_code', fund.scheme_code);
 
@@ -211,31 +211,114 @@ export class MFYahooEnrichJob extends BaseJob<void> {
   }
 
   /**
+   * Helper to execute a Yahoo search query with proxy rotation and retries.
+   */
+  private async executeSearch(query: string): Promise<any> {
+    let attempts = 0;
+    const maxAttempts = Math.max(2, proxyRotationManager.getPoolSize());
+
+    while (attempts < maxAttempts) {
+      try {
+        return await yahooFinance.search(query, {}, { validateResult: false } as any);
+      } catch (error: any) {
+        attempts++;
+        const wasRotated = await proxyRotationManager.handleRequestFailure(error);
+        if (wasRotated && attempts < maxAttempts) {
+          this.log(`[MFYahooEnrichJob] Proxy rotated during search for "${query}". Retrying (attempt ${attempts + 1}/${maxAttempts})...`);
+          continue;
+        }
+        throw error;
+      }
+    }
+    throw new Error(`Failed to search Yahoo Finance for "${query}" after ${maxAttempts} attempts`);
+  }
+
+  /**
    * Strategy A: Search by ISIN first, fall back to name search.
    */
   private async findYahooSymbol(isin: string, name: string): Promise<string | null> {
     // Strategy A — ISIN search
     if (isin && isin.startsWith('INF')) {
       try {
-        const searchResult = await yahooFinance.search(isin, {}, { validateResult: false } as any);
+        const searchResult = await this.executeSearch(isin);
         const hit = (searchResult.quotes || []).find(
           (q: any) => q.symbol && (q.symbol.endsWith('.BO') || q.symbol.startsWith('0P'))
         );
         if (hit) return hit.symbol as string;
-      } catch {}
+      } catch (err: any) {
+        // Rethrow network/proxy errors so we do not write symbol: '' in the DB
+        throw err;
+      }
     }
 
     // Strategy B — Fund name search
     try {
       const query = name.length > 60 ? name.substring(0, 60) : name;
-      const searchResult = await yahooFinance.search(query, {}, { validateResult: false } as any);
+      const searchResult = await this.executeSearch(query);
       const hit = (searchResult.quotes || []).find(
         (q: any) => q.symbol && (q.symbol.endsWith('.BO') || q.symbol.startsWith('0P'))
       );
       if (hit) return hit.symbol as string;
-    } catch {}
+    } catch (err: any) {
+      throw err;
+    }
 
     return null;
+  }
+
+  /**
+   * Helper to execute a Yahoo quote fetch with proxy rotation and retries.
+   */
+  private async executeQuote(symbol: string): Promise<any> {
+    let attempts = 0;
+    const maxAttempts = Math.max(2, proxyRotationManager.getPoolSize());
+
+    while (attempts < maxAttempts) {
+      try {
+        return await yahooFinance.quote(symbol);
+      } catch (error: any) {
+        attempts++;
+        const wasRotated = await proxyRotationManager.handleRequestFailure(error);
+        if (wasRotated && attempts < maxAttempts) {
+          this.log(`[MFYahooEnrichJob] Proxy rotated during quote fetch for "${symbol}". Retrying (attempt ${attempts + 1}/${maxAttempts})...`);
+          continue;
+        }
+        throw error;
+      }
+    }
+    throw new Error(`Failed to fetch quote for "${symbol}" after ${maxAttempts} attempts`);
+  }
+
+  /**
+   * Helper to execute a Yahoo quoteSummary fetch with proxy rotation and retries.
+   */
+  private async executeQuoteSummary(symbol: string): Promise<any> {
+    let attempts = 0;
+    const maxAttempts = Math.max(2, proxyRotationManager.getPoolSize());
+
+    while (attempts < maxAttempts) {
+      try {
+        return await yahooFinance.quoteSummary(symbol, {
+          modules: [
+            'defaultKeyStatistics',
+            'summaryDetail',
+            'price',
+            'fundProfile',
+            'topHoldings',
+            'fundPerformance'
+          ]
+        }, { validateResult: false } as any);
+      } catch (error: any) {
+        attempts++;
+        const wasRotated = await proxyRotationManager.handleRequestFailure(error);
+        if (wasRotated && attempts < maxAttempts) {
+          this.log(`[MFYahooEnrichJob] Proxy rotated during quoteSummary fetch for "${symbol}". Retrying (attempt ${attempts + 1}/${maxAttempts})...`);
+          continue;
+        }
+        throw error;
+      }
+    }
+    throw new Error(`Failed to fetch quoteSummary for "${symbol}" after ${maxAttempts} attempts`);
   }
 
   /**
@@ -265,178 +348,169 @@ export class MFYahooEnrichJob extends BaseJob<void> {
     day_change?: number | null;
     day_change_percentage?: number | null;
   }> {
+    let quote: any = null;
     try {
-      let quote: any = null;
-      try {
-        quote = await yahooFinance.quote(symbol);
-      } catch (err: any) {
-        console.warn(`Failed to fetch live quote for ${symbol}: ${err.message}`);
-      }
-
-      const summary = await yahooFinance.quoteSummary(symbol, {
-        modules: [
-          'defaultKeyStatistics',
-          'summaryDetail',
-          'price',
-          'fundProfile',
-          'topHoldings',
-          'fundPerformance'
-        ]
-      }, { validateResult: false } as any);
-
-      const ks = (summary as any).defaultKeyStatistics;
-      const price = (summary as any).price;
-      const sd = (summary as any).summaryDetail;
-      const fp = (summary as any).fundProfile;
-      const th = (summary as any).topHoldings;
-      const perf = (summary as any).fundPerformance;
-
-      // AUM in Crores (prefer summaryDetail.totalAssets over price.marketCap)
-      const rawAssets = sd?.totalAssets ?? price?.marketCap;
-      const aum = rawAssets != null ? Number(rawAssets) / 1e7 : null;
-
-      // Expense ratio percentage (look at fp.annualReportExpenseRatio first)
-      const expense_ratio = fp?.annualReportExpenseRatio != null
-        ? Number(fp.annualReportExpenseRatio) * 100
-        : (fp?.feesExpensesInvestment?.annualReportExpenseRatio != null
-          ? Number(fp.feesExpensesInvestment.annualReportExpenseRatio) * 100
-          : null);
-
-      // Logo url
-      const logo_url = price?.symbol
-        ? `https://s.yimg.com/cv/apiv2/default/20181211/${encodeURIComponent(price.symbol)}.png`
-        : null;
-
-      // Minimum investments
-      const min_initial_investment = fp?.initInvestment ?? null;
-      const min_subsequent_investment = fp?.subsequentInvestment ?? null;
-
-      // Ratings (prefer riskOverviewStatistics.riskRating or defaultKeyStatistics.morningStarOverallRating)
-      const rating = perf?.riskOverviewStatistics?.riskRating ?? ks?.morningStarOverallRating ?? null;
-      
-      // Style box visual URL
-      const style_box_url = fp?.styleBoxUrl ?? null;
-
-      // Manager information
-      let manager_name = null;
-      let manager_start_date = null;
-      const managers = fp?.managementInfo?.managers;
-      if (Array.isArray(managers) && managers.length > 0) {
-        manager_name = managers[0]?.name || null;
-        manager_start_date = managers[0]?.startDate ? new Date(managers[0].startDate).toISOString() : null;
-      }
-
-      // Asset Allocation
-      let asset_allocation = null;
-      if (th && (th.cashPosition != null || th.stockPosition != null || th.bondPosition != null)) {
-        asset_allocation = {
-          cash: th.cashPosition != null ? Number(th.cashPosition) * 100 : 0,
-          equity: th.stockPosition != null ? Number(th.stockPosition) * 100 : 0,
-          debt: th.bondPosition != null ? Number(th.bondPosition) * 100 : 0,
-          preferred: th.preferredPosition != null ? Number(th.preferredPosition) * 100 : 0,
-          convertible: th.convertiblePosition != null ? Number(th.convertiblePosition) * 100 : 0,
-          other: th.otherPosition != null ? Number(th.otherPosition) * 100 : 0
-        };
-      }
-
-      // Sector weight allocations
-      let sector_allocations = null;
-      if (th && Array.isArray(th.sectorWeightings)) {
-        const sectors: Record<string, number> = {};
-        th.sectorWeightings.forEach((sw: any) => {
-          const key = Object.keys(sw)[0];
-          if (key) {
-            sectors[key] = sw[key] != null ? Number(sw[key]) * 100 : 0;
-          }
-        });
-        sector_allocations = sectors;
-      }
-
-      // Bond credit ratings
-      let credit_ratings = null;
-      if (th && Array.isArray(th.bondRatings)) {
-        const ratings: Record<string, number> = {};
-        th.bondRatings.forEach((br: any) => {
-          const key = Object.keys(br)[0];
-          if (key) {
-            ratings[key] = br[key] != null ? Number(br[key]) * 100 : 0;
-          }
-        });
-        credit_ratings = ratings;
-      }
-
-      // Top 10 Holdings (weight is converted to percentage)
-      let top_holdings = null;
-      if (th && Array.isArray(th.holdings)) {
-        top_holdings = th.holdings.map((h: any) => ({
-          symbol: h.symbol || null,
-          name: h.holdingName || null,
-          percent: h.holdingPercent != null ? Number(h.holdingPercent) * 100 : 0
-        }));
-      }
-
-      // Rolling Risk Ratios
-      let risk_statistics = null;
-      if (perf && Array.isArray(perf.riskOverviewStatistics?.riskStatistics)) {
-        const risks: Record<string, any> = {};
-        perf.riskOverviewStatistics.riskStatistics.forEach((rs: any) => {
-          if (rs.year) {
-            risks[rs.year] = {
-              meanAnnualReturn: rs.meanAnnualReturn ?? null,
-              stdDev: rs.stdDev ?? null,
-              sharpeRatio: rs.sharpeRatio ?? null,
-              alpha: rs.alpha ?? null,
-              beta: rs.beta ?? null
-            };
-          }
-        });
-        risk_statistics = risks;
-      }
-
-      // Calendar performance history (normalized)
-      let performance_history = null;
-      if (perf && (perf.annualTotalReturns?.returns || perf.pastQuarterlyReturns?.returns)) {
-        performance_history = {
-          annual: (perf.annualTotalReturns?.returns || []).map((r: any) => ({
-            year: r.year,
-            value: r.annualValue != null ? Number(r.annualValue) * 100 : null
-          })),
-          quarterly: (perf.pastQuarterlyReturns?.returns || []).map((r: any) => ({
-            year: r.year,
-            q1: r.q1 != null ? Number(r.q1) * 100 : null,
-            q2: r.q2 != null ? Number(r.q2) * 100 : null,
-            q3: r.q3 != null ? Number(r.q3) * 100 : null,
-            q4: r.q4 != null ? Number(r.q4) * 100 : null
-          }))
-        };
-      }
-
-      return {
-        returns_1y: ks?.trailingAnnualReturnRate != null ? Number(ks.trailingAnnualReturnRate) * 100 : null,
-        returns_3y: ks?.threeYearAverageReturn != null ? Number(ks.threeYearAverageReturn) * 100 : null,
-        returns_5y: ks?.fiveYearAverageReturn != null ? Number(ks.fiveYearAverageReturn) * 100 : null,
-        expense_ratio,
-        aum,
-        logo_url,
-        min_initial_investment,
-        min_subsequent_investment,
-        rating,
-        style_box_url,
-        manager_name,
-        manager_start_date,
-        asset_allocation,
-        sector_allocations,
-        credit_ratings,
-        top_holdings,
-        risk_statistics,
-        performance_history,
-        current_price:              quote?.regularMarketPrice             ?? null,
-        prev_close:                 quote?.regularMarketPreviousClose     ?? null,
-        day_change:                 quote?.regularMarketChange            ?? null,
-        day_change_percentage:      quote?.regularMarketChangePercent     ?? null
-      };
-    } catch (e: any) {
-      return {};
+      quote = await this.executeQuote(symbol);
+    } catch (err: any) {
+      console.warn(`Failed to fetch live quote for ${symbol}: ${err.message}`);
     }
+
+    const summary = await this.executeQuoteSummary(symbol);
+
+    if (!summary || Object.keys(summary).length === 0) {
+      throw new Error('Yahoo Finance returned empty quote summary or request failed');
+    }
+
+    const ks = (summary as any).defaultKeyStatistics;
+    const price = (summary as any).price;
+    const sd = (summary as any).summaryDetail;
+    const fp = (summary as any).fundProfile;
+    const th = (summary as any).topHoldings;
+    const perf = (summary as any).fundPerformance;
+
+    // AUM in Crores (prefer summaryDetail.totalAssets over price.marketCap)
+    const rawAssets = sd?.totalAssets ?? price?.marketCap;
+    const aum = rawAssets != null ? Number(rawAssets) / 1e7 : null;
+
+    // Expense ratio percentage (look at fp.annualReportExpenseRatio first)
+    const expense_ratio = fp?.annualReportExpenseRatio != null
+      ? Number(fp.annualReportExpenseRatio) * 100
+      : (fp?.feesExpensesInvestment?.annualReportExpenseRatio != null
+        ? Number(fp.feesExpensesInvestment.annualReportExpenseRatio) * 100
+        : null);
+
+    // Logo url
+    const logo_url = price?.symbol
+      ? `https://s.yimg.com/cv/apiv2/default/20181211/${encodeURIComponent(price.symbol)}.png`
+      : null;
+
+    // Minimum investments
+    const min_initial_investment = fp?.initInvestment ?? null;
+    const min_subsequent_investment = fp?.subsequentInvestment ?? null;
+
+    // Ratings (prefer riskOverviewStatistics.riskRating or defaultKeyStatistics.morningStarOverallRating)
+    const rating = perf?.riskOverviewStatistics?.riskRating ?? ks?.morningStarOverallRating ?? null;
+
+    // Style box visual URL
+    const style_box_url = fp?.styleBoxUrl ?? null;
+
+    // Manager information
+    let manager_name = null;
+    let manager_start_date = null;
+    const managers = fp?.managementInfo?.managers;
+    if (Array.isArray(managers) && managers.length > 0) {
+      manager_name = managers[0]?.name || null;
+      manager_start_date = managers[0]?.startDate ? new Date(managers[0].startDate).toISOString() : null;
+    }
+
+    // Asset Allocation
+    let asset_allocation = null;
+    if (th && (th.cashPosition != null || th.stockPosition != null || th.bondPosition != null)) {
+      asset_allocation = {
+        cash: th.cashPosition != null ? Number(th.cashPosition) * 100 : 0,
+        equity: th.stockPosition != null ? Number(th.stockPosition) * 100 : 0,
+        debt: th.bondPosition != null ? Number(th.bondPosition) * 100 : 0,
+        preferred: th.preferredPosition != null ? Number(th.preferredPosition) * 100 : 0,
+        convertible: th.convertiblePosition != null ? Number(th.convertiblePosition) * 100 : 0,
+        other: th.otherPosition != null ? Number(th.otherPosition) * 100 : 0
+      };
+    }
+
+    // Sector weight allocations
+    let sector_allocations = null;
+    if (th && Array.isArray(th.sectorWeightings)) {
+      const sectors: Record<string, number> = {};
+      th.sectorWeightings.forEach((sw: any) => {
+        const key = Object.keys(sw)[0];
+        if (key) {
+          sectors[key] = sw[key] != null ? Number(sw[key]) * 100 : 0;
+        }
+      });
+      sector_allocations = sectors;
+    }
+
+    // Bond credit ratings
+    let credit_ratings = null;
+    if (th && Array.isArray(th.bondRatings)) {
+      const ratings: Record<string, number> = {};
+      th.bondRatings.forEach((br: any) => {
+        const key = Object.keys(br)[0];
+        if (key) {
+          ratings[key] = br[key] != null ? Number(br[key]) * 100 : 0;
+        }
+      });
+      credit_ratings = ratings;
+    }
+
+    // Top 10 Holdings (weight is converted to percentage)
+    let top_holdings = null;
+    if (th && Array.isArray(th.holdings)) {
+      top_holdings = th.holdings.map((h: any) => ({
+        symbol: h.symbol || null,
+        name: h.holdingName || null,
+        percent: h.holdingPercent != null ? Number(h.holdingPercent) * 100 : 0
+      }));
+    }
+
+    // Rolling Risk Ratios
+    let risk_statistics = null;
+    if (perf && Array.isArray(perf.riskOverviewStatistics?.riskStatistics)) {
+      const risks: Record<string, any> = {};
+      perf.riskOverviewStatistics.riskStatistics.forEach((rs: any) => {
+        if (rs.year) {
+          risks[rs.year] = {
+            meanAnnualReturn: rs.meanAnnualReturn ?? null,
+            stdDev: rs.stdDev ?? null,
+            sharpeRatio: rs.sharpeRatio ?? null,
+            alpha: rs.alpha ?? null,
+            beta: rs.beta ?? null
+          };
+        }
+      });
+      risk_statistics = risks;
+    }
+
+    // Calendar performance history (normalized)
+    let performance_history = null;
+    if (perf && (perf.annualTotalReturns?.returns || perf.pastQuarterlyReturns?.returns)) {
+      performance_history = {
+        annual: (perf.annualTotalReturns?.returns || []).map((r: any) => ({
+          year: r.year,
+          value: r.annualValue != null ? Number(r.annualValue) * 100 : null
+        })),
+        quarterly: (perf.pastQuarterlyReturns?.returns || []).map((r: any) => ({
+          year: r.year,
+          q1: r.q1 != null ? Number(r.q1) * 100 : null,
+          q2: r.q2 != null ? Number(r.q2) * 100 : null,
+          q3: r.q3 != null ? Number(r.q3) * 100 : null,
+          q4: r.q4 != null ? Number(r.q4) * 100 : null
+        }))
+      };
+    }
+
+    return {
+      returns_1y: ks?.trailingAnnualReturnRate != null ? Number(ks.trailingAnnualReturnRate) * 100 : null,
+      returns_3y: ks?.threeYearAverageReturn != null ? Number(ks.threeYearAverageReturn) * 100 : null,
+      returns_5y: ks?.fiveYearAverageReturn != null ? Number(ks.fiveYearAverageReturn) * 100 : null,
+      expense_ratio,
+      aum,
+      logo_url,
+      min_initial_investment,
+      min_subsequent_investment,
+      rating,
+      style_box_url,
+      manager_name,
+      manager_start_date,
+      asset_allocation,
+      sector_allocations,
+      credit_ratings,
+      top_holdings,
+      risk_statistics,
+      performance_history,
+      current_price: quote?.regularMarketPrice ?? null,
+      prev_close: quote?.regularMarketPreviousClose ?? null,
+      day_change: quote?.regularMarketChange ?? null,
+      day_change_percentage: quote?.regularMarketChangePercent ?? null
+    };
   }
 }

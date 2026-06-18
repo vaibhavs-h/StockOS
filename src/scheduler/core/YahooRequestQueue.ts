@@ -69,7 +69,8 @@ class YahooRequestQueue {
 
     // Store in inflight map
     this.inflight.set(id, promise);
-    promise.finally(() => this.inflight.delete(id));
+    // Chain .catch(() => {}) to prevent unhandled rejection warning, since the caller is already catching the returned main promise
+    promise.finally(() => this.inflight.delete(id)).catch(() => {});
 
     return promise;
   }

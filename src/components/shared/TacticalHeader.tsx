@@ -10,10 +10,12 @@ import { motion, AnimatePresence } from "framer-motion";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useSession, signOut } from "next-auth/react";
+import { FeedbackModal } from "./FeedbackModal";
 
 export function TacticalHeader() {
   const [open, setOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
   const pathname = usePathname();
   const { data: session } = useSession();
   const profileRef = useRef<HTMLDivElement>(null);
@@ -169,21 +171,22 @@ export function TacticalHeader() {
                               </Button>
                             </Link>
                             
-                            <Link href="/reviews">
-                              <Button
-                                variant="ghost"
-                                className="w-full justify-start gap-2.5 rounded-xl text-zinc-300 hover:text-white hover:bg-white/5 transition-all duration-200 py-1.5 px-2.5 group h-auto"
-                                onClick={() => setProfileOpen(false)}
-                              >
-                                <div className="size-7 rounded-lg bg-blue-500/10 border border-blue-500/20 flex items-center justify-center transition-transform group-hover:scale-105 duration-200 shrink-0">
-                                  <MessageSquare className="size-3.5 text-blue-400" />
-                                </div>
-                                <div className="flex flex-col items-start min-w-0">
-                                  <span className="font-bold text-[11px] uppercase tracking-wider text-zinc-200 group-hover:text-white truncate w-full text-left">Reviews</span>
-                                  <span className="text-[9px] text-zinc-500 group-hover:text-zinc-400 font-medium normal-case tracking-normal truncate w-full text-left mt-[-2px] transition-colors">See user testimonials</span>
-                                </div>
-                              </Button>
-                            </Link>
+                            <Button
+                              variant="ghost"
+                              className="w-full justify-start gap-2.5 rounded-xl text-zinc-300 hover:text-white hover:bg-white/5 transition-all duration-200 py-1.5 px-2.5 group h-auto"
+                              onClick={() => {
+                                setProfileOpen(false);
+                                setFeedbackOpen(true);
+                              }}
+                            >
+                              <div className="size-7 rounded-lg bg-blue-500/10 border border-blue-500/20 flex items-center justify-center transition-transform group-hover:scale-105 duration-200 shrink-0">
+                                <MessageSquare className="size-3.5 text-blue-400" />
+                              </div>
+                              <div className="flex flex-col items-start min-w-0">
+                                <span className="font-bold text-[11px] uppercase tracking-wider text-zinc-200 group-hover:text-white truncate w-full text-left">Reviews</span>
+                                <span className="text-[9px] text-zinc-500 group-hover:text-zinc-400 font-medium normal-case tracking-normal truncate w-full text-left mt-[-2px] transition-colors">See user testimonials</span>
+                              </div>
+                            </Button>
                             
                             <div className="h-px bg-white/5 my-1 mx-1.5" />
                             
@@ -264,6 +267,7 @@ export function TacticalHeader() {
           </nav>
         </motion.header>
       )}
+      <FeedbackModal isOpen={feedbackOpen} onClose={() => setFeedbackOpen(false)} />
     </AnimatePresence>
   );
 }

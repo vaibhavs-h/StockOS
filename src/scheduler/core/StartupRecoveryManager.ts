@@ -26,9 +26,15 @@ export class StartupRecoveryManager {
       syncOrchestrator.dispatch(new PortfolioRevaluationJob());
 
       // Trigger an immediate news sync to ensure caching feeds are seeded
+      // Skip Alpha Vantage startup sync in development to avoid exhausting the 25 req/day limit on code hot-reloads
       const { AlphaVantageNewsSyncJob } = require('../jobs/AlphaVantageNewsSyncJob');
       const { IndianNewsSyncJob } = require('../jobs/IndianNewsSyncJob');
-      syncOrchestrator.dispatch(new AlphaVantageNewsSyncJob());
+      
+      if (process.env.NODE_ENV === 'production') {
+        syncOrchestrator.dispatch(new AlphaVantageNewsSyncJob());
+      } else {
+        console.log('[RECOVERY] Local development detected. Skipping AlphaVantageNewsSyncJob startup dispatch to preserve API limits.');
+      }
       syncOrchestrator.dispatch(new IndianNewsSyncJob());
     }, this.BOOT_DELAY_MS);
 

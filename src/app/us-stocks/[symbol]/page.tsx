@@ -315,8 +315,8 @@ export default function USStockPage() {
         <motion.main key="content" initial="hidden" animate="visible" variants={{ hidden: { opacity: 0 }, visible: { opacity: 1, transition: { staggerChildren: 0.1 } } }} className="relative min-h-screen w-full bg-transparent text-white pt-24 pb-10">
           <div className="relative z-10 max-w-[1700px] mx-auto px-6">
             {/* HERO SECTION */}
-            <motion.div variants={{ hidden: { opacity: 0, y: 20 }, visible: { opacity: 1, y: 0, transition: { duration: 0.6, ease: "easeOut" } } }} className="flex flex-col md:flex-row justify-between items-start md:items-end gap-3 mb-4">
-              <div className="flex-1">
+            <motion.div variants={{ hidden: { opacity: 0, y: 20 }, visible: { opacity: 1, y: 0, transition: { duration: 0.6, ease: "easeOut" } } }} className="flex flex-col md:flex-row justify-between items-start md:items-end gap-6 mb-4 w-full">
+              <div className="min-w-0 flex-1 w-full md:w-auto">
                 <div className="flex items-center gap-3 mb-3">
                   <span className="px-3 py-1 bg-emerald-500/10 border border-emerald-500/20 rounded-full text-[9px] font-black tracking-widest text-emerald-500 uppercase">
                     {data.quote_type || 'STOCK'} / {data.exchange || 'NYSE'}
@@ -328,17 +328,19 @@ export default function USStockPage() {
                   {data.is_sp500 && <span className="px-3 py-1 bg-blue-500/10 border border-blue-500/20 rounded-full text-[9px] font-black tracking-widest text-blue-400 uppercase">S&P 500</span>}
                   {data.is_nasdaq100 && <span className="px-3 py-1 bg-purple-500/10 border border-purple-500/20 rounded-full text-[9px] font-black tracking-widest text-purple-400 uppercase">NASDAQ 100</span>}
                 </div>
-                <div className="flex items-center gap-4 mb-4">
-                  <AssetLogo
-                    symbol={data.symbol}
-                    name={data.name}
-                    size="xl"
-                  />
-                  <h1 className="text-7xl font-black tracking-tighter flex items-baseline gap-6 group/symbol">
+                <div className="flex items-center gap-4 mb-4 min-w-0">
+                  <div className="shrink-0">
+                    <AssetLogo
+                      symbol={data.symbol}
+                      name={data.name}
+                      size="xl"
+                    />
+                  </div>
+                  <h1 className="text-3xl sm:text-4xl md:text-5xl lg:text-6xl font-black tracking-tighter flex flex-wrap items-baseline gap-x-4 gap-y-1 group/symbol min-w-0">
                     <span className="bg-clip-text text-transparent bg-gradient-to-b from-white to-white/60 drop-shadow-[0_0_30px_rgba(255,255,255,0.15)] group-hover/symbol:drop-shadow-[0_0_40px_rgba(255,255,255,0.25)] transition-all duration-700">
                       {data.symbol}
                     </span>
-                    <span className="text-2xl font-medium text-zinc-500 tracking-tight">{data.name}</span>
+                    <span className="text-lg md:text-xl font-medium text-zinc-500 tracking-tight shrink-0">{data.name}</span>
                   </h1>
                 </div>
                 <div className="flex items-center gap-8 text-zinc-400">
@@ -353,14 +355,14 @@ export default function USStockPage() {
                 </div>
               </div>
 
-              <div className="text-right flex flex-col items-end gap-2">
-                <div className="text-6xl font-mono font-black tracking-tighter text-white drop-shadow-[0_0_20px_rgba(255,255,255,0.1)]">
+              <div className="text-left md:text-right flex flex-col items-start md:items-end gap-2 shrink-0 w-full md:w-auto">
+                <div className="text-5xl md:text-6xl font-mono font-black tracking-tighter text-white drop-shadow-[0_0_20px_rgba(255,255,255,0.1)]">
                   <RollingNumber value={data.current_price} currency prefix="$" />
                 </div>
-                <div className={cn("flex items-center gap-2 font-black text-2xl", isPositive ? 'text-emerald-400' : 'text-rose-400')}>
-                  {isPositive ? <TrendingUp className="w-7 h-7" /> : <TrendingDown className="w-7 h-7" />}
+                <div className={cn("flex items-center gap-2 font-black text-xl md:text-2xl", isPositive ? 'text-emerald-400' : 'text-rose-400')}>
+                  {isPositive ? <TrendingUp className="w-6 h-6 md:w-7 md:h-7" /> : <TrendingDown className="w-6 h-6 md:w-7 md:h-7" />}
                   {data.day_change_percentage?.toFixed(2)}%
-                  <span className="text-zinc-600 font-medium ml-2 text-xl tracking-tight">
+                  <span className="text-zinc-600 font-medium ml-2 text-lg md:text-xl tracking-tight">
                     ({data.day_change >= 0 ? '+' : '-'}${Math.abs(data.day_change || 0).toFixed(2)})
                   </span>
                 </div>

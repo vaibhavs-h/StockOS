@@ -49,13 +49,15 @@ export class ProxyRotationManager {
    */
   public registerClient(client: any) {
     this.registeredClients.push(client);
-    this.applyProxyToClient(client);
+    this.applyProxyToClient(client).catch(err => {
+      console.error('[PROXY-MANAGER] Failed to apply proxy to client:', err.message);
+    });
   }
 
   /**
    * Applies the current active proxy to a client instance.
    */
-  private applyProxyToClient(client: any) {
+  private async applyProxyToClient(client: any) {
     if (this.currentIndex < 0 || this.currentIndex >= this.agents.length) return;
     const activeAgent = this.agents[this.currentIndex];
     if (client && client._opts) {
@@ -66,9 +68,11 @@ export class ProxyRotationManager {
 
       // Clear the cookie and crumb cache so a new proxy doesn't use stale session credentials
       if (client._opts.cookieJar) {
-        getCrumbClear(client._opts.cookieJar).catch(err => {
+        try {
+          await getCrumbClear(client._opts.cookieJar);
+        } catch (err: any) {
           console.warn('[PROXY-MANAGER] Failed to clear crumb cache on client:', err.message);
-        });
+        }
       }
     }
   }
@@ -76,7 +80,7 @@ export class ProxyRotationManager {
   /**
    * Applies the active proxy agent to all registered clients.
    */
-  private applyActiveProxy() {
+  private async applyActiveProxy() {
     if (this.currentIndex < 0 || this.currentIndex >= this.agents.length) return;
     
     const activeUrl = this.proxies[this.currentIndex];
@@ -86,21 +90,21 @@ export class ProxyRotationManager {
     console.log(`[PROXY-MANAGER] Active Proxy Swapped to Index [${this.currentIndex}]: ${maskedUrl}`);
 
     for (const client of this.registeredClients) {
-      this.applyProxyToClient(client);
+      await this.applyProxyToClient(client);
     }
   }
 
   /**
    * Rotates to the next proxy in the round-robin pool.
    */
-  public rotate(): boolean {
+  public async rotate(): Promise<boolean> {
     if (this.agents.length <= 1) {
       console.log('[PROXY-MANAGER] Single or zero proxy configured. Cannot rotate.');
       return false;
     }
 
     this.currentIndex = (this.currentIndex + 1) % this.agents.length;
-    this.applyActiveProxy();
+    await this.applyActiveProxy();
     return true;
   }
 
@@ -108,7 +112,7 @@ export class ProxyRotationManager {
    * Analyzes an error to determine if it is a rate limit, auth failure, or connection drop
    * and triggers failover rotation automatically.
    */
-  public handleRequestFailure(error: any): boolean {
+  public async handleRequestFailure(error: any): Promise<boolean> {
     if (!error) return false;
 
     const messages: string[] = [];
@@ -173,9 +177,15 @@ export class ProxyRotationManager {
       fullMsg.includes('http tunneling') ||
       fullMsg.includes('tunneling socket could not be established');
 
-    if (isProxyAuthErr || isRateLimit || isTimeout || isConnectionDrop) {
+    const isBadRequest =
+      fullMsg.includes('400') ||
+      statusCodes.includes(400) ||
+      fullMsg.includes('bad request') ||
+      fullMsg.includes('crumb');
+
+    if (isProxyAuthErr || isRateLimit || isTimeout || isConnectionDrop || isBadRequest) {
       console.warn(`[PROXY-MANAGER] Proxy request failed. Error: ${error.message}. Cause Chain: "${fullMsg}". Triggering rotation failover.`);
-      return this.rotate();
+      return await this.rotate();
     }
 
     return false;

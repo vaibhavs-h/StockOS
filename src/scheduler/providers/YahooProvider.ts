@@ -60,7 +60,7 @@ export class YahooProvider {
             return results;
           } catch (error: any) {
             attempts++;
-            const wasRotated = proxyRotationManager.handleRequestFailure(error);
+            const wasRotated = await proxyRotationManager.handleRequestFailure(error);
             if (wasRotated && attempts < maxAttempts) {
               console.log(`[YahooProvider] Proxy rotated. Retrying quote fetch (attempt ${attempts + 1}/${maxAttempts})...`);
               continue;
@@ -202,7 +202,7 @@ export class YahooProvider {
             return result;
           } catch (error: any) {
             attempts++;
-            const wasRotated = proxyRotationManager.handleRequestFailure(error);
+            const wasRotated = await proxyRotationManager.handleRequestFailure(error);
             if (wasRotated && attempts < maxAttempts) {
               console.log(`[YahooProvider] Proxy rotated. Retrying quoteSummary fetch for ${symbol} (attempt ${attempts + 1}/${maxAttempts})...`);
               continue;
