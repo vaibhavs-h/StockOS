@@ -67,7 +67,7 @@ export class AlphaVantageNewsSyncJob extends BaseJob {
     priority: QueuePriority.DEFAULT,
     bullMqQueueName: 'q-news-av-sync',
     retryCount: 0,
-    maxRetries: 2,
+    maxRetries: 0,
     backoffDelayMs: 5000,
   };
 

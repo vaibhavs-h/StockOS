@@ -30,11 +30,7 @@ export class StartupRecoveryManager {
       const { AlphaVantageNewsSyncJob } = require('../jobs/AlphaVantageNewsSyncJob');
       const { IndianNewsSyncJob } = require('../jobs/IndianNewsSyncJob');
       
-      if (process.env.NODE_ENV === 'production') {
-        syncOrchestrator.dispatch(new AlphaVantageNewsSyncJob());
-      } else {
-        console.log('[RECOVERY] Local development detected. Skipping AlphaVantageNewsSyncJob startup dispatch to preserve API limits.');
-      }
+      console.log('[RECOVERY] Skipping AlphaVantageNewsSyncJob startup dispatch to preserve API limits.');
       syncOrchestrator.dispatch(new IndianNewsSyncJob());
     }, this.BOOT_DELAY_MS);
 
