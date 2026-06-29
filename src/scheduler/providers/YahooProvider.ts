@@ -55,15 +55,36 @@ export class YahooProvider {
         const maxAttempts = Math.max(2, proxyRotationManager.getPoolSize());
 
         while (attempts < maxAttempts) {
+          const activeProxyIndex = proxyRotationManager.getCurrentIndex();
           try {
             const results = await yahooFinance.quote(symbols, {}, { validateResult: false } as any);
             return results;
           } catch (error: any) {
             attempts++;
-            const wasRotated = await proxyRotationManager.handleRequestFailure(error);
+            const wasRotated = await proxyRotationManager.handleRequestFailure(error, activeProxyIndex);
             if (wasRotated && attempts < maxAttempts) {
               console.log(`[YahooProvider] Proxy rotated. Retrying quote fetch (attempt ${attempts + 1}/${maxAttempts})...`);
               continue;
+            }
+
+            // If we get here, all proxies failed. Try a direct connection as a last resort before Twelve Data.
+            console.log(`[YahooProvider] All proxies failed. Attempting direct connection (no proxy)...`);
+            const clientOpts = (yahooFinance as any)._opts;
+            const oldDispatcher = clientOpts?.fetchOptions?.dispatcher;
+            if (clientOpts?.fetchOptions) {
+              clientOpts.fetchOptions.dispatcher = undefined;
+            }
+            try {
+              const results = await yahooFinance.quote(symbols, {}, { validateResult: false } as any);
+              console.log(`[YahooProvider] Direct connection fallback succeeded.`);
+              return results;
+            } catch (directError: any) {
+              console.warn(`[YahooProvider] Direct connection fallback failed: ${directError.message}`);
+            } finally {
+              // Restore proxy dispatcher for subsequent requests
+              if (clientOpts?.fetchOptions) {
+                clientOpts.fetchOptions.dispatcher = oldDispatcher;
+              }
             }
 
             console.warn(`[YahooProvider] Yahoo Finance quote fetch failed. Attempting Twelve Data fallback... Reason: ${error.message}`);
@@ -196,16 +217,37 @@ export class YahooProvider {
         const maxAttempts = Math.max(2, proxyRotationManager.getPoolSize());
 
         while (attempts < maxAttempts) {
+          const activeProxyIndex = proxyRotationManager.getCurrentIndex();
           try {
             // Note: yahoo-finance2 uses 'validateResult' for quoteSummary as well
             const result = await yahooFinance.quoteSummary(symbol, { modules: modules as any }, { validateResult: false } as any);
             return result;
           } catch (error: any) {
             attempts++;
-            const wasRotated = await proxyRotationManager.handleRequestFailure(error);
+            const wasRotated = await proxyRotationManager.handleRequestFailure(error, activeProxyIndex);
             if (wasRotated && attempts < maxAttempts) {
               console.log(`[YahooProvider] Proxy rotated. Retrying quoteSummary fetch for ${symbol} (attempt ${attempts + 1}/${maxAttempts})...`);
               continue;
+            }
+
+            // If all proxies failed, try a direct connection as a last resort
+            console.log(`[YahooProvider] All proxies failed. Attempting direct connection for quoteSummary (no proxy)...`);
+            const clientOpts = (yahooFinance as any)._opts;
+            const oldDispatcher = clientOpts?.fetchOptions?.dispatcher;
+            if (clientOpts?.fetchOptions) {
+              clientOpts.fetchOptions.dispatcher = undefined;
+            }
+            try {
+              const result = await yahooFinance.quoteSummary(symbol, { modules: modules as any }, { validateResult: false } as any);
+              console.log(`[YahooProvider] Direct connection fallback for quoteSummary succeeded.`);
+              return result;
+            } catch (directError: any) {
+              console.warn(`[YahooProvider] Direct connection fallback for quoteSummary failed: ${directError.message}`);
+            } finally {
+              // Restore proxy dispatcher for subsequent requests
+              if (clientOpts?.fetchOptions) {
+                clientOpts.fetchOptions.dispatcher = oldDispatcher;
+              }
             }
 
             console.error(`[YahooProvider] Failed fetchQuoteSummary for ${symbol}:`, error.message);

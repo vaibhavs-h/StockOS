@@ -112,7 +112,7 @@ export class ProxyRotationManager {
    * Analyzes an error to determine if it is a rate limit, auth failure, or connection drop
    * and triggers failover rotation automatically.
    */
-  public async handleRequestFailure(error: any): Promise<boolean> {
+  public async handleRequestFailure(error: any, failedIndex?: number): Promise<boolean> {
     if (!error) return false;
 
     const messages: string[] = [];
@@ -185,6 +185,12 @@ export class ProxyRotationManager {
 
     if (isProxyAuthErr || isRateLimit || isTimeout || isConnectionDrop || isBadRequest) {
       console.warn(`[PROXY-MANAGER] Proxy request failed. Error: ${error.message}. Cause Chain: "${fullMsg}". Triggering rotation failover.`);
+      
+      if (failedIndex !== undefined && this.currentIndex !== failedIndex) {
+        console.log(`[PROXY-MANAGER] Proxy already rotated from index [${failedIndex}] to [${this.currentIndex}] by another request. Skipping duplicate rotation.`);
+        return true;
+      }
+      
       return await this.rotate();
     }
 

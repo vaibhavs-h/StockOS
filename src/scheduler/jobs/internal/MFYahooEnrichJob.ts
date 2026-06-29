@@ -218,11 +218,12 @@ export class MFYahooEnrichJob extends BaseJob<void> {
     const maxAttempts = Math.max(2, proxyRotationManager.getPoolSize());
 
     while (attempts < maxAttempts) {
+      const activeProxyIndex = proxyRotationManager.getCurrentIndex();
       try {
         return await yahooFinance.search(query, {}, { validateResult: false } as any);
       } catch (error: any) {
         attempts++;
-        const wasRotated = await proxyRotationManager.handleRequestFailure(error);
+        const wasRotated = await proxyRotationManager.handleRequestFailure(error, activeProxyIndex);
         if (wasRotated && attempts < maxAttempts) {
           this.log(`[MFYahooEnrichJob] Proxy rotated during search for "${query}". Retrying (attempt ${attempts + 1}/${maxAttempts})...`);
           continue;
@@ -274,11 +275,12 @@ export class MFYahooEnrichJob extends BaseJob<void> {
     const maxAttempts = Math.max(2, proxyRotationManager.getPoolSize());
 
     while (attempts < maxAttempts) {
+      const activeProxyIndex = proxyRotationManager.getCurrentIndex();
       try {
         return await yahooFinance.quote(symbol);
       } catch (error: any) {
         attempts++;
-        const wasRotated = await proxyRotationManager.handleRequestFailure(error);
+        const wasRotated = await proxyRotationManager.handleRequestFailure(error, activeProxyIndex);
         if (wasRotated && attempts < maxAttempts) {
           this.log(`[MFYahooEnrichJob] Proxy rotated during quote fetch for "${symbol}". Retrying (attempt ${attempts + 1}/${maxAttempts})...`);
           continue;
@@ -297,6 +299,7 @@ export class MFYahooEnrichJob extends BaseJob<void> {
     const maxAttempts = Math.max(2, proxyRotationManager.getPoolSize());
 
     while (attempts < maxAttempts) {
+      const activeProxyIndex = proxyRotationManager.getCurrentIndex();
       try {
         return await yahooFinance.quoteSummary(symbol, {
           modules: [
@@ -310,7 +313,7 @@ export class MFYahooEnrichJob extends BaseJob<void> {
         }, { validateResult: false } as any);
       } catch (error: any) {
         attempts++;
-        const wasRotated = await proxyRotationManager.handleRequestFailure(error);
+        const wasRotated = await proxyRotationManager.handleRequestFailure(error, activeProxyIndex);
         if (wasRotated && attempts < maxAttempts) {
           this.log(`[MFYahooEnrichJob] Proxy rotated during quoteSummary fetch for "${symbol}". Retrying (attempt ${attempts + 1}/${maxAttempts})...`);
           continue;
