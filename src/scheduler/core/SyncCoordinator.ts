@@ -145,7 +145,7 @@ export class SyncCoordinator {
   /**
    * Flushes modified snapshots for a region from RAM to Supabase.
    */
-  private async flushDirtySnapshotsForRegion(region: 'IN' | 'US'): Promise<number> {
+  public async flushDirtySnapshotsForRegion(region: 'IN' | 'US'): Promise<number> {
     const dirtySymbols = marketStateCache.getDirtySymbols();
     if (dirtySymbols.length === 0) return 0;
 
@@ -176,12 +176,18 @@ export class SyncCoordinator {
         if (data.changePercent !== undefined && data.changePercent !== null) update.day_change_percentage = data.changePercent;
         if (data.prevClose !== undefined && data.prevClose !== null && data.prevClose !== 0) update.prev_close = data.prevClose;
 
+        // Fundamentals — updated every morning sync
+        if (data.marketCap !== undefined && data.marketCap !== null && data.marketCap !== 0) update.market_cap = data.marketCap;
+        if (data.peRatio !== undefined && data.peRatio !== null) update.pe_ratio = data.peRatio;
+        if (data.fiftyTwoWeekHigh !== undefined && data.fiftyTwoWeekHigh !== null && data.fiftyTwoWeekHigh !== 0) update.fifty_two_week_high = data.fiftyTwoWeekHigh;
+        if (data.fiftyTwoWeekLow !== undefined && data.fiftyTwoWeekLow !== null && data.fiftyTwoWeekLow !== 0) update.fifty_two_week_low = data.fiftyTwoWeekLow;
+
         if (reg === 'IN') {
           if (data.volume !== undefined && data.volume !== null) update.volume = data.volume;
           if (data.dayHigh !== undefined && data.dayHigh !== null) update.high_price = data.dayHigh;
           if (data.dayLow !== undefined && data.dayLow !== null) update.low_price = data.dayLow;
         } else {
-          if (data.volume !== undefined && data.volume !== null) update.regularmarketvolume = data.volume;
+          if (data.volume !== undefined && data.volume !== null) update.average_volume = data.volume;
           if (data.dayHigh !== undefined && data.dayHigh !== null) update.regularmarketdayhigh = data.dayHigh;
           if (data.dayLow !== undefined && data.dayLow !== null) update.regularmarketdaylow = data.dayLow;
         }
@@ -190,12 +196,28 @@ export class SyncCoordinator {
       });
     };
 
-    const snapshots = mapSnapshots(regionSymbols, region);
+    const rawSnapshots = mapSnapshots(regionSymbols, region);
     const table = region === 'IN' ? 'market_assets' : 'us_market_assets';
 
-    const { error } = await supabase.from(table).upsert(snapshots, { onConflict: 'symbol' });
-    if (error) {
-      console.error(`[MAESTRO] Flush failed for ${table}:`, error.message);
+    // Deduplicate by symbol to prevent "ON CONFLICT DO UPDATE command cannot affect row a second time"
+    // This can happen when concurrent sync jobs both dirty the same symbol in the same flush window.
+    const seen = new Map<string, any>();
+    for (const snap of rawSnapshots) {
+      seen.set(snap.symbol, snap);
+    }
+    const snapshots = Array.from(seen.values());
+
+    // Chunk upserts in batches of 200 to avoid payload size limits
+    const CHUNK_SIZE = 200;
+    let totalFlushed = 0;
+    for (let i = 0; i < snapshots.length; i += CHUNK_SIZE) {
+      const chunk = snapshots.slice(i, i + CHUNK_SIZE);
+      const { error } = await supabase.from(table).upsert(chunk, { onConflict: 'symbol' });
+      if (error) {
+        console.error(`[MAESTRO] Flush failed for ${table} (chunk ${i / CHUNK_SIZE + 1}):`, error.message);
+      } else {
+        totalFlushed += chunk.length;
+      }
     }
 
     // Clear dirty flags
@@ -212,9 +234,9 @@ export class SyncCoordinator {
     await supabase.from('active_market_symbols').upsert(updates, { onConflict: 'symbol' });
 
     metricsService.recordDbFlush();
-    console.log(`[MAESTRO] FLUSH [${region}] | Updated ${snapshots.length} symbols in DB.`);
+    console.log(`[MAESTRO] FLUSH [${region}] | Updated ${totalFlushed} symbols in DB.`);
 
-    return snapshots.length;
+    return totalFlushed;
   }
 }
 

@@ -85,18 +85,11 @@ export function FeedbackModal({ isOpen, onClose }: FeedbackModalProps) {
     if (!form.title.trim() || !form.description.trim()) return;
     setSubmitting(true);
     try {
-      const userTier = (session?.user as any)?.subscription_tier || "free";
-
       const { error } = await supabase.from("reviews").insert({
         user_name: session?.user?.name || "Anonymous User",
-        user_avatar: session?.user?.image || "",
         rating: rating,
         title: form.title,
         body: form.description,
-        tier: userTier,
-        category: form.category,
-        status: "Planned",
-        priority: form.priority,
       });
 
       if (!error) {
@@ -105,9 +98,11 @@ export function FeedbackModal({ isOpen, onClose }: FeedbackModalProps) {
         setTimeout(() => {
           onClose();
         }, 2200);
+      } else {
+        console.error("Feedback submit database error:", error.message, error.details);
       }
     } catch (err) {
-      console.error("Feedback submit error:", err);
+      console.error("Feedback submit exception:", err);
     } finally {
       setSubmitting(false);
     }

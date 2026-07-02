@@ -11,6 +11,8 @@ import { PortfolioRevaluationJob } from './jobs/PortfolioRevaluationJob';
 import { AlphaVantageNewsSyncJob } from './jobs/AlphaVantageNewsSyncJob';
 import { IndianNewsSyncJob } from './jobs/IndianNewsSyncJob';
 import { MFMasterSeedJob } from './jobs/internal/MFMasterSeedJob';
+import { DailyMorningPriceSyncJob } from './jobs/DailyMorningPriceSyncJob';
+
 
 /**
  * initializeScheduler: The Ignition Point for Pulse Engine v2.
@@ -72,6 +74,12 @@ export function initializeScheduler() {
   cron.schedule('30 8 * * *', () => {
     syncOrchestrator.dispatch(new UsMarketResetJob());
   }, { timezone: 'America/New_York' });
+
+  // 4b. DAILY MORNING REFRESH: Tier 3 (6:00 AM IST)
+  // Fetch prices for all Indian & US stock assets to maintain high-fidelity listings
+  cron.schedule('0 6 * * *', () => {
+    syncOrchestrator.dispatch(new DailyMorningPriceSyncJob());
+  }, { timezone: 'Asia/Kolkata' });
 
   // 5. MASTER SEEDING: Tier 5 (Weekly discovery sweep)
   // Runs once weekly on Sundays at 1:00 AM IST to check for new discoverable symbols.

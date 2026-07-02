@@ -46,7 +46,12 @@ export class BatchAggregationService {
                 volume: quote.regularMarketVolume,
                 dayHigh: quote.regularMarketDayHigh,
                 dayLow: quote.regularMarketDayLow,
-                marketState: quote.marketState
+                marketState: quote.marketState,
+                // Extra fundamentals — synced daily alongside price
+                marketCap: quote.marketCap,
+                peRatio: quote.trailingPE,
+                fiftyTwoWeekHigh: quote.fiftyTwoWeekHigh,
+                fiftyTwoWeekLow: quote.fiftyTwoWeekLow
               });
 
               // RECORD HEALTH: Success

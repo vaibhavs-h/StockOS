@@ -1044,7 +1044,9 @@ export default function DashboardPage() {
 				weight,
 				p_l,
 				p_l_percentage,
-				link: `/stocks/${asset.trading_symbol}`,
+				link: (!asset.trading_symbol.endsWith('.NS') && !asset.trading_symbol.endsWith('.BO'))
+					? `/us-stocks/${asset.trading_symbol}`
+					: `/stocks/${asset.trading_symbol}`,
 				portfolioName: asset.user_portfolios?.name
 			};
 		});
@@ -3665,7 +3667,10 @@ export default function DashboardPage() {
 																layout: { duration: 0.4, ease: [0.16, 1, 0.3, 1] },
 																opacity: { duration: 0.3 }
 															}}
-															onClick={() => router.push(`/stocks/${asset.trading_symbol}`)}
+															onClick={() => {
+																const isUS = !asset.trading_symbol.endsWith('.NS') && !asset.trading_symbol.endsWith('.BO');
+																router.push(isUS ? `/us-stocks/${asset.trading_symbol}` : `/stocks/${asset.trading_symbol}`);
+															}}
 															className="group cursor-pointer border-b border-white/[0.02] relative overflow-hidden"
 														>
 															<td className="min-w-[220px] px-6 py-6 relative">
