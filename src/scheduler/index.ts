@@ -75,9 +75,9 @@ export function initializeScheduler() {
     syncOrchestrator.dispatch(new UsMarketResetJob());
   }, { timezone: 'America/New_York' });
 
-  // 4b. DAILY MORNING REFRESH: Tier 3 (6:00 AM IST)
+  // 4b. DAILY EVENING REFRESH: Tier 3 (4:00 PM IST)
   // Fetch prices for all Indian & US stock assets to maintain high-fidelity listings
-  cron.schedule('0 6 * * *', () => {
+  cron.schedule('0 16 * * *', () => {
     syncOrchestrator.dispatch(new DailyMorningPriceSyncJob());
   }, { timezone: 'Asia/Kolkata' });
 

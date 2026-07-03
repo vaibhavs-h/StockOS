@@ -81,7 +81,14 @@ export default function StocksPage() {
 
   useEffect(() => {
     setMounted(true)
-    fetchStocks()
+    fetchStocks(false)
+
+    // Set up hourly background refresh for top movers & list data
+    const interval = setInterval(() => {
+      fetchStocks(true)
+    }, 3600000) // 1 hour
+
+    return () => clearInterval(interval)
   }, [])
 
   // Realtime subscription for Indian Active Stocks
@@ -178,8 +185,8 @@ export default function StocksPage() {
     }
   }, [debouncedQuery])
 
-  const fetchStocks = async () => {
-    setLoading(true)
+  const fetchStocks = async (isBackground = false) => {
+    if (!isBackground) setLoading(true)
     try {
       // 1. Fetch exact total counts, indices, and active symbols first
       const [
@@ -305,7 +312,7 @@ export default function StocksPage() {
     } catch (err) {
       console.error("Failed to fetch stocks:", err)
     } finally {
-      setLoading(false)
+      if (!isBackground) setLoading(false)
     }
   }
 

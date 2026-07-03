@@ -22,7 +22,7 @@ export class DailyMorningPriceSyncJob extends BaseJob {
 
   protected async process(): Promise<number> {
     console.log('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.log('🌤️  [DAILY-PRICE-SYNC] Starting Scheduled Morning Price Refresh...');
+    console.log('🌆  [DAILY-PRICE-SYNC] Starting Scheduled Daily Price Refresh...');
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     const supabase = SupabaseProvider.getClient();
 
