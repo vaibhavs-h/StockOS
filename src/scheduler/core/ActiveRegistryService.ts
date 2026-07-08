@@ -51,6 +51,12 @@ export class ActiveRegistryService {
       const ticker = s.includes(':') ? s.split(':')[1] : s;
       const rawTicker = ticker.split('.')[0];
       
+      // 0. Index Check
+      if (ticker.startsWith('^') || ticker === 'VIX') {
+        const indexAsset = SymbolUniverseManager.getGlobalIndices().find((idx: any) => idx.s.toUpperCase() === ticker);
+        if (indexAsset) return region === (indexAsset.region === 'IN' ? 'IN' : 'US');
+      }
+      
       // 1. Explicit Indian Suffix
       if (s.endsWith('.NS') || s.endsWith('.BO')) return region === 'IN';
       
@@ -69,6 +75,13 @@ export class ActiveRegistryService {
       const s = (wa.symbol || '').trim().toUpperCase();
       const ticker = s.includes(':') ? s.split(':')[1] : s;
       const rawTicker = ticker.split('.')[0];
+      
+      // 0. Index Check
+      if (ticker.startsWith('^') || ticker === 'VIX') {
+        const indexAsset = SymbolUniverseManager.getGlobalIndices().find((idx: any) => idx.s.toUpperCase() === ticker);
+        if (indexAsset) return region === (indexAsset.region === 'IN' ? 'IN' : 'US');
+      }
+
       if (s.endsWith('.NS') || s.endsWith('.BO')) return region === 'IN';
       if (indianTickers.has(rawTicker) || indianTickers.has(ticker)) return region === 'IN';
       if (usTickers.has(rawTicker) || usTickers.has(ticker)) return region === 'US';

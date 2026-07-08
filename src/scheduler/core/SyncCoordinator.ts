@@ -153,9 +153,31 @@ export class SyncCoordinator {
     const usTickers = new Set(SymbolUniverseManager.getUniqueUsEquities().map((a: any) => a.s.toUpperCase()));
 
     const regionSymbols = dirtySymbols.filter(s => {
-      const ticker = s.split('.')[0].toUpperCase();
-      const isIN = s.endsWith('.NS') || s.endsWith('.BO') || !usTickers.has(ticker);
-      return region === 'IN' ? isIN : !isIN;
+      const upper = s.toUpperCase().trim();
+      
+      // 1. Check global indices list dynamically
+      if (upper.startsWith('^') || upper === 'VIX') {
+        const indexAsset = SymbolUniverseManager.getGlobalIndices().find(
+          idx => idx.s.toUpperCase() === upper
+        );
+        if (indexAsset) {
+          const isIN = indexAsset.region === 'IN';
+          return region === 'IN' ? isIN : !isIN;
+        }
+        // Fallback for indices
+        const isIndIndex = ['^NSEI', '^BSESN', '^NSEBANK', '^CNXIT'].includes(upper);
+        return region === 'IN' ? isIndIndex : !isIndIndex;
+      }
+
+      // 2. Suffix check
+      if (upper.endsWith('.NS') || upper.endsWith('.BO')) {
+        return region === 'IN';
+      }
+
+      // 3. Equities match
+      const ticker = upper.split('.')[0];
+      const isUS = usTickers.has(ticker) || usTickers.has(upper);
+      return region === 'IN' ? !isUS : isUS;
     });
 
     if (regionSymbols.length === 0) return 0;
