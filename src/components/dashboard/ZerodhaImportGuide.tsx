@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ChevronLeft, ChevronRight, X, ExternalLink, Download, FileText, Calendar, ArrowLeft, Check, Info } from 'lucide-react';
+import { ChevronLeft, ChevronRight, X, ExternalLink, Download, FileText, ArrowLeft, Check, Info } from 'lucide-react';
 
 const steps = [
   {
@@ -89,8 +89,8 @@ export const ZerodhaImportGuide: React.FC<GuideProps> = ({ onClose, embedded = f
 
   const staggerItem = {
     hidden: { opacity: 0, y: 10 },
-    show: { 
-      opacity: 1, 
+    show: {
+      opacity: 1,
       y: 0,
       transition: {
         duration: 0.4,
@@ -119,22 +119,22 @@ export const ZerodhaImportGuide: React.FC<GuideProps> = ({ onClose, embedded = f
               className="space-y-6 h-full"
             >
               <motion.div variants={staggerContainer} initial="hidden" animate="show" className="space-y-6">
-                <motion.div 
+                <motion.div
                   variants={staggerItem}
                   className="w-12 h-12 rounded-2xl bg-indigo-500/10 flex items-center justify-center border border-indigo-500/20"
                 >
                   {React.createElement(steps[currentStep].icon, { className: "w-6 h-6 text-indigo-400" })}
                 </motion.div>
-                
+
                 <div className="space-y-3">
-                  <motion.h3 
+                  <motion.h3
                     variants={staggerItem}
                     className="text-3xl font-headline font-black text-white tracking-tighter leading-none"
                   >
                     {steps[currentStep].title}
                   </motion.h3>
-                  
-                  <motion.p 
+
+                  <motion.p
                     variants={staggerItem}
                     className="text-[14px] text-zinc-400 font-medium leading-relaxed max-w-sm"
                   >
@@ -144,7 +144,7 @@ export const ZerodhaImportGuide: React.FC<GuideProps> = ({ onClose, embedded = f
 
                 {steps[currentStep].action && (
                   <motion.div variants={staggerItem} className="pt-2">
-                    <a 
+                    <a
                       href={steps[currentStep].action}
                       target="_blank"
                       rel="noopener noreferrer"
@@ -165,18 +165,18 @@ export const ZerodhaImportGuide: React.FC<GuideProps> = ({ onClose, embedded = f
           {/* Progress Indicator */}
           <div className="flex gap-1.5 h-1">
             {steps.map((_, i) => (
-              <div 
-                key={i} 
+              <div
+                key={i}
                 className={cn(
                   "flex-1 rounded-full transition-all duration-500",
                   i === currentStep ? "bg-indigo-500 shadow-[0_0_10px_rgba(99,102,241,0.5)]" : i < currentStep ? "bg-indigo-500/40" : "bg-white/10"
-                )} 
+                )}
               />
             ))}
           </div>
 
           <div className="flex items-center gap-3">
-            <button 
+            <button
               onClick={prev}
               disabled={currentStep === 0}
               className={cn(
@@ -186,12 +186,12 @@ export const ZerodhaImportGuide: React.FC<GuideProps> = ({ onClose, embedded = f
             >
               <ChevronLeft className="w-6 h-6" />
             </button>
-            <button 
+            <button
               onClick={next}
               className={cn(
                 "flex-1 h-12 rounded-xl border flex items-center justify-between px-6 font-terminal-label font-bold text-[10px] uppercase tracking-[0.2em] transition-all active:scale-[0.98] group overflow-hidden relative",
-                isLastStep 
-                  ? "bg-indigo-500 text-black border-indigo-500 hover:bg-indigo-400 shadow-[0_0_30px_rgba(99,102,241,0.2)]" 
+                isLastStep
+                  ? "bg-indigo-500 text-black border-indigo-500 hover:bg-indigo-400 shadow-[0_0_30px_rgba(99,102,241,0.2)]"
                   : "bg-white/5 text-white border-white/10 hover:bg-white/10"
               )}
             >
@@ -210,9 +210,9 @@ export const ZerodhaImportGuide: React.FC<GuideProps> = ({ onClose, embedded = f
               </AnimatePresence>
             </button>
           </div>
-          
+
           {embedded && (
-            <button 
+            <button
               onClick={onClose}
               className="w-full py-3.5 rounded-xl border border-white/5 bg-white/[0.02] flex items-center justify-center gap-2 text-[9px] font-terminal-label font-black uppercase tracking-[0.2em] text-zinc-500 hover:text-white hover:bg-white/5 transition-all group active:scale-95"
             >
@@ -239,8 +239,8 @@ export const ZerodhaImportGuide: React.FC<GuideProps> = ({ onClose, embedded = f
             }}
             className="w-full h-full flex items-center justify-center"
           >
-            <motion.img 
-              src={steps[currentStep].image} 
+            <motion.img
+              src={steps[currentStep].image}
               alt={steps[currentStep].title}
               initial={{ scale: 0.95 }}
               animate={{ scale: 1 }}
@@ -249,7 +249,7 @@ export const ZerodhaImportGuide: React.FC<GuideProps> = ({ onClose, embedded = f
             />
           </motion.div>
         </AnimatePresence>
-        
+
         {/* Subtle Backdrop Glow */}
         <div className="absolute inset-0 pointer-events-none bg-[radial-gradient(circle_at_center,rgba(99,102,241,0.05)_0,transparent_70%)] opacity-0 group-hover/preview:opacity-100 transition-opacity duration-1000" />
       </div>
@@ -261,7 +261,7 @@ export const ZerodhaImportGuide: React.FC<GuideProps> = ({ onClose, embedded = f
   }
 
   return (
-    <motion.div 
+    <motion.div
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}

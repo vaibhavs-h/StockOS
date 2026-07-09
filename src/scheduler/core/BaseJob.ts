@@ -1,4 +1,3 @@
-import { SYNC_CONFIG } from '../config/sync.config';
 import { JobMetadata } from './types';
 import { syncOrchestrator } from './orchestrator';
 
@@ -51,12 +50,12 @@ export abstract class BaseJob<T = any> {
     while (attempt <= maxRetries) {
       try {
         const recordsProcessed = await this.process(data);
-        
+
         this.metrics.recordsProcessed = recordsProcessed || 0;
         this.metrics.endTime = Date.now();
         this.metrics.durationMs = this.metrics.endTime - this.metrics.startTime;
         this.metrics.failed = false;
-        
+
         console.log(`\n[SYNC COMPLETED] ${this.id}`);
         console.log(`  Duration:  ${this.metrics.durationMs}ms`);
         console.log(`  Processed: ${this.metrics.recordsProcessed} records`);
@@ -65,7 +64,7 @@ export abstract class BaseJob<T = any> {
       } catch (error: any) {
         attempt++;
         this.metrics.retries = attempt;
-        
+
         if (attempt > maxRetries) {
           this.metrics.failed = true;
           this.metrics.endTime = Date.now();
@@ -75,12 +74,12 @@ export abstract class BaseJob<T = any> {
         }
 
         console.warn(`[JOB RETRY] ${this.id} failed (Attempt ${attempt}/${maxRetries}): ${error.message}`);
-        
+
         // Wait before next attempt (Exponential Backoff with Jitter)
         const baseDelay = this.metadata.backoffDelayMs || 2000;
         const jitter = Math.random() * 1000; // 0-1s jitter
         const delay = (baseDelay * Math.pow(2, attempt - 1)) + jitter;
-        
+
         await new Promise(resolve => setTimeout(resolve, delay));
       }
     }
@@ -121,7 +120,7 @@ export abstract class BaseJob<T = any> {
   protected getDiff(symbol: string, currentPayload: any): any {
     const symbolCache = (syncOrchestrator as any).snapshotCache.get(symbol);
     const lastPayloadJson = symbolCache?.get(this.metadata.tier);
-    
+
     if (!lastPayloadJson) return currentPayload;
 
     try {
@@ -143,7 +142,7 @@ export abstract class BaseJob<T = any> {
         syncOrchestrator.recordReduction(keys.length, Object.keys(diff).length);
         return diff;
       }
-      
+
       return null; // No changes
     } catch {
       return currentPayload;

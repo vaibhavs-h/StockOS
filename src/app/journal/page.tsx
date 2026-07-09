@@ -7,18 +7,14 @@ import { useSearchParams, useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Clock,
-  ExternalLink,
   Bookmark,
   Flame,
   Globe,
   Flag,
   Save,
   Activity,
-  TrendingUp,
-  TrendingDown,
   AlertTriangle,
   Cpu,
-  SlidersHorizontal,
   RefreshCw,
   X,
   Search,
@@ -27,7 +23,6 @@ import {
   Sparkles,
   BookOpen,
   ArrowUpRight,
-  HelpCircle
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useSession } from "next-auth/react";
@@ -107,7 +102,7 @@ function CircularGauge({ score, size = 120 }: { score: number; size?: number }) 
   const radius = size * 0.4;
   const strokeWidth = size * 0.08;
   const circumference = 2 * Math.PI * radius;
-  
+
   // Map -1..1 to 0..1 range
   const normalized = (score + 1) / 2;
   const strokeDashoffset = circumference - normalized * circumference;
@@ -116,7 +111,7 @@ function CircularGauge({ score, size = 120 }: { score: number; size?: number }) 
   let strokeColor = "stroke-cyan-500";
   let glowColor = "rgba(6, 182, 212, 0.4)";
   let labelText = "Neutral";
-  
+
   if (score >= 0.35) {
     strokeColor = "stroke-emerald-500";
     glowColor = "rgba(16, 185, 129, 0.4)";
@@ -398,7 +393,7 @@ function JournalPageContent() {
     const response = await fetch(`${API_BASE_URL}/api/news?${params.toString()}`);
     if (!response.ok) throw new Error(`Request failed: ${response.status}`);
     const data = await response.json();
-    
+
     return {
       news: data.news || [],
       hasMore: data.hasMore !== undefined ? data.hasMore : false
@@ -467,7 +462,7 @@ function JournalPageContent() {
     load();
     return () => { ignore = true; };
   }, [activeTab, userId, selectedTicker, sentimentFilter, impactFilter, searchQuery]);
- 
+
   // Real-time news updates: Poll page 1 every 10 seconds to merge newly synced articles
   useEffect(() => {
     // Only poll for 'global' and 'india' categories
@@ -482,7 +477,7 @@ function JournalPageContent() {
             const newItems = freshNews.filter((item: any) => !existingIds.has(item._id));
             if (newItems.length > 0) {
               console.log(`[REALTIME-NEWS] Prepending ${newItems.length} new articles in real-time.`);
-              
+
               setMonthlyNews(mPrev => {
                 const mExistingIds = new Set(mPrev.map((item: any) => item._id));
                 const mNewItems = freshNews.filter((item: any) => !mExistingIds.has(item._id));
@@ -553,7 +548,7 @@ function JournalPageContent() {
     });
 
     const avg = count > 0 ? sum / count : 0;
-    
+
     let label = "NEUTRAL SENTIMENT";
     let color = "text-cyan-400";
     let bg = "bg-cyan-500/10";
@@ -610,7 +605,7 @@ function JournalPageContent() {
           const symbol = s.trim().toUpperCase();
           if (!symbol) return;
           const cleanSymbol = symbol.replace(/\.(NS|BO)$/, '');
-          
+
           if (!map[cleanSymbol]) {
             map[cleanSymbol] = { count: 0, totalScore: 0, scoreCount: 0 };
           }
@@ -660,10 +655,10 @@ function JournalPageContent() {
       stocks.forEach((s: string) => {
         const symbol = s.trim().toUpperCase();
         if (!symbol) return;
-        
+
         // Strip suffixes like .NS / .BO for matching benchmarks
         const cleanSymbol = symbol.replace(/\.(NS|BO)$/, '');
-        
+
         if (map[cleanSymbol] !== undefined) {
           map[cleanSymbol].count += 1;
 
@@ -902,9 +897,9 @@ function JournalPageContent() {
       <div className="absolute bottom-0 right-1/4 w-[600px] h-[600px] bg-cyan-500/5 rounded-full filter blur-[140px] pointer-events-none z-0 animate-pulse" style={{ animationDuration: '8s' }} />
 
       {/* Futuristic Grid Overlay */}
-      <div 
+      <div
         className="absolute inset-0 opacity-[0.015] pointer-events-none z-0"
-        style={{ backgroundImage: 'radial-gradient(circle, #fff 1px, transparent 1px)', backgroundSize: '40px 40px' }} 
+        style={{ backgroundImage: 'radial-gradient(circle, #fff 1px, transparent 1px)', backgroundSize: '40px 40px' }}
       />
       <div className="absolute inset-0 bg-gradient-to-b from-black/20 via-transparent to-black/20 pointer-events-none z-0" />
 
@@ -1039,8 +1034,8 @@ function JournalPageContent() {
                 <div
                   className={cn("h-full rounded-full transition-all duration-1000",
                     aggregateSentiment.avg >= 0.1 ? "bg-gradient-to-r from-emerald-500 to-teal-400" :
-                    aggregateSentiment.avg <= -0.1 ? "bg-gradient-to-r from-rose-500 to-red-600" :
-                    "bg-cyan-500"
+                      aggregateSentiment.avg <= -0.1 ? "bg-gradient-to-r from-rose-500 to-red-600" :
+                        "bg-cyan-500"
                   )}
                   style={{ width: `${((aggregateSentiment.avg + 1) / 2) * 100}%` }}
                 />
@@ -1126,9 +1121,9 @@ function JournalPageContent() {
                       </span>
                     </div>
                     <div className="w-full bg-zinc-950 rounded-full h-0.5 overflow-hidden">
-                      <div 
-                        className="bg-gradient-to-r from-emerald-500/80 to-cyan-500/80 h-0.5 rounded-full" 
-                        style={{ width: `${item.avgRelevance * 100}%` }} 
+                      <div
+                        className="bg-gradient-to-r from-emerald-500/80 to-cyan-500/80 h-0.5 rounded-full"
+                        style={{ width: `${item.avgRelevance * 100}%` }}
                       />
                     </div>
                   </div>
@@ -1153,8 +1148,8 @@ function JournalPageContent() {
                   {tickerMetrics.length} <span className="text-[8px] font-black text-zinc-500 uppercase tracking-widest">Active Stocks</span>
                 </span>
                 {selectedTicker && (
-                  <button 
-                    onClick={() => setSelectedTicker(null)} 
+                  <button
+                    onClick={() => setSelectedTicker(null)}
                     className="text-[8px] font-black uppercase tracking-wider text-rose-400 bg-rose-500/10 hover:bg-rose-500/20 px-1.5 py-0.5 rounded"
                   >
                     Clear Filter
@@ -1198,8 +1193,8 @@ function JournalPageContent() {
               className="w-full bg-white/[0.02] backdrop-blur-xl border border-white/[0.08] rounded-xl pl-12 pr-4 py-3 text-xs text-zinc-300 placeholder-zinc-500 focus:outline-none focus:bg-white/[0.04] focus:border-emerald-500/40 transition-all font-sans"
             />
             {searchQuery && (
-              <button 
-                onClick={() => setSearchQuery("")} 
+              <button
+                onClick={() => setSearchQuery("")}
                 className="absolute right-4 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300"
               >
                 <X className="size-3.5" />
@@ -1262,34 +1257,34 @@ function JournalPageContent() {
 
         {/* Dashboard Content split grid layout */}
         <div className="grid grid-cols-1 xl:grid-cols-4 gap-4">
-          
+
           {/* Column 1: Institutional Intelligence Sidebar HUD (Left side, 25% desktop) */}
           <div className="xl:col-span-1 space-y-3.5 xl:sticky xl:top-24 self-start max-h-[calc(100vh-140px)] overflow-y-auto pr-2 custom-scrollbar">
 
-             {/* Widget: Ticker Focus Stream list with aggregate sentiments */}
-             {activeTab === "saved" && tickerMetrics.length === 0 ? (
-               <motion.div
-                 initial={{ opacity: 0, x: -20 }}
-                 animate={{ opacity: 1, x: 0 }}
-                 transition={{ duration: 0.6, delay: 0.1 }}
-                 className="rounded-xl p-5 bg-[#080c14]/30 backdrop-blur-xl border border-white/[0.08] shadow-[0_8px_32px_0_rgba(0,0,0,0.37)] text-center relative overflow-hidden group"
-               >
-                 <div className="absolute -right-4 -top-4 w-12 h-12 bg-cyan-500/10 rounded-full filter blur-xl pointer-events-none group-hover:scale-150 transition-transform duration-700" />
-                 <Bookmark className="size-8 text-cyan-400/60 mx-auto mb-3 animate-pulse" />
-                 <h4 className="text-xs font-black uppercase tracking-wider text-zinc-300 mb-1.5 font-sans">
-                   No Saved Tickers
-                 </h4>
-                 <p className="text-[10px] text-zinc-500 leading-normal font-sans font-medium">
-                   Bookmark articles to dynamically extract and monitor specific stocks of interest here.
-                 </p>
-               </motion.div>
-             ) : tickerMetrics.length > 0 && (
-               <motion.div
-                 initial={{ opacity: 0, x: -20 }}
-                 animate={{ opacity: 1, x: 0 }}
-                 transition={{ duration: 0.6, delay: 0.1 }}
-                 className="rounded-xl p-4 bg-[#080c14]/30 backdrop-blur-xl border border-white/[0.08] shadow-[0_8px_32px_0_rgba(0,0,0,0.37)]"
-               >
+            {/* Widget: Ticker Focus Stream list with aggregate sentiments */}
+            {activeTab === "saved" && tickerMetrics.length === 0 ? (
+              <motion.div
+                initial={{ opacity: 0, x: -20 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ duration: 0.6, delay: 0.1 }}
+                className="rounded-xl p-5 bg-[#080c14]/30 backdrop-blur-xl border border-white/[0.08] shadow-[0_8px_32px_0_rgba(0,0,0,0.37)] text-center relative overflow-hidden group"
+              >
+                <div className="absolute -right-4 -top-4 w-12 h-12 bg-cyan-500/10 rounded-full filter blur-xl pointer-events-none group-hover:scale-150 transition-transform duration-700" />
+                <Bookmark className="size-8 text-cyan-400/60 mx-auto mb-3 animate-pulse" />
+                <h4 className="text-xs font-black uppercase tracking-wider text-zinc-300 mb-1.5 font-sans">
+                  No Saved Tickers
+                </h4>
+                <p className="text-[10px] text-zinc-500 leading-normal font-sans font-medium">
+                  Bookmark articles to dynamically extract and monitor specific stocks of interest here.
+                </p>
+              </motion.div>
+            ) : tickerMetrics.length > 0 && (
+              <motion.div
+                initial={{ opacity: 0, x: -20 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ duration: 0.6, delay: 0.1 }}
+                className="rounded-xl p-4 bg-[#080c14]/30 backdrop-blur-xl border border-white/[0.08] shadow-[0_8px_32px_0_rgba(0,0,0,0.37)]"
+              >
                 <div className="flex justify-between items-center mb-3">
                   <div className="flex items-center gap-2 mb-2">
                     <Cpu className="size-4 text-emerald-400" />
@@ -1305,7 +1300,7 @@ function JournalPageContent() {
                 <div className="space-y-2 max-h-[360px] overflow-y-auto pr-1 no-scrollbar">
                   {tickerMetrics.map(item => {
                     const isSelected = selectedTicker === item.symbol;
-                    
+
                     // Style ticker badge based on average sentiment
                     let avgColor = "text-cyan-400 bg-cyan-500/10";
                     let avgLabel = "N";
@@ -1367,9 +1362,9 @@ function JournalPageContent() {
                         <span className="text-zinc-500 tabular-nums">{topicItem.count} articles</span>
                       </div>
                       <div className="w-full bg-zinc-950 rounded-full h-1 overflow-hidden">
-                        <div 
-                          className="bg-gradient-to-r from-emerald-500 to-cyan-500 h-1 rounded-full" 
-                          style={{ width: `${topicItem.avgRelevance * 100}%` }} 
+                        <div
+                          className="bg-gradient-to-r from-emerald-500 to-cyan-500 h-1 rounded-full"
+                          style={{ width: `${topicItem.avgRelevance * 100}%` }}
                         />
                       </div>
                     </div>
@@ -1430,7 +1425,7 @@ function JournalPageContent() {
                     const impact = normalizeImpact(item.impact);
                     const meta = impactMeta[impact as keyof typeof impactMeta];
                     const itemScore = typeof item.sentimentScore === 'number' ? item.sentimentScore : parseFloat(item.sentimentScore);
-                    
+
                     // Determine visual indicators based on exact score
                     let scoreBadgeColor = "text-cyan-400 bg-cyan-500/10 border-cyan-500/20";
                     let sentimentText = "Neutral";
@@ -1461,14 +1456,14 @@ function JournalPageContent() {
                         }}
                         className="h-full flex"
                       >
-                        <SpotlightCard 
-                          className="w-full flex flex-col justify-between" 
+                        <SpotlightCard
+                          className="w-full flex flex-col justify-between"
                           sentimentScore={itemScore}
                           onClick={() => handleOpenArticle(item)}
                         >
                           {/* Alert Side Accent Line */}
-                          <div className={cn("absolute left-0 top-0 bottom-0 w-[3px] transition-all duration-500", 
-                            itemScore >= 0.1 ? "bg-emerald-500" : itemScore <= -0.1 ? "bg-rose-500" : "bg-cyan-500", 
+                          <div className={cn("absolute left-0 top-0 bottom-0 w-[3px] transition-all duration-500",
+                            itemScore >= 0.1 ? "bg-emerald-500" : itemScore <= -0.1 ? "bg-rose-500" : "bg-cyan-500",
                             "opacity-30 group-hover:opacity-100"
                           )} />
 
@@ -1527,7 +1522,7 @@ function JournalPageContent() {
 
                             {/* Main Details and Metadata */}
                             <div className="space-y-2 relative z-10">
-                              
+
                               <div className="flex items-center justify-between">
                                 <span className="text-[9px] font-black uppercase tracking-[0.25em] text-zinc-500">
                                   {item.source || "Insight Pulsar"}
@@ -1546,10 +1541,10 @@ function JournalPageContent() {
                                 <div className="flex flex-wrap gap-1.5 pt-1">
                                   {item.stocks.slice(0, 3).map((stock: string) => {
                                     const symbol = stock.trim().toUpperCase();
-                                    
+
                                     // Try to determine this specific ticker's sentiment color
                                     let tickClass = "bg-white/[0.02] backdrop-blur-sm border-white/[0.08] text-zinc-400 hover:bg-white/[0.05] hover:border-white/20 hover:text-white";
-                                    const match = Array.isArray(item.tickerSentiment) && 
+                                    const match = Array.isArray(item.tickerSentiment) &&
                                       item.tickerSentiment.find((t: any) => String(t.ticker).toUpperCase() === symbol);
                                     if (match && match.ticker_sentiment_score) {
                                       const score = parseFloat(match.ticker_sentiment_score);
@@ -1642,7 +1637,7 @@ function JournalPageContent() {
 
                 {/* Read More button at the bottom of the news list */}
                 {hasMore && activeTab !== 'saved' && filteredSortedNews.length > 0 && (
-                  <motion.div 
+                  <motion.div
                     initial={{ opacity: 0, y: 15 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ duration: 0.6, delay: 0.2 }}
@@ -1693,7 +1688,7 @@ function JournalPageContent() {
 
                 {/* Centered Modal Container */}
                 <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 sm:p-6 md:p-8 pointer-events-none">
-                  
+
                   {/* Modal panel */}
                   <motion.div
                     initial={{ opacity: 0, scale: 0.95, y: 20 }}
@@ -1754,15 +1749,15 @@ function JournalPageContent() {
                           <span className="px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/25 text-emerald-400 text-[10px] font-black uppercase tracking-[0.2em] font-sans">
                             {activeItem.source || "Insight Pulsar"}
                           </span>
-                          <span className={cn("px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-[0.2em] border flex items-center gap-1.5 font-sans bg-opacity-5", 
+                          <span className={cn("px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-[0.2em] border flex items-center gap-1.5 font-sans bg-opacity-5",
                             activeItem.impact === "HIGH" ? "text-rose-400 border-rose-500/20 bg-rose-500/5" :
-                            activeItem.impact === "MEDIUM" ? "text-amber-400 border-amber-500/20 bg-amber-500/5" :
-                            "text-cyan-400 border-cyan-500/20 bg-cyan-500/5"
+                              activeItem.impact === "MEDIUM" ? "text-amber-400 border-amber-500/20 bg-amber-500/5" :
+                                "text-cyan-400 border-cyan-500/20 bg-cyan-500/5"
                           )}>
-                            <div className={cn("size-1.5 rounded-full animate-pulse", 
+                            <div className={cn("size-1.5 rounded-full animate-pulse",
                               activeItem.impact === "HIGH" ? "bg-rose-500" :
-                              activeItem.impact === "MEDIUM" ? "bg-amber-500" :
-                              "bg-cyan-500"
+                                activeItem.impact === "MEDIUM" ? "bg-amber-500" :
+                                  "bg-cyan-500"
                             )} />
                             {activeItem.impact || "LOW"} IMPACT
                           </span>
@@ -1827,11 +1822,11 @@ function JournalPageContent() {
 
                       {/* Symmetric Institutional Analytics Grid Deck (Balanced bottom column metrics) */}
                       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-3">
-                                                {/* Box 1: Market Sentiment & circular gauge */}
+                        {/* Box 1: Market Sentiment & circular gauge */}
                         <div className="p-4 rounded-xl bg-white/[0.02] backdrop-blur-md border border-white/[0.08] flex flex-col items-center justify-center text-center shadow-inner">
-                          <CircularGauge 
-                            score={typeof activeItem.sentimentScore === 'number' ? activeItem.sentimentScore : parseFloat(activeItem.sentimentScore) || 0} 
-                            size={110} 
+                          <CircularGauge
+                            score={typeof activeItem.sentimentScore === 'number' ? activeItem.sentimentScore : parseFloat(activeItem.sentimentScore) || 0}
+                            size={110}
                           />
                           <div className="space-y-1 mt-4">
                             <p className="text-[9px] text-zinc-500 font-black uppercase tracking-[0.2em]">AI Sentiment Rating</p>
@@ -1847,7 +1842,7 @@ function JournalPageContent() {
                             <Cpu className="size-4 text-emerald-400" />
                             <span className="text-[10px] font-black uppercase tracking-[0.2em] text-zinc-400">Mentioned Stocks</span>
                           </div>
-                          
+
                           {Array.isArray(activeItem.tickerSentiment) && activeItem.tickerSentiment.length > 0 ? (
                             <div className="space-y-2 max-h-[140px] overflow-y-auto pr-1 custom-scrollbar flex-1">
                               {activeItem.tickerSentiment.map((t: any, idx: number) => {
@@ -1860,8 +1855,8 @@ function JournalPageContent() {
                                 }
 
                                 return (
-                                  <div 
-                                    key={idx} 
+                                  <div
+                                    key={idx}
                                     className="flex items-center justify-between p-2 rounded-xl bg-white/[0.02] backdrop-blur-sm border border-white/[0.08] font-sans"
                                   >
                                     <span className="text-xs font-black tracking-wider text-white">{String(t.ticker).toUpperCase()}</span>
@@ -1900,9 +1895,9 @@ function JournalPageContent() {
                                       <span className="text-zinc-500 tabular-nums">{(rel * 100).toFixed(0)}%</span>
                                     </div>
                                     <div className="w-full bg-zinc-950 rounded-full h-1 overflow-hidden">
-                                      <div 
-                                        className="bg-gradient-to-r from-emerald-500 to-cyan-500 h-1 rounded-full" 
-                                        style={{ width: `${rel * 100}%` }} 
+                                      <div
+                                        className="bg-gradient-to-r from-emerald-500 to-cyan-500 h-1 rounded-full"
+                                        style={{ width: `${rel * 100}%` }}
                                       />
                                     </div>
                                   </div>

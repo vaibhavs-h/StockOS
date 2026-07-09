@@ -1,9 +1,8 @@
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Search, BarChart4, LayoutGrid, List as ListIcon, Trash2, ExternalLink, Activity, AlertTriangle, Cpu, Plus, Info } from 'lucide-react';
+import { List as ListIcon, Trash2, Activity, Info } from 'lucide-react';
 import { supabase } from '@/services/DatabaseClient';
-import { useSession } from 'next-auth/react';
 import { cn } from '@/lib/utils';
 import { WatchlistRow } from './WatchlistRow';
 
@@ -53,7 +52,7 @@ export const WatchlistTerminal: React.FC<WatchlistTerminalProps> = ({ userId, ho
 
       if (lists && lists.length > 0) {
         const allSymbols = Array.from(new Set(lists.flatMap(l => l.watchlist_assets?.map((a: any) => a.symbol) || [])));
-        
+
         // Fetch in parallel from both market_assets and mutual_funds_master
         const [marketAssetsRes, mfAssetsRes] = await Promise.all([
           supabase.from('market_assets').select('*').in('symbol', allSymbols),
@@ -89,7 +88,7 @@ export const WatchlistTerminal: React.FC<WatchlistTerminalProps> = ({ userId, ho
           assets: (l.watchlist_assets || []).map((wa: any) => {
             const sym = wa.symbol?.trim().toUpperCase();
             if (!sym) return null;
-            
+
             const isMF = sym.startsWith('INF') || (sym.length === 12 && sym.startsWith('IN'));
             if (isMF) {
               const mfData = mfMap.get(sym);
@@ -114,7 +113,7 @@ export const WatchlistTerminal: React.FC<WatchlistTerminalProps> = ({ userId, ho
         }));
 
         setWatchlists(formattedLists);
-        
+
         // Initial Load Heartbeat: Instantly alert the active_market_symbols registry upon mount or full load
         const activeListIdToUse = activeListId || formattedLists[0]?.id;
         const currentActiveList = formattedLists.find(l => l.id === activeListIdToUse);
@@ -127,7 +126,7 @@ export const WatchlistTerminal: React.FC<WatchlistTerminalProps> = ({ userId, ho
               .from('active_market_symbols')
               .update({ last_watchlist_seen_at: nowStr, last_viewed_at: nowStr })
               .in('symbol', stockSymbols)
-              .then(() => {}); // Fire and forget
+              .then(() => { }); // Fire and forget
           }
         }
 
@@ -167,7 +166,7 @@ export const WatchlistTerminal: React.FC<WatchlistTerminalProps> = ({ userId, ho
             .from('active_market_symbols')
             .update({ last_watchlist_seen_at: nowStr, last_viewed_at: nowStr })
             .in('symbol', stockSymbols)
-            .then(() => {}); // Fire and forget
+            .then(() => { }); // Fire and forget
         }
 
         setWatchlists(prevLists => prevLists.map(list => ({
@@ -175,7 +174,7 @@ export const WatchlistTerminal: React.FC<WatchlistTerminalProps> = ({ userId, ho
           assets: list.assets.map(asset => {
             if (!asset || !asset.symbol) return asset;
             const cleanSymbol = asset.symbol.trim().toUpperCase();
-            
+
             const isMF = cleanSymbol.startsWith('INF') || (cleanSymbol.length === 12 && cleanSymbol.startsWith('IN'));
             if (isMF) {
               const updatedData = mfMap.get(cleanSymbol);

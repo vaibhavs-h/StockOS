@@ -3,20 +3,11 @@
 import React, { useState, useRef, useEffect } from "react"
 import { createPortal } from "react-dom"
 import { motion, AnimatePresence } from "framer-motion"
-import { 
-  MessageSquare, 
-  X, 
-  Send, 
-  RefreshCcw, 
-  ThumbsUp, 
-  ThumbsDown,
-  Database,
-  ShieldAlert,
-  Lightbulb,
-  TrendingUp,
+import {
+  X,
+  Send,
+  RefreshCcw,
   Sparkles,
-  User,
-  Bot
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 
@@ -47,13 +38,13 @@ export function FloatingAssistant() {
 
   const handleSend = async (text: string) => {
     if (!text.trim() || isLoading) return
-    
+
     const userMsg = {
       role: 'user',
       content: text,
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     }
-    
+
     setMessages(prev => [...prev, userMsg])
     setInputValue("")
     setIsLoading(true)
@@ -89,13 +80,13 @@ export function FloatingAssistant() {
                   <span className="font-headline text-[13px] uppercase tracking-[0.2em] text-white font-bold">Research Assistant</span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <button 
+                  <button
                     onClick={() => setMessages([messages[0]])}
                     className="p-2 rounded-xl hover:bg-white/5 text-zinc-500 hover:text-emerald-500 transition-colors"
                   >
                     <RefreshCcw className="w-4 h-4" />
                   </button>
-                  <button 
+                  <button
                     onClick={() => setIsOpen(false)}
                     className="p-2 rounded-xl hover:bg-white/5 text-zinc-500 hover:text-white transition-colors"
                   >
@@ -105,7 +96,7 @@ export function FloatingAssistant() {
               </div>
 
               {/* Messages Container */}
-              <div 
+              <div
                 ref={chatContainerRef}
                 className="flex-grow p-6 overflow-y-auto no-scrollbar flex flex-col gap-6"
               >
@@ -121,8 +112,8 @@ export function FloatingAssistant() {
                   >
                     <div className={cn(
                       "p-4 rounded-2xl text-[14px] leading-relaxed",
-                      msg.role === 'user' 
-                        ? "bg-emerald-500/10 border border-emerald-500/20 text-emerald-50 rounded-tr-sm" 
+                      msg.role === 'user'
+                        ? "bg-emerald-500/10 border border-emerald-500/20 text-emerald-50 rounded-tr-sm"
                         : "bg-white/[0.03] border border-white/10 text-zinc-300 rounded-tl-sm shadow-xl"
                     )}>
                       {msg.content}
@@ -141,7 +132,7 @@ export function FloatingAssistant() {
 
               {/* Input Area */}
               <div className="p-6 border-t border-white/5 bg-black/40">
-                <form 
+                <form
                   onSubmit={(e) => {
                     e.preventDefault()
                     handleSend(inputValue)
@@ -155,7 +146,7 @@ export function FloatingAssistant() {
                     placeholder="Ask market intelligence..."
                     className="w-full bg-white/[0.03] border border-white/10 rounded-2xl px-6 py-4 text-[14px] text-white placeholder:text-zinc-600 focus:outline-none focus:border-emerald-500/40 transition-all group-focus-within:bg-white/[0.05]"
                   />
-                  <button 
+                  <button
                     type="submit"
                     className="absolute right-4 top-1/2 -translate-y-1/2 p-2 text-emerald-500 hover:scale-110 transition-transform"
                   >
@@ -176,8 +167,8 @@ export function FloatingAssistant() {
         onClick={() => setIsOpen(!isOpen)}
         className={cn(
           "flex items-center gap-3 px-5 py-4 rounded-full transition-all duration-500 relative group border whitespace-nowrap shadow-2xl h-full min-w-[160px] justify-center",
-          isOpen 
-            ? "bg-white border-white text-black" 
+          isOpen
+            ? "bg-white border-white text-black"
             : "bg-indigo-500/10 border-indigo-500/40 text-indigo-400 hover:bg-indigo-500/20 hover:border-indigo-500/60"
         )}
       >

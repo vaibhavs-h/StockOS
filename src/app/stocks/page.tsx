@@ -4,29 +4,20 @@ import React, { useState, useEffect, useMemo } from "react"
 import { motion, AnimatePresence } from "framer-motion"
 import {
   Search,
-  TrendingUp,
   Activity,
   Globe,
   ArrowUpRight,
   ArrowDownRight,
   Database,
   Filter,
-  BarChart3,
-  TrendingDown,
-  ChevronRight,
-  Sparkles,
   Cpu,
   Car,
-  X,
-  Loader2,
   Coins,
-  ChevronLeft,
   ChevronDown
 } from "lucide-react"
 import { supabase } from "@/services/DatabaseClient"
 import { useRouter } from "next/navigation"
 import { cn } from "@/lib/utils"
-import Link from "next/link"
 import { AssetLogo } from "@/components/shared/AssetLogo"
 import { getMarketStatus } from "@/constants/market-constants"
 
@@ -58,22 +49,22 @@ export default function StocksPage() {
   const [selectedSector, setSelectedSector] = useState<string | null>(null)
   const [totalIndianCount, setTotalIndianCount] = useState(0)
   const [totalUsCount, setTotalUsCount] = useState(0)
-  
+
   // Sorting State
-  type SortOption = 
-    | 'cap_desc' 
-    | 'cap_asc' 
-    | 'name_asc' 
-    | 'name_desc' 
-    | 'price_asc' 
-    | 'price_desc' 
-    | 'pe_desc' 
-    | 'pe_asc' 
-    | 'change_desc' 
+  type SortOption =
+    | 'cap_desc'
+    | 'cap_asc'
+    | 'name_asc'
+    | 'name_desc'
+    | 'price_asc'
+    | 'price_desc'
+    | 'pe_desc'
+    | 'pe_asc'
+    | 'change_desc'
     | 'change_asc'
   const [sortBy, setSortBy] = useState<SortOption>('cap_desc')
   const [activeSymbols, setActiveSymbols] = useState<Set<string>>(new Set())
-  
+
   // Pagination State
   const [pageSize, setPageSize] = useState(12)
 
@@ -115,9 +106,9 @@ export default function StocksPage() {
           const isActive = activeSymbols.has(upperSym)
 
           if (isMarketOpen && isActive) {
-            setIndianStocks(prev => prev.map(stock => 
-              stock.symbol === newAsset.symbol 
-                ? { ...stock, ...newAsset } 
+            setIndianStocks(prev => prev.map(stock =>
+              stock.symbol === newAsset.symbol
+                ? { ...stock, ...newAsset }
                 : stock
             ))
           }
@@ -154,9 +145,9 @@ export default function StocksPage() {
           const isActive = activeSymbols.has(upperSym)
 
           if (isMarketOpen && isActive) {
-            setUsStocks(prev => prev.map(stock => 
-              stock.symbol === newAsset.symbol 
-                ? { ...stock, ...newAsset } 
+            setUsStocks(prev => prev.map(stock =>
+              stock.symbol === newAsset.symbol
+                ? { ...stock, ...newAsset }
                 : stock
             ))
           }
@@ -249,15 +240,15 @@ export default function StocksPage() {
         if (res.data) allUS.push(...res.data)
       })
 
-      const isIndex = (symbol: string) => 
+      const isIndex = (symbol: string) =>
         !symbol ||
-        symbol.startsWith('^') || 
+        symbol.startsWith('^') ||
         ['DJI', 'SPX', 'IXIC', 'GSPC', 'NSEI', 'BSESN', 'NSEBANK', 'BANKNIFTY', 'NIFTY', 'SENSEX'].includes(symbol.toUpperCase().trim())
 
       const indianWithMarket = allIN
         .filter(s => s.symbol && !isIndex(s.symbol))
         .map(s => ({ ...s, market: 'IN' as const, region: 'IN' as const }))
-        
+
       const usWithMarket = allUS
         .filter(s => s.symbol && !isIndex(s.symbol))
         .map(s => ({ ...s, market: 'US' as const, region: 'US' as const }))
@@ -334,7 +325,7 @@ export default function StocksPage() {
 
       const inMapped = (inData || []).map(s => ({ ...s, market: 'IN' as const, region: 'IN' as const }))
       const usMapped = (usData || []).map(s => ({ ...s, market: 'US' as const, region: 'US' as const }))
-      
+
       setExtraAssets([...inMapped, ...usMapped])
     } catch (err) {
       console.error("Failed to search extra assets:", err)
@@ -371,14 +362,14 @@ export default function StocksPage() {
   }, [usStocks])
 
   const filteredStocks = useMemo(() => {
-    const isIndex = (symbol: string) => 
+    const isIndex = (symbol: string) =>
       !symbol ||
-      symbol.startsWith('^') || 
+      symbol.startsWith('^') ||
       ['DJI', 'SPX', 'IXIC', 'GSPC', 'NSEI', 'BSESN', 'NSEBANK', 'BANKNIFTY', 'NIFTY', 'SENSEX'].includes(symbol.toUpperCase().trim())
 
     const baseList = [...indianStocks, ...usStocks].filter(s => s.symbol && !isIndex(s.symbol))
     const seen = new Set(baseList.map(s => `${s.market}-${s.symbol}`))
-    
+
     // Merge base top list with extra assets from dynamic search
     const combinedList = [...baseList]
     extraAssets.forEach(asset => {
@@ -570,12 +561,12 @@ export default function StocksPage() {
 
       {/* Main content split grid */}
       <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_360px] gap-8 items-start">
-        
+
         {/* Left Side: Search, Filters & Browse List */}
         <div className="space-y-8">
           {/* Controls Bar: Market Selector & Sector Chips inline */}
-          <motion.div 
-            variants={itemVariants} 
+          <motion.div
+            variants={itemVariants}
             className="flex flex-col md:flex-row md:items-center justify-start gap-6 p-3 rounded-2xl border border-white/[0.06] bg-gradient-to-b from-[#0f131a] to-[#080a0f] shadow-[0_20px_40px_rgba(0,0,0,0.6),inset_0_1px_0_rgba(255,255,255,0.05)] w-full"
           >
             {/* Region Segment Tabs */}
@@ -743,7 +734,7 @@ export default function StocksPage() {
                               {formatMarketCap(stock.market_cap || 0, stock.region)}
                             </span>
                           </div>
-                          
+
                           {/* P/E Ratio */}
                           <div className="min-w-[70px]">
                             <span className="text-[8.5px] font-mono font-bold text-zinc-500 uppercase tracking-widest block">P/E Ratio</span>
@@ -756,7 +747,7 @@ export default function StocksPage() {
                           <div className="min-w-[150px] hidden lg:block">
                             <span className="text-[8.5px] font-mono font-bold text-zinc-500 uppercase tracking-widest block">52W Range</span>
                             <span className="text-xs font-bold text-zinc-300 mt-0.5 block">
-                              {(stock.fifty_two_week_low && stock.fifty_two_week_high) 
+                              {(stock.fifty_two_week_low && stock.fifty_two_week_high)
                                 ? `${stock.region === 'US' ? '$' : '₹'}${stock.fifty_two_week_low.toLocaleString()} — ${stock.region === 'US' ? '$' : '₹'}${stock.fifty_two_week_high.toLocaleString()}`
                                 : 'N/A'
                               }
@@ -806,12 +797,12 @@ export default function StocksPage() {
 
         {/* Right Side: Movers widgets */}
         <aside className="space-y-8">
-             {/* India Market Movers */}
+          {/* India Market Movers */}
           <motion.section variants={itemVariants} className="p-6 rounded-3xl border border-white/[0.08] bg-[#0c0f16]/90 backdrop-blur-xl space-y-5 shadow-2xl">
             <h3 className="font-headline font-black text-xs uppercase tracking-[0.25em] text-emerald-400 flex items-center gap-2 font-bold">
               <Globe className="size-4 text-emerald-400" /> India Market Movers
             </h3>
-            
+
             {/* Gainers */}
             <div className="space-y-3">
               <span className="text-[9.5px] font-bold text-zinc-500 uppercase tracking-widest block font-mono">Top Gainers</span>
@@ -888,7 +879,7 @@ export default function StocksPage() {
             <h3 className="font-headline font-black text-xs uppercase tracking-[0.25em] text-blue-400 flex items-center gap-2 font-bold">
               <Globe className="size-4 text-blue-400" /> US Market Movers
             </h3>
-            
+
             {/* Gainers */}
             <div className="space-y-3">
               <span className="text-[9.5px] font-bold text-zinc-500 uppercase tracking-widest block font-mono">Top Gainers</span>

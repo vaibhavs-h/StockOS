@@ -1,8 +1,7 @@
 import { BaseJob } from '../core/BaseJob';
 import { YahooProvider } from '../providers/YahooProvider';
 import { SupabaseProvider } from '../providers/SupabaseProvider';
-import { SymbolUniverseManager, normalizeStorageSymbol } from '../../constants/market-constants';
-import { RotationManager } from '../core/RotationManager';
+import { SymbolUniverseManager } from '../../constants/market-constants';
 import { syncOrchestrator } from '../core/orchestrator';
 
 import { JobMetadata, RefreshTier, MarketRegion, QueuePriority } from '../core/types';
@@ -23,7 +22,7 @@ export class IndianAnalyticsSyncJob extends BaseJob {
 
   protected async process(): Promise<number> {
     const supabase = SupabaseProvider.getClient();
-    
+
     // Target only the active universe (Holdings + Active Views) for hourly analytics
     const { ActiveRegistryService } = require('../core/ActiveRegistryService');
     const universe = await ActiveRegistryService.getActiveUniverse('IN');
@@ -36,15 +35,15 @@ export class IndianAnalyticsSyncJob extends BaseJob {
     let processedCount = 0;
 
     for (const symbol of symbols) {
-      
+
       try {
         // Fetch Intelligence + Valuation modules
         const modules = ['summaryDetail', 'defaultKeyStatistics'];
         const summary = await YahooProvider.fetchQuoteSummary(symbol, modules, 'IN');
 
         if (!summary) {
-           console.warn(`[IndianAnalyticsSyncJob] Skipping ${symbol}: No summary data returned.`);
-           continue;
+          console.warn(`[IndianAnalyticsSyncJob] Skipping ${symbol}: No summary data returned.`);
+          continue;
         }
 
         const sd = (summary.summaryDetail || {}) as any;
@@ -58,17 +57,17 @@ export class IndianAnalyticsSyncJob extends BaseJob {
           fifty_two_week_high: sd.fiftyTwoWeekHigh || null,
           fifty_two_week_low: sd.fiftyTwoWeekLow || null,
           avg_volume_10d: sd.averageDailyVolume10Day || null,
-          
+
           // Valuation (Moved from Tier 3)
           market_cap: sd.marketCap || null,
           pe_ratio: sd.trailingPE || null,
           forward_pe: sd.forwardPE || null,
           trailing_peg_ratio: ks.pegRatio || null,
           beta: ks.beta || null,
-          
+
           // Returns
           return_1m: ks['52WeekChange'] || null, // Best proxy for return performance in summary
-          
+
           updated_at: new Date().toISOString()
         };
 

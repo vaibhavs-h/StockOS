@@ -1,17 +1,14 @@
 "use client"
 
 import React, { useState, useEffect, useMemo, useCallback } from "react"
-import { motion, AnimatePresence } from "framer-motion"
+import { motion } from "framer-motion"
 import {
   Target,
   Briefcase,
   Scan,
   Compass,
   Globe2,
-  RefreshCw,
-  Activity,
-  Award,
-  Layers
+  RefreshCw
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { supabase } from "@/services/DatabaseClient"
@@ -108,7 +105,7 @@ export function PortfolioAnalyzer({ holdings, mfHoldings = [], activePortfolio, 
   const analytics = useMemo(() => {
     const isTotalMode = activePortfolio?.id === 'total';
     const totalHoldingsCount = holdings.length + (isTotalMode ? mfHoldings.length : 0);
-    
+
     if (holdings.length === 0 && (!isTotalMode || mfHoldings.length === 0)) return null;
 
     const totalEquityValue = holdings.reduce((sum, h) => sum + (Number(h.market_value) || 0), 0);
@@ -152,7 +149,7 @@ export function PortfolioAnalyzer({ holdings, mfHoldings = [], activePortfolio, 
       mfHoldings.forEach(h => {
         const val = Number(h.market_value) || 0;
         const category = h.category || 'Other';
-        
+
         // Add to Sector Map as a separate asset class block or category
         const sectorName = `MF - ${category}`;
         sectorMap[sectorName] = (sectorMap[sectorName] || 0) + val;

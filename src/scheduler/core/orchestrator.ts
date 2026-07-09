@@ -1,7 +1,7 @@
 import { BaseJob } from './BaseJob';
 import { syncLockManager } from './LockManager';
 import { SYNC_CONFIG } from '../config/sync.config';
-import { JobMetadata, QueuePriority } from './types';
+import { JobMetadata } from './types';
 
 export type JobStatus = 'pending' | 'running' | 'completed' | 'failed';
 
@@ -42,7 +42,7 @@ class SyncOrchestrator {
   private queue: QueueItem[] = [];
   private activeWorkers: number = 0;
   private logs: { timestamp: string, message: string, type: 'info' | 'success' | 'error' | 'warn' }[] = [];
-  
+
   public addLog(message: string, type: 'info' | 'success' | 'error' | 'warn' = 'info') {
     const log = { timestamp: new Date().toISOString(), message, type };
     this.logs.push(log);
@@ -53,7 +53,7 @@ class SyncOrchestrator {
   public getLogs() {
     return this.logs;
   }
-  
+
   // Lifetime metrics
   private metrics: QueueMetrics = {
     pendingCount: 0,
@@ -90,7 +90,7 @@ class SyncOrchestrator {
     // Acquire lock to prevent duplicate enqueues
     syncLockManager.acquire(job.id);
     this.metrics.activeLocks++;
-    
+
     return new Promise<{ success: boolean; error?: any }>((resolve) => {
       this.queue.push({
         jobId: job.id,
@@ -107,7 +107,7 @@ class SyncOrchestrator {
       const logMsg = `[ORCHESTRATOR] DISPATCH | ${job.id.padEnd(20)} | Priority: ${job.metadata.priority}`;
       this.addLog(logMsg, 'info');
       console.log(logMsg + ` | Queue: ${job.metadata.bullMqQueueName}`);
-      
+
       // Sort queue strictly by priority (Lower number = Higher Priority)
       // BullMQ standard: 1 is highest priority.
       this.queue.sort((a, b) => {
@@ -142,7 +142,7 @@ class SyncOrchestrator {
     const item = this.queue[pendingItemIndex];
     item.status = 'running';
     item.startedAt = Date.now();
-    
+
     // Track queue lag
     const lag = item.startedAt - item.addedAt;
     this.totalLagTimeMs += lag;
@@ -177,10 +177,10 @@ class SyncOrchestrator {
       this.metrics.runningCount--;
       this.metrics.totalProcessed++;
       this.activeWorkers--;
-      
+
       syncLockManager.release(item.jobId);
       this.metrics.activeLocks--;
-      
+
       // Clean up the job from the queue array after a brief delay
       setTimeout(() => {
         const index = this.queue.findIndex(q => q.jobId === item.jobId);

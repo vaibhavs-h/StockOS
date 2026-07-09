@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useSession } from 'next-auth/react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, Check, Plus, Loader2, List as ListIcon, ShieldCheck, Activity, AlertTriangle, Sparkles, Crown } from 'lucide-react';
+import { X, Check, Plus, Loader2, List as ListIcon, ShieldCheck, AlertTriangle, Sparkles, Crown } from 'lucide-react';
 import { supabase } from '@/services/DatabaseClient';
 import { cn } from '@/lib/utils';
 import StockOSPortal from '../shared/Portal';
@@ -288,16 +288,16 @@ export const WatchlistSelectorModal: React.FC<WatchlistSelectorModalProps> = ({
                 >
                   <motion.div
                     initial={{ scale: 0.9, y: 30, opacity: 0 }}
-                    animate={{ 
-                      scale: 1, 
-                      y: 0, 
+                    animate={{
+                      scale: 1,
+                      y: 0,
                       opacity: 1,
-                      borderColor: errorBanner.type === 'limit' 
+                      borderColor: errorBanner.type === 'limit'
                         ? ["rgba(239,68,68,0.2)", "rgba(239,68,68,0.35)", "rgba(239,68,68,0.2)"]
                         : ["rgba(245,158,11,0.25)", "rgba(147,51,234,0.4)", "rgba(59,130,246,0.4)", "rgba(245,158,11,0.25)"]
                     }}
                     exit={{ scale: 0.9, y: 30, opacity: 0 }}
-                    transition={{ 
+                    transition={{
                       scale: { type: "spring", damping: 20, stiffness: 300 },
                       y: { type: "spring", damping: 20, stiffness: 300 },
                       borderColor: { repeat: Infinity, duration: 6, ease: "linear" }
@@ -313,15 +313,15 @@ export const WatchlistSelectorModal: React.FC<WatchlistSelectorModalProps> = ({
                         rotate: [0, 90, 180, 270, 360],
                         opacity: [0.35, 0.55, 0.4, 0.6, 0.35]
                       }}
-                      transition={{ 
-                        repeat: Infinity, 
-                        duration: 10, 
-                        ease: "linear" 
+                      transition={{
+                        repeat: Infinity,
+                        duration: 10,
+                        ease: "linear"
                       }}
                       className={cn(
                         "absolute -top-24 size-64 rounded-full blur-[50px] pointer-events-none",
-                        errorBanner.type === 'limit' 
-                          ? "bg-gradient-to-br from-red-500 via-purple-500/25 to-red-600" 
+                        errorBanner.type === 'limit'
+                          ? "bg-gradient-to-br from-red-500 via-purple-500/25 to-red-600"
                           : "bg-gradient-to-br from-amber-500 via-purple-500/35 to-blue-500"
                       )}
                     />
@@ -329,10 +329,10 @@ export const WatchlistSelectorModal: React.FC<WatchlistSelectorModalProps> = ({
                     {/* Interactive Floating Badge Container */}
                     <motion.div
                       animate={{ y: [0, -6, 0] }}
-                      transition={{ 
-                        repeat: Infinity, 
-                        duration: 4, 
-                        ease: "easeInOut" 
+                      transition={{
+                        repeat: Infinity,
+                        duration: 4,
+                        ease: "easeInOut"
                       }}
                       className={cn(
                         "relative z-10 size-18 rounded-[1.25rem] flex items-center justify-center mb-6 shadow-[0_0_30px_rgba(0,0,0,0.5)]",

@@ -1,7 +1,7 @@
 
 import React, { useState } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
-import { ExternalLink, Trash2, TrendingUp, TrendingDown, Activity } from 'lucide-react';
+import { motion } from 'framer-motion';
+import { Trash2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import Link from 'next/link';
 import { AssetLogo } from '../shared/AssetLogo';

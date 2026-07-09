@@ -1,8 +1,7 @@
 import { BaseJob } from '../core/BaseJob';
 import { YahooProvider } from '../providers/YahooProvider';
 import { SupabaseProvider } from '../providers/SupabaseProvider';
-import { SymbolUniverseManager, normalizeStorageSymbol } from '../../constants/market-constants';
-import { RotationManager } from '../core/RotationManager';
+import { SymbolUniverseManager } from '../../constants/market-constants';
 import { syncOrchestrator } from '../core/orchestrator';
 
 import { JobMetadata, RefreshTier, MarketRegion, QueuePriority } from '../core/types';
@@ -23,7 +22,7 @@ export class UsAnalyticsSyncJob extends BaseJob {
 
   protected async process(): Promise<number> {
     const supabase = SupabaseProvider.getClient();
-    
+
     // Target only the active universe (Holdings + Active Views) for hourly analytics
     const { ActiveRegistryService } = require('../core/ActiveRegistryService');
     const universe = await ActiveRegistryService.getActiveUniverse('US');
@@ -36,15 +35,15 @@ export class UsAnalyticsSyncJob extends BaseJob {
     let processedCount = 0;
 
     for (const symbol of symbols) {
-      
+
       try {
         // Fetch Intelligence + Valuation modules
         const modules = ['summaryDetail', 'defaultKeyStatistics'];
         const summary = await YahooProvider.fetchQuoteSummary(symbol, modules, 'US');
-        
+
         if (!summary) {
-           console.warn(`[UsAnalyticsSyncJob] Skipping ${symbol}: No summary data returned.`);
-           continue;
+          console.warn(`[UsAnalyticsSyncJob] Skipping ${symbol}: No summary data returned.`);
+          continue;
         }
 
         const sd = (summary.summaryDetail || {}) as any;
@@ -58,7 +57,7 @@ export class UsAnalyticsSyncJob extends BaseJob {
           fifty_two_week_high: sd.fiftyTwoWeekHigh || null,
           fifty_two_week_low: sd.fiftyTwoWeekLow || null,
           average_volume_3m: sd.averageVolume3Month || null,
-          
+
           // Valuation (Tier 2 Focus)
           market_cap: sd.marketCap || null,
           pe_ratio: sd.trailingPE || null,
@@ -68,7 +67,7 @@ export class UsAnalyticsSyncJob extends BaseJob {
           price_to_book: sd.priceToBook || null,
           shares_outstanding: ks.sharesOutstanding || null,
           beta_5y: ks.beta || null,
-          
+
           updated_at: new Date().toISOString()
         };
 

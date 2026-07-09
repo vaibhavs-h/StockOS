@@ -2,7 +2,6 @@ import { BaseJob } from '../../core/BaseJob';
 import { SupabaseProvider } from '../../providers/SupabaseProvider';
 import { JobMetadata, RefreshTier, MarketRegion, QueuePriority } from '../../core/types';
 import YahooFinance from 'yahoo-finance2';
-import axios from 'axios';
 import { proxyRotationManager } from '../../core/ProxyRotationManager';
 
 const yahooFinance = new YahooFinance({

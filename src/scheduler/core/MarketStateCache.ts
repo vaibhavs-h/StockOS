@@ -1,5 +1,3 @@
-import { MarketRegion } from './types';
-
 /**
  * MarketStateCache: The Memory-First Shield for StockOS Pulse Engine.
  * This service reduces Supabase write amplification by storing live snapshots,
@@ -10,7 +8,7 @@ export class MarketStateCache {
 
   // Live Quote Snapshots: symbol -> data
   private snapshots: Map<string, any> = new Map();
-  
+
   // Last Human Heartbeat: symbol -> timestamp
   private heartbeats: Map<string, number> = new Map();
 
@@ -20,7 +18,7 @@ export class MarketStateCache {
   // Dirty Flags: Track symbols that need a DB flush
   private dirty: Set<string> = new Set();
 
-  private constructor() {}
+  private constructor() { }
 
   public static getInstance(): MarketStateCache {
     if (!MarketStateCache.instance) {
@@ -56,12 +54,12 @@ export class MarketStateCache {
    */
   public setSnapshot(symbol: string, data: any): boolean {
     const old = this.snapshots.get(symbol);
-    
+
     // Only mark dirty if price, volume, or change changed significantly
-    const hasChanged = !old || 
-                       old.price !== data.price || 
-                       old.volume !== data.volume ||
-                       old.changePercent !== data.changePercent;
+    const hasChanged = !old ||
+      old.price !== data.price ||
+      old.volume !== data.volume ||
+      old.changePercent !== data.changePercent;
 
     if (hasChanged) {
       this.snapshots.set(symbol, { ...old, ...data, last_synced_at: new Date() });

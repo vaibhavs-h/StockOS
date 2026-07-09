@@ -6,9 +6,7 @@ import {
   Compass,
   Activity,
   Layers,
-  Heart,
   RefreshCw,
-  TrendingUp,
   Award
 } from "lucide-react"
 import { cn } from "@/lib/utils"
@@ -121,7 +119,7 @@ export function MFPortfolioAnalyzer({ activePortfolioId, holdingsHash }: MFPortf
     } else {
       setData(null);
     }
-    
+
     // Silent background fetch if cached, otherwise show loading spinner
     const hasCache = !!analyticsCache[activePortfolioId];
     fetchAnalytics(!hasCache);
@@ -179,9 +177,9 @@ export function MFPortfolioAnalyzer({ activePortfolioId, holdingsHash }: MFPortf
 
   const itemVariants = {
     hidden: { opacity: 0, y: 15, scale: 0.98 },
-    show: { 
-      opacity: 1, 
-      y: 0, 
+    show: {
+      opacity: 1,
+      y: 0,
       scale: 1,
       transition: { type: "spring", stiffness: 120, damping: 18 }
     }
@@ -227,7 +225,7 @@ export function MFPortfolioAnalyzer({ activePortfolioId, holdingsHash }: MFPortf
       </div>
 
       {/* Main Single View Scrollable Container */}
-      <motion.div 
+      <motion.div
         key={activePortfolioId}
         variants={containerVariants}
         initial="hidden"
@@ -236,7 +234,7 @@ export function MFPortfolioAnalyzer({ activePortfolioId, holdingsHash }: MFPortf
       >
 
         {/* 1. PORTFOLIO HEALTH INDEX */}
-        <motion.div 
+        <motion.div
           variants={itemVariants}
           onMouseMove={sec1.handleMouseMove}
           style={{
@@ -296,15 +294,15 @@ export function MFPortfolioAnalyzer({ activePortfolioId, holdingsHash }: MFPortf
                 <span className="text-[7.5px] font-black text-zinc-500 uppercase tracking-wider group-hover/card:text-zinc-400 transition-colors">{sub.label}</span>
                 <div className="flex items-center gap-1.5 mt-0.5">
                   <div className="h-1 flex-1 bg-zinc-800/60 rounded-full overflow-hidden border border-white/[0.02] relative">
-                    <motion.div 
+                    <motion.div
                       initial={{ width: 0 }}
                       animate={{ width: `${sub.val}%` }}
                       transition={{ type: "spring", stiffness: 85, damping: 14, delay: i * 0.05 + 0.2 }}
                       className={cn(
                         "h-full rounded-full relative overflow-hidden",
-                        sub.val > 80 ? "bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]" : 
-                        sub.val > 60 ? "bg-emerald-400 shadow-[0_0_8px_rgba(16,185,129,0.35)]" : 
-                        "bg-rose-500 shadow-[0_0_8px_rgba(244,63,94,0.5)]"
+                        sub.val > 80 ? "bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]" :
+                          sub.val > 60 ? "bg-emerald-400 shadow-[0_0_8px_rgba(16,185,129,0.35)]" :
+                            "bg-rose-500 shadow-[0_0_8px_rgba(244,63,94,0.5)]"
                       )}
                     >
                       {/* Sweeping Shimmer Highlight */}
@@ -324,7 +322,7 @@ export function MFPortfolioAnalyzer({ activePortfolioId, holdingsHash }: MFPortf
         </motion.div>
 
         {/* 2. AGGREGATED SECTOR WEIGHTS */}
-        <motion.div 
+        <motion.div
           variants={itemVariants}
           onMouseMove={sec2.handleMouseMove}
           style={{
@@ -335,7 +333,7 @@ export function MFPortfolioAnalyzer({ activePortfolioId, holdingsHash }: MFPortf
         >
           {/* Dynamic Cursor Glow */}
           <div className="absolute inset-0 opacity-0 group-hover/card:opacity-100 transition-opacity duration-700 pointer-events-none bg-[radial-gradient(circle_at_var(--mouse-x)_var(--mouse-y),rgba(16,185,129,0.06)_0%,transparent_70%)]" />
-          
+
           <div className="flex items-center justify-between mb-0.5">
             <div className="flex items-center gap-2">
               <Compass className="size-3.5 text-emerald-400 drop-shadow-[0_0_8px_rgba(16,185,129,0.5)] animate-[pulse_3s_infinite]" />
@@ -354,9 +352,9 @@ export function MFPortfolioAnalyzer({ activePortfolioId, holdingsHash }: MFPortf
                 className={cn(
                   "h-full rounded-sm relative overflow-hidden",
                   i === 0 ? "bg-gradient-to-r from-emerald-600 to-emerald-400 shadow-[0_0_10px_rgba(16,185,129,0.35)]" :
-                  i === 1 ? "bg-gradient-to-r from-indigo-600 to-indigo-400 shadow-[0_0_10px_rgba(99,102,241,0.35)]" :
-                  i === 2 ? "bg-gradient-to-r from-blue-600 to-blue-400 shadow-[0_0_10px_rgba(59,130,246,0.35)]" :
-                  "bg-zinc-700"
+                    i === 1 ? "bg-gradient-to-r from-indigo-600 to-indigo-400 shadow-[0_0_10px_rgba(99,102,241,0.35)]" :
+                      i === 2 ? "bg-gradient-to-r from-blue-600 to-blue-400 shadow-[0_0_10px_rgba(59,130,246,0.35)]" :
+                        "bg-zinc-700"
                 )}
               >
                 {/* Sweeping Shimmer Highlight */}
@@ -377,8 +375,8 @@ export function MFPortfolioAnalyzer({ activePortfolioId, holdingsHash }: MFPortf
                   <div className={cn(
                     "size-1.5 rounded-sm rotate-45 transition-transform duration-500 group-hover/row:rotate-[135deg]",
                     i === 0 ? "bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.6)]" :
-                    i === 1 ? "bg-indigo-500 shadow-[0_0_8px_rgba(99,102,241,0.6)]" :
-                    "bg-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.6)]"
+                      i === 1 ? "bg-indigo-500 shadow-[0_0_8px_rgba(99,102,241,0.6)]" :
+                        "bg-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.6)]"
                   )} />
                   <span className="text-[9.5px] font-bold text-zinc-400 group-hover/row:text-white transition-colors uppercase tracking-widest group-hover/row:translate-x-1 duration-300">
                     {sector.name}
@@ -394,7 +392,7 @@ export function MFPortfolioAnalyzer({ activePortfolioId, holdingsHash }: MFPortf
         </motion.div>
 
         {/* 3. AMC EXPOSURE MATRIX */}
-        <motion.div 
+        <motion.div
           variants={itemVariants}
           onMouseMove={sec3.handleMouseMove}
           style={{
@@ -405,7 +403,7 @@ export function MFPortfolioAnalyzer({ activePortfolioId, holdingsHash }: MFPortf
         >
           {/* Dynamic Cursor Glow */}
           <div className="absolute inset-0 opacity-0 group-hover/card:opacity-100 transition-opacity duration-700 pointer-events-none bg-[radial-gradient(circle_at_var(--mouse-x)_var(--mouse-y),rgba(16,185,129,0.06)_0%,transparent_70%)]" />
-          
+
           <div className="flex items-center gap-2">
             <Award className="size-3.5 text-emerald-400 drop-shadow-[0_0_8px_rgba(16,185,129,0.5)]" />
             <h4 className="text-[10px] font-black uppercase tracking-[0.25em] text-white/80 group-hover/card:text-white transition-colors">AMC Exposure Matrix</h4>
@@ -417,9 +415,9 @@ export function MFPortfolioAnalyzer({ activePortfolioId, holdingsHash }: MFPortf
                 <div className="flex items-center gap-2.5 truncate pr-4 text-left">
                   <div className={cn(
                     "size-2 rounded-full transition-transform duration-500 group-hover/amcrow:scale-125",
-                    i === 0 ? "bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]" : 
-                    i === 1 ? "bg-indigo-500 shadow-[0_0_8px_rgba(99,102,241,0.5)]" : 
-                    "bg-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.5)]"
+                    i === 0 ? "bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]" :
+                      i === 1 ? "bg-indigo-500 shadow-[0_0_8px_rgba(99,102,241,0.5)]" :
+                        "bg-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.5)]"
                   )} />
                   <span className="text-[9px] font-black text-zinc-300 group-hover/amcrow:text-white transition-colors uppercase tracking-wider truncate">
                     {amc.name.replace(/ mutual fund/i, '')}
@@ -432,7 +430,7 @@ export function MFPortfolioAnalyzer({ activePortfolioId, holdingsHash }: MFPortf
         </motion.div>
 
         {/* 4. HIDDEN STOCKS OVERLAP & COMBINED HOLDINGS */}
-        <motion.div 
+        <motion.div
           variants={itemVariants}
           onMouseMove={sec4.handleMouseMove}
           style={{
@@ -443,7 +441,7 @@ export function MFPortfolioAnalyzer({ activePortfolioId, holdingsHash }: MFPortf
         >
           {/* Dynamic Cursor Glow */}
           <div className="absolute inset-0 opacity-0 group-hover/card:opacity-100 transition-opacity duration-700 pointer-events-none bg-[radial-gradient(circle_at_var(--mouse-x)_var(--mouse-y),rgba(16,185,129,0.06)_0%,transparent_70%)]" />
-          
+
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <Layers className="size-3.5 text-emerald-400 drop-shadow-[0_0_8px_rgba(16,185,129,0.5)]" />

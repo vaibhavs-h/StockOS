@@ -6,7 +6,6 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   TrendingUp,
   TrendingDown,
-  Terminal,
   Activity,
   Globe,
   ShieldCheck,
@@ -16,11 +15,8 @@ import {
   Moon,
   ShoppingCart,
   BellRing,
-  Zap,
   Target,
   Clock,
-  BarChart3,
-  Dna,
   Link,
   Plus
 } from "lucide-react";
@@ -392,8 +388,8 @@ export default function USStockPage() {
               <motion.div variants={{ hidden: { opacity: 0, scale: 0.98 }, visible: { opacity: 1, scale: 1, transition: { duration: 0.5 } } }} className="lg:col-span-2 space-y-3">
                 <div className={cn(
                   "glass-panel rounded-2xl pt-5 px-6 pb-4 shadow-2xl relative overflow-hidden group backdrop-blur-2xl transition-all duration-500",
-                  rangeIsPositive 
-                    ? "bg-gradient-to-br from-white/[0.05] via-transparent to-emerald-500/[0.02] border-emerald-500/10 hover:border-emerald-500/30" 
+                  rangeIsPositive
+                    ? "bg-gradient-to-br from-white/[0.05] via-transparent to-emerald-500/[0.02] border-emerald-500/10 hover:border-emerald-500/30"
                     : "bg-gradient-to-br from-white/[0.05] via-transparent to-rose-500/[0.02] border-rose-500/10 hover:border-rose-500/30"
                 )}>
                   {/* Dynamic Atmospheric Ambient Glow */}

@@ -1,12 +1,11 @@
 import { MFActiveRegistryService } from './MFActiveRegistryService';
-import { SupabaseProvider } from '../providers/SupabaseProvider';
 import { syncOrchestrator } from './orchestrator';
 
 export class MFSyncCoordinator {
   private static instance: MFSyncCoordinator;
   private isSyncing: boolean = false;
 
-  private constructor() {}
+  private constructor() { }
 
   public static getInstance(): MFSyncCoordinator {
     if (!MFSyncCoordinator.instance) {
@@ -44,7 +43,7 @@ export class MFSyncCoordinator {
       // 2. Fetch and execute the Modular Ingestion Sync Job
       const { MutualFundSyncJob } = require('../jobs/MutualFundSyncJob');
       const syncJob = new MutualFundSyncJob();
-      
+
       // Dispatch the job through our orchestrator so metrics and retries are recorded
       await syncOrchestrator.dispatch(syncJob, activeSchemes);
 

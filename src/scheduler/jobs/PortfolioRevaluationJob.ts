@@ -2,7 +2,6 @@ import { BaseJob } from '../core/BaseJob';
 import { SupabaseProvider } from '../providers/SupabaseProvider';
 import { JobMetadata, RefreshTier, MarketRegion, QueuePriority } from '../core/types';
 import { getISTTimestamp, getNormalizedNoonTimestamp } from '../../server';
-import { getMarketStatus } from '../../constants/market-constants';
 import { MarketSessionService } from '../core/MarketSessionService';
 
 
@@ -17,7 +16,7 @@ import { MarketSessionService } from '../core/MarketSessionService';
  */
 export class PortfolioRevaluationJob extends BaseJob {
   public readonly id = 'PortfolioRevaluationJob';
-  
+
   public readonly metadata: JobMetadata = {
     id: this.id,
     tier: RefreshTier.TIER_1_HOT,
@@ -32,7 +31,7 @@ export class PortfolioRevaluationJob extends BaseJob {
   protected async process(): Promise<number> {
     const inOpen = MarketSessionService.isIndianMarketOpen();
     const usOpen = MarketSessionService.isUsMarketOpen();
-    
+
     console.log(`[REVAL] Portfolio Pulse | IN: ${inOpen ? 'OPEN' : 'CLOSED'} | US: ${usOpen ? 'OPEN' : 'CLOSED'}`);
 
 
@@ -77,7 +76,7 @@ export class PortfolioRevaluationJob extends BaseJob {
       supabase.from('market_assets').select('symbol, current_price, prev_close, day_change, day_change_percentage').in('symbol', symbolsList),
       supabase.from('us_market_assets').select('symbol, current_price, prev_close, day_change, day_change_percentage').in('symbol', symbolsList)
     ]);
-    
+
     const inMarketMap = new Map();
     const usMarketMap = new Map();
     const marketMap = new Map();
@@ -117,14 +116,14 @@ export class PortfolioRevaluationJob extends BaseJob {
 
       for (const holding of holdings) {
         const symbol = (holding.trading_symbol || '').trim().toUpperCase();
-        
+
         // INSTITUTIONAL NORMALIZATION: Deep resolve for absolute lookup
         const resolved = SymbolUniverseManager.resolveSymbol(symbol, 'IN');
         const asset = marketMap.get(resolved) || marketMap.get(symbol) || marketMap.get(`${symbol}.NS`) || marketMap.get(`${symbol}.BO`);
-        
+
         const brokerPrice = Number(holding.last_price) || 0;
         const apiPrice = asset ? Number(asset.current_price) : 0;
-        
+
         // Identify regional asset classification
         const isIndianAsset = inMarketMap.has(resolved) || inMarketMap.has(symbol) || inMarketMap.has(`${symbol}.NS`) || inMarketMap.has(`${symbol}.BO`);
         const isUsAsset = usMarketMap.has(symbol) || usMarketMap.has(resolved);
