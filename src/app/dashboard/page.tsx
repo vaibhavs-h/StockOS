@@ -37,11 +37,10 @@ import {
 import { supabase } from "@/services/DatabaseClient"
 import axios from "axios"
 import { WealthPerformanceChart as WealthChart } from "@/components/dashboard/WealthPerformanceChart"
-import { getMarketStatus } from "@/constants/market-constants"
+import { getMarketStatus, SymbolUniverseManager } from "@/constants/market-constants"
 import { UTCTimestamp } from 'lightweight-charts'
 import { useRouter } from "next/navigation"
 import { cn } from "@/lib/utils"
-import { getDbUserId } from "@/lib/user"
 import { useSession } from "next-auth/react"
 import { GrowwImportGuide } from "@/components/dashboard/GrowwImportGuide"
 import { ZerodhaImportGuide } from "@/components/dashboard/ZerodhaImportGuide"
@@ -267,7 +266,81 @@ export default function DashboardPage() {
 			const { data, error } = await query.order('market_value', { ascending: false });
 
 			if (error) throw error;
-			setHoldings(data || []);
+
+			const rawHoldings = data || [];
+			if (rawHoldings.length > 0) {
+				// Get unique symbols, including their resolved and suffixed variations
+				const symbolsToQuery = new Set<string>();
+				rawHoldings.forEach((h: any) => {
+					const s = (h.trading_symbol || '').trim().toUpperCase();
+					symbolsToQuery.add(s);
+					try {
+						const resolved = SymbolUniverseManager.resolveSymbol(s, 'IN');
+						symbolsToQuery.add(resolved);
+					} catch (e) { }
+					if (!s.includes('.')) {
+						symbolsToQuery.add(`${s}.NS`);
+						symbolsToQuery.add(`${s}.BO`);
+					}
+				});
+
+				const symbolsList = Array.from(symbolsToQuery);
+				const [{ data: inAssets }, { data: usAssets }] = await Promise.all([
+					supabase.from('market_assets').select('symbol, current_price, prev_close, day_change, day_change_percentage').in('symbol', symbolsList),
+					supabase.from('us_market_assets').select('symbol, current_price, prev_close, day_change, day_change_percentage').in('symbol', symbolsList)
+				]);
+
+				const marketMap = new Map<string, any>();
+				(inAssets || []).forEach(a => marketMap.set(a.symbol.trim().toUpperCase(), a));
+				(usAssets || []).forEach(a => marketMap.set(a.symbol.trim().toUpperCase(), a));
+
+				const enrichedHoldings = rawHoldings.map((holding: any) => {
+					const symbol = (holding.trading_symbol || '').trim().toUpperCase();
+					let resolved = symbol;
+					try {
+						resolved = SymbolUniverseManager.resolveSymbol(symbol, 'IN');
+					} catch (e) { }
+
+					const asset = marketMap.get(resolved) || marketMap.get(symbol) || marketMap.get(`${symbol}.NS`) || marketMap.get(`${symbol}.BO`);
+
+					if (asset) {
+						const apiPrice = Number(asset.current_price) || 0;
+						const prevClose = Number(asset.prev_close) || 0;
+						if (apiPrice > 0) {
+							const marketValue = holding.quantity * apiPrice;
+							const p_l = marketValue - (Number(holding.invested_value) || 0);
+							const p_l_percentage = (Number(holding.invested_value) || 0) > 0 ? (p_l / Number(holding.invested_value)) * 100 : 0;
+
+							let dayChange = Number(holding.day_change) || 0;
+							let dayChangePct = Number(holding.day_change_percentage) || 0;
+
+							if (prevClose > 0) {
+								dayChange = (apiPrice - prevClose) * holding.quantity;
+								dayChangePct = ((apiPrice - prevClose) / prevClose) * 100;
+							} else if (asset.day_change !== undefined) {
+								dayChange = Number(asset.day_change) * holding.quantity;
+								dayChangePct = Number(asset.day_change_percentage) || 0;
+							}
+
+							return {
+								...holding,
+								last_price: apiPrice,
+								market_value: marketValue,
+								p_l,
+								p_l_percentage,
+								day_change: dayChange,
+								day_change_percentage: dayChangePct
+							};
+						}
+					}
+					return holding;
+				});
+
+				setHoldings(enrichedHoldings);
+			} else {
+				setHoldings([]);
+			}
+
 			setLastSyncTime(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
 		} catch (err) {
 			console.error("[DASHBOARD] Fetch holdings failed:", err);
@@ -831,7 +904,7 @@ export default function DashboardPage() {
 	// Unified Metrics Logic
 	const equityTotalValue = useMemo(() => holdings.reduce((sum, h) => sum + (Number(h.market_value) || 0), 0), [holdings]);
 	const equityTotalInvested = useMemo(() => holdings.reduce((sum, h) => sum + (Number(h.invested_value) || 0), 0), [holdings]);
-	const equityDayChange = useMemo(() => dailyPLData?.total_day_change ?? holdings.reduce((sum, h) => sum + (Number(h.day_change) || 0), 0), [holdings, dailyPLData]);
+	const equityDayChange = useMemo(() => holdings.reduce((sum, h) => sum + (Number(h.day_change) || 0), 0), [holdings]);
 
 	const mfTotalValue = useMemo(() => Number(mfSummary?.current_value || 0), [mfSummary]);
 	const mfTotalInvested = useMemo(() => Number(mfSummary?.total_investment || 0), [mfSummary]);
@@ -886,20 +959,9 @@ export default function DashboardPage() {
 		if (isMFActive) {
 			return Number(mfSummary?.daily_change_percentage || 0);
 		}
-		if (activePortfolio?.id === 'total') {
-			const baseline = totalNetWorth - totalDayChange;
-			return (totalNetWorth > 0 && baseline > 0) ? (totalDayChange / baseline) * 100 : 0;
-		}
-		if (dailyPLData && typeof dailyPLData.day_change_percentage === 'number') {
-			if (dailyPLData.day_change_percentage === 0 && totalDayChange !== 0 && holdings.length === 0) {
-				const baseline = totalNetWorth - totalDayChange;
-				return (totalNetWorth > 0 && baseline > 0) ? (totalDayChange / baseline) * 100 : 0;
-			}
-			return dailyPLData.day_change_percentage;
-		}
 		const baseline = totalNetWorth - totalDayChange;
 		return (totalNetWorth > 0 && baseline > 0) ? (totalDayChange / baseline) * 100 : 0;
-	}, [isMFActive, mfSummary, activePortfolio, dailyPLData, totalNetWorth, totalDayChange, holdings.length]);
+	}, [isMFActive, mfSummary, totalNetWorth, totalDayChange]);
 
 	const isDailyClosed = useMemo(() => {
 		if (isMFActive) return totalDayChange === 0;
