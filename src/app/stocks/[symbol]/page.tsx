@@ -21,6 +21,7 @@ import { RollingNumber } from "@/components/shared/RollingNumber";
 import { AssetLogo } from "@/components/shared/AssetLogo";
 import { getMarketStatus, normalizeStorageSymbol } from "@/constants/market-constants";
 import { WatchlistSelectorModal } from "@/components/dashboard/WatchlistSelectorModal";
+import { AlertConfigModal } from "@/components/dashboard/AlertConfigModal";
 import { useSession } from "next-auth/react";
 
 import { WealthPerformanceChart as WealthChart } from "@/components/dashboard/WealthPerformanceChart";
@@ -128,6 +129,7 @@ export default function StockPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [status, setStatus] = useState<'OPEN' | 'CLOSED' | 'PRE' | 'AFTER'>('CLOSED');
   const [isWatchlistModalOpen, setIsWatchlistModalOpen] = useState(false);
+  const [isAlertModalOpen, setIsAlertModalOpen] = useState(false);
   const [watchlistInfo, setWatchlistInfo] = useState<{ name: string; count: number } | null>(null);
   const isPositive = data?.day_change_percentage >= 0;
 
@@ -550,7 +552,10 @@ export default function StockPage() {
                     Buy {data.symbol}
                   </button>
                   <div className="grid grid-cols-2 gap-3">
-                    <button className="w-full py-4 bg-white/5 hover:bg-white/10 text-white font-black uppercase tracking-[0.2em] text-[10px] rounded-2xl border border-white/10 transition-all flex items-center justify-center gap-3 active:scale-95 group">
+                    <button
+                      onClick={() => setIsAlertModalOpen(true)}
+                      className="w-full py-4 bg-white/5 hover:bg-white/10 text-white font-black uppercase tracking-[0.2em] text-[10px] rounded-2xl border border-white/10 transition-all flex items-center justify-center gap-3 active:scale-95 group"
+                    >
                       <BellRing className="size-3.5 text-zinc-500 group-hover:text-amber-400 transition-colors" />
                       Set Alert
                     </button>
@@ -586,6 +591,15 @@ export default function StockPage() {
                     fetchWatchlistInfo();
                   }}
                   symbol={symbol as string}
+                  userId={portfolioId}
+                />
+
+                <AlertConfigModal
+                  isOpen={isAlertModalOpen}
+                  onClose={() => setIsAlertModalOpen(false)}
+                  symbol={symbol as string}
+                  currentPrice={Number(data.current_price) || 0}
+                  assetType="EQUITY"
                   userId={portfolioId}
                 />
 

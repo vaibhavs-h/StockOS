@@ -21,6 +21,12 @@ import { DailyMorningPriceSyncJob } from './jobs/DailyMorningPriceSyncJob';
 export function initializeScheduler() {
   console.log('[SCHEDULER] Initializing Pulse Engine v2 (Resilient Orchestration)...');
 
+  // Bootstrap the Price Alerts Registry on startup
+  const { PriceAlertRegistryService } = require('./core/PriceAlertRegistryService');
+  PriceAlertRegistryService.bootstrap().catch((err: any) => {
+    console.error('[SCHEDULER] PriceAlertRegistryService bootstrap failed:', err.message);
+  });
+
   // 1. PHASED STARTUP: Hand over to Recovery Manager
   // This starts the SyncCoordinator pulse loop with jitter and safety offsets.
   StartupRecoveryManager.initiateRecovery();
@@ -30,6 +36,22 @@ export function initializeScheduler() {
   cron.schedule('0 */3 * * *', () => {
     syncOrchestrator.dispatch(new PortfolioRevaluationJob());
   });
+
+  // Automated Price Alerts - Mid-Day Scan (staggered to 12:02 PM Monday-Friday)
+  cron.schedule('2 12 * * 1-5', () => {
+    const { AlertTriggerService } = require('./core/AlertTriggerService');
+    AlertTriggerService.checkMidDayMovements().catch((err: any) => {
+      console.error('[SCHEDULER] Mid-Day movements check failed:', err.message);
+    });
+  }, { timezone: 'Asia/Kolkata' });
+
+  // Automated Price Alerts - End of Market summary (staggered to 3:47 PM Monday-Friday)
+  cron.schedule('47 15 * * 1-5', () => {
+    const { AlertTriggerService } = require('./core/AlertTriggerService');
+    AlertTriggerService.checkEodSummary().catch((err: any) => {
+      console.error('[SCHEDULER] EOD summary check failed:', err.message);
+    });
+  }, { timezone: 'Asia/Kolkata' });
 
   // 2. BACKGROUND ANALYTICS: Tier 3 (Daily Post-Market)
   // Focused on Active Universe (Holdings + Active Views) to capture daily moving averages and valuations.
@@ -60,6 +82,12 @@ export function initializeScheduler() {
       // Revalue all portfolios immediately after mutual fund records are updated at EOD
       console.log('[SCHEDULER] Mutual Fund Sync complete. Triggering EOD Portfolio Revaluation...');
       syncOrchestrator.dispatch(new PortfolioRevaluationJob());
+
+      // Trigger nightly MF NAV summary & MF price alert checking
+      const { AlertTriggerService } = require('./core/AlertTriggerService');
+      AlertTriggerService.checkMfNightlySummary().catch((err: any) => {
+        console.error('[SCHEDULER] Nightly MF summary check failed:', err.message);
+      });
     } catch (err: any) {
       console.error('[SCHEDULER] Nightly Mutual Fund Sync failed:', err.message);
     }

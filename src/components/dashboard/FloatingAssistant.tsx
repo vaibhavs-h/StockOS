@@ -76,8 +76,11 @@ export function FloatingAssistant() {
               {/* Header */}
               <div className="px-8 py-6 border-b border-white/5 flex items-center justify-between bg-white/[0.02]">
                 <div className="flex items-center gap-3">
-                  <div className="w-2 h-2 rounded-full bg-emerald-500 shadow-[0_0_10px_#10b981] animate-pulse" />
+                  <div className="w-2 h-2 rounded-full bg-zinc-600" />
                   <span className="font-headline text-[13px] uppercase tracking-[0.2em] text-white font-bold">Research Assistant</span>
+                  <span className="text-[8px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full bg-zinc-900 text-zinc-500 border border-zinc-800">
+                    OFFLINE
+                  </span>
                 </div>
                 <div className="flex items-center gap-2">
                   <button
@@ -133,22 +136,21 @@ export function FloatingAssistant() {
               {/* Input Area */}
               <div className="p-6 border-t border-white/5 bg-black/40">
                 <form
-                  onSubmit={(e) => {
-                    e.preventDefault()
-                    handleSend(inputValue)
-                  }}
-                  className="relative group"
+                  onSubmit={(e) => e.preventDefault()}
+                  className="relative group opacity-55"
                 >
                   <input
                     type="text"
-                    value={inputValue}
-                    onChange={(e) => setInputValue(e.target.value)}
-                    placeholder="Ask market intelligence..."
-                    className="w-full bg-white/[0.03] border border-white/10 rounded-2xl px-6 py-4 text-[14px] text-white placeholder:text-zinc-600 focus:outline-none focus:border-emerald-500/40 transition-all group-focus-within:bg-white/[0.05]"
+                    disabled
+                    value=""
+                    onChange={() => {}}
+                    placeholder="Assistant is currently offline..."
+                    className="w-full bg-white/[0.01] border border-white/5 rounded-2xl px-6 py-4 text-[14px] text-zinc-500 placeholder:text-zinc-700 cursor-not-allowed focus:outline-none"
                   />
                   <button
-                    type="submit"
-                    className="absolute right-4 top-1/2 -translate-y-1/2 p-2 text-emerald-500 hover:scale-110 transition-transform"
+                    type="button"
+                    disabled
+                    className="absolute right-4 top-1/2 -translate-y-1/2 p-2 text-zinc-600 cursor-not-allowed"
                   >
                     <Send className="w-5 h-5" />
                   </button>
@@ -172,13 +174,21 @@ export function FloatingAssistant() {
             : "bg-indigo-500/10 border-indigo-500/40 text-indigo-400 hover:bg-indigo-500/20 hover:border-indigo-500/60"
         )}
       >
-        <div className="flex items-center gap-2.5">
+        <div className="flex items-center gap-2">
           <div className={cn(
-            "size-1.5 rounded-full transition-colors duration-500",
-            isOpen ? "bg-black" : "bg-indigo-400 animate-pulse shadow-[0_0_8px_rgba(129,140,248,0.9)]"
+            "size-1.5 rounded-full transition-colors duration-500 bg-zinc-500",
+            isOpen ? "bg-black" : ""
           )} />
           <span className="font-terminal-label text-[11px] font-black uppercase tracking-[0.1em] leading-none">
             AI Assistant
+          </span>
+          <span className={cn(
+            "text-[8px] font-black uppercase tracking-wide px-1.5 py-0.5 rounded-md leading-none border shrink-0 scale-90 transition-all duration-300",
+            isOpen 
+              ? "bg-zinc-800/40 border-zinc-800/40 text-zinc-500" 
+              : "bg-zinc-500/10 border-zinc-500/20 text-zinc-500"
+          )}>
+            OFFLINE
           </span>
         </div>
 

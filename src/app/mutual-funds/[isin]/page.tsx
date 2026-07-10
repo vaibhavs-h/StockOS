@@ -27,6 +27,7 @@ import { AssetLogo } from "@/components/shared/AssetLogo";
 import { useSession } from "next-auth/react";
 import { getDbUserId } from "@/lib/user";
 import { WatchlistSelectorModal } from "@/components/dashboard/WatchlistSelectorModal";
+import { AlertConfigModal } from "@/components/dashboard/AlertConfigModal";
 
 // --- HELPERS ---
 function formatLargeNumber(num: number | null | undefined) {
@@ -73,6 +74,7 @@ export default function MutualFundDetailPage() {
   const [isChartLoading, setIsChartLoading] = useState(false);
   const [selectedHorizon, setSelectedHorizon] = useState<'3y' | '5y' | '10y'>('3y');
   const [isWatchlistModalOpen, setIsWatchlistModalOpen] = useState(false);
+  const [isAlertModalOpen, setIsAlertModalOpen] = useState(false);
   const [watchlistInfo, setWatchlistInfo] = useState<{ name: string; count: number } | null>(null);
 
   const fetchWatchlistInfo = async () => {
@@ -884,7 +886,10 @@ export default function MutualFundDetailPage() {
                 Buy {data?.name ? (data.name.length > 25 ? `${data.name.slice(0, 25).trim()}...` : data.name) : (data?.symbol || (isin as string).toUpperCase())}
               </button>
               <div className="grid grid-cols-2 gap-3">
-                <button className="w-full py-4 bg-white/5 hover:bg-white/10 text-white font-black uppercase tracking-[0.2em] text-[10px] rounded-2xl border border-white/10 transition-all flex items-center justify-center gap-3 active:scale-95 group">
+                <button
+                  onClick={() => setIsAlertModalOpen(true)}
+                  className="w-full py-4 bg-white/5 hover:bg-white/10 text-white font-black uppercase tracking-[0.2em] text-[10px] rounded-2xl border border-white/10 transition-all flex items-center justify-center gap-3 active:scale-95 group"
+                >
                   <BellRing className="size-3.5 text-zinc-500 group-hover:text-amber-400 transition-colors" />
                   Set Alert
                 </button>
@@ -920,6 +925,15 @@ export default function MutualFundDetailPage() {
                 fetchWatchlistInfo();
               }}
               symbol={(isin as string).toUpperCase()}
+              userId={(session?.user as any)?.id || "guest"}
+            />
+
+            <AlertConfigModal
+              isOpen={isAlertModalOpen}
+              onClose={() => setIsAlertModalOpen(false)}
+              symbol={(isin as string).toUpperCase()}
+              currentPrice={Number(data?.current_price) || 0}
+              assetType="MF"
               userId={(session?.user as any)?.id || "guest"}
             />
 

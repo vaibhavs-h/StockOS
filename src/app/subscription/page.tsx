@@ -9,17 +9,18 @@ const FREE_FEATURES = [
   "1 Portfolio Linking Only",
   "No Holdings Limit",
   "Real-Time Indian Market Data",
+  "US Stocks & Global Markets Data Access",
   "Basic P&L and XIRR Analytics",
+  "Journal & Investment Notes",
 ];
 
 const LITE_FEATURES = [
   "Everything in Free, Plus:",
   "Up to 3 Portfolios",
+  "Live Price Alert for Any Stock [Unlimited]",
   "Watchlist Assets [Limited To 6 Assets]",
-  "US Stocks & Global Markets Data Access",
   "AI Chat Assistant [Limited Usage]",
   "Mutual Fund & SIP Tracking",
-  "Journal & Investment Notes",
 ];
 
 const PRO_FEATURES = [

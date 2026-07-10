@@ -1,5 +1,6 @@
 import { SupabaseProvider } from '../providers/SupabaseProvider';
 import { marketStateCache } from './MarketStateCache';
+import { PriceAlertRegistryService } from './PriceAlertRegistryService';
 
 /**
  * ActiveRegistryService: The Dynamic Universe Orchestrator.
@@ -8,14 +9,40 @@ import { marketStateCache } from './MarketStateCache';
 export class ActiveRegistryService {
   
   private static lastUniverse: Map<string, Set<string>> = new Map();
+  private static symbolSources: Map<string, Set<'HOLDING' | 'WATCHLIST' | 'ALERT'>> = new Map();
+
+  /**
+   * Register a source for active syncing of a symbol.
+   */
+  public static async registerSource(symbol: string, source: 'HOLDING' | 'WATCHLIST' | 'ALERT') {
+    const sym = symbol.toUpperCase().trim();
+    if (!this.symbolSources.has(sym)) {
+      this.symbolSources.set(sym, new Set());
+    }
+    this.symbolSources.get(sym)!.add(source);
+    console.log(`[REGISTRY] Registered source ${source} for ${sym}. Current sources:`, Array.from(this.symbolSources.get(sym)!));
+  }
+
+  /**
+   * Deregister a source for a symbol.
+   */
+  public static async deregisterSource(symbol: string, source: 'HOLDING' | 'WATCHLIST' | 'ALERT') {
+    const sym = symbol.toUpperCase().trim();
+    if (this.symbolSources.has(sym)) {
+      this.symbolSources.get(sym)!.delete(source);
+      console.log(`[REGISTRY] Deregistered source ${source} for ${sym}. Remaining sources:`, Array.from(this.symbolSources.get(sym)!));
+      if (this.symbolSources.get(sym)!.size === 0) {
+        this.symbolSources.delete(sym);
+      }
+    }
+  }
 
   /**
    * Identifies all unique symbols that need active syncing.
-   * Logic: (Unique Holdings) + (Active Views in Cache)
+   * Logic: (Unique Holdings) + (Active Views in Cache) + (Active Alerts)
    */
   public static async getActiveUniverse(region: 'IN' | 'US' = 'IN') {
     const supabase = SupabaseProvider.getClient();
-    const table = region === 'IN' ? 'holdings' : 'holdings'; // Same table for both, filtered by symbol suffix or region if we added it
 
     // 1. Get unique holdings from DB
     const { data: holdings, error: hError } = await supabase
@@ -33,7 +60,6 @@ export class ActiveRegistryService {
 
     // Filter holdings locally by universe and suffix for region
     const { SymbolUniverseManager } = require('../../constants/market-constants');
-    const { MarketAsset } = require('./types');
     const indianAssets = SymbolUniverseManager.getUniqueIndianEquities();
     const usAssets = SymbolUniverseManager.getUniqueUsEquities();
     
@@ -46,52 +72,98 @@ export class ActiveRegistryService {
 
     const usTickers = new Set(usAssets.map((a: any) => a.s.toUpperCase()));
 
-    const regionalHoldings = (holdings || []).filter(h => {
+    // Clear database-derived sources (HOLDING, WATCHLIST) and ALERT (to sync fresh with registry) to rebuild
+    for (const [sym, sources] of this.symbolSources.entries()) {
+      sources.delete('HOLDING');
+      sources.delete('WATCHLIST');
+      sources.delete('ALERT');
+      if (sources.size === 0) {
+        this.symbolSources.delete(sym);
+      }
+    }
+
+    // Map holdings
+    (holdings || []).forEach(h => {
       const s = (h.trading_symbol || '').trim().toUpperCase();
       const ticker = s.includes(':') ? s.split(':')[1] : s;
       const rawTicker = ticker.split('.')[0];
       
-      // 0. Index Check
-      if (ticker.startsWith('^') || ticker === 'VIX') {
-        const indexAsset = SymbolUniverseManager.getGlobalIndices().find((idx: any) => idx.s.toUpperCase() === ticker);
-        if (indexAsset) return region === (indexAsset.region === 'IN' ? 'IN' : 'US');
+      const belongsToRegion = (() => {
+        if (ticker.startsWith('^') || ticker === 'VIX') {
+          const indexAsset = SymbolUniverseManager.getGlobalIndices().find((idx: any) => idx.s.toUpperCase() === ticker);
+          if (indexAsset) return region === (indexAsset.region === 'IN' ? 'IN' : 'US');
+        }
+        if (s.endsWith('.NS') || s.endsWith('.BO')) return region === 'IN';
+        if (indianTickers.has(rawTicker) || indianTickers.has(ticker)) return region === 'IN';
+        if (usTickers.has(rawTicker) || usTickers.has(ticker)) return region === 'US';
+        return region === 'IN';
+      })();
+
+      if (belongsToRegion) {
+        const resolved = SymbolUniverseManager.resolveSymbol(ticker, region);
+        if (!this.symbolSources.has(resolved)) {
+          this.symbolSources.set(resolved, new Set());
+        }
+        this.symbolSources.get(resolved)!.add('HOLDING');
       }
-      
-      // 1. Explicit Indian Suffix
-      if (s.endsWith('.NS') || s.endsWith('.BO')) return region === 'IN';
-      
-      // 2. Exists in Indian Universe
-      if (indianTickers.has(rawTicker) || indianTickers.has(ticker)) return region === 'IN';
-
-      // 3. Exists in US Universe
-      if (usTickers.has(rawTicker) || usTickers.has(ticker)) return region === 'US';
-
-      // 4. Default for unknown raw tickers (Mostly non-standard Indian broker symbols)
-      return region === 'IN';
     });
 
-    // Process Watchlist Assets
-    const regionalWatchlist = (watchAssets || []).filter(wa => {
+    // Map Watchlist Assets
+    (watchAssets || []).forEach(wa => {
       const s = (wa.symbol || '').trim().toUpperCase();
       const ticker = s.includes(':') ? s.split(':')[1] : s;
       const rawTicker = ticker.split('.')[0];
       
-      // 0. Index Check
-      if (ticker.startsWith('^') || ticker === 'VIX') {
-        const indexAsset = SymbolUniverseManager.getGlobalIndices().find((idx: any) => idx.s.toUpperCase() === ticker);
-        if (indexAsset) return region === (indexAsset.region === 'IN' ? 'IN' : 'US');
-      }
+      const belongsToRegion = (() => {
+        if (ticker.startsWith('^') || ticker === 'VIX') {
+          const indexAsset = SymbolUniverseManager.getGlobalIndices().find((idx: any) => idx.s.toUpperCase() === ticker);
+          if (indexAsset) return region === (indexAsset.region === 'IN' ? 'IN' : 'US');
+        }
+        if (s.endsWith('.NS') || s.endsWith('.BO')) return region === 'IN';
+        if (indianTickers.has(rawTicker) || indianTickers.has(ticker)) return region === 'IN';
+        if (usTickers.has(rawTicker) || usTickers.has(ticker)) return region === 'US';
+        return region === 'IN';
+      })();
 
-      if (s.endsWith('.NS') || s.endsWith('.BO')) return region === 'IN';
-      if (indianTickers.has(rawTicker) || indianTickers.has(ticker)) return region === 'IN';
-      if (usTickers.has(rawTicker) || usTickers.has(ticker)) return region === 'US';
-      return region === 'IN';
+      if (belongsToRegion) {
+        const resolved = SymbolUniverseManager.resolveSymbol(ticker, region);
+        if (!this.symbolSources.has(resolved)) {
+          this.symbolSources.set(resolved, new Set());
+        }
+        this.symbolSources.get(resolved)!.add('WATCHLIST');
+      }
     });
 
-    const hotSymbols = new Set([
-      ...regionalHoldings.map(h => SymbolUniverseManager.resolveSymbol(h.trading_symbol.toUpperCase(), region)),
-      ...regionalWatchlist.map(wa => SymbolUniverseManager.resolveSymbol(wa.symbol.toUpperCase(), region))
-    ]);
+    // Map Active Alert Symbols from PriceAlertRegistryService (exclusively for active alerts)
+    const alertSymbols = PriceAlertRegistryService.getActiveSymbols();
+    alertSymbols.forEach(sym => {
+      const s = sym.trim().toUpperCase();
+      const ticker = s.includes(':') ? s.split(':')[1] : s;
+      const rawTicker = ticker.split('.')[0];
+
+      const belongsToRegion = (() => {
+        if (s.endsWith('.NS') || s.endsWith('.BO')) return region === 'IN';
+        if (indianTickers.has(rawTicker) || indianTickers.has(ticker)) return region === 'IN';
+        if (usTickers.has(rawTicker) || usTickers.has(ticker)) return region === 'US';
+        return region === 'IN';
+      })();
+
+      if (belongsToRegion) {
+        const resolved = SymbolUniverseManager.resolveSymbol(ticker, region);
+        if (!this.symbolSources.has(resolved)) {
+          this.symbolSources.set(resolved, new Set());
+        }
+        this.symbolSources.get(resolved)!.add('ALERT');
+      }
+    });
+
+    // Gather hot symbols (those with at least one active registry source)
+    const hotSymbols = new Set<string>();
+    for (const [sym, sources] of this.symbolSources.entries()) {
+      if (sources.size > 0) {
+        hotSymbols.add(sym);
+      }
+    }
 
     // Ephemeral views only stay active for 2 mins after last heartbeat
     // Query directly from Supabase to bridge Next.js API heartbeats with the separate Engine process

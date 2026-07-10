@@ -255,6 +255,20 @@ export class SyncCoordinator {
 
     await supabase.from('active_market_symbols').upsert(updates, { onConflict: 'symbol' });
 
+    // Dispatch price alerts check asynchronously
+    const { AlertTriggerService } = require('./AlertTriggerService');
+    const alertSnapshots = snapshots
+      .filter(s => s.current_price !== undefined && s.current_price !== null)
+      .map(s => ({
+        symbol: s.symbol,
+        price: Number(s.current_price),
+        region
+      }));
+    
+    AlertTriggerService.checkPriceAlerts(alertSnapshots).catch((err: any) => {
+      console.error('[ALERT-TRIGGER] Async check price alerts failed:', err.message);
+    });
+
     metricsService.recordDbFlush();
     console.log(`[MAESTRO] FLUSH [${region}] | Updated ${totalFlushed} symbols in DB.`);
 
