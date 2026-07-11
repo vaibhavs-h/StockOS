@@ -1,7 +1,9 @@
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { useSession } from 'next-auth/react';
+import Link from 'next/link';
 import { motion, AnimatePresence } from 'framer-motion';
-import { List as ListIcon, Trash2, Activity, Info } from 'lucide-react';
+import { List as ListIcon, Trash2, Activity, Info, Crown } from 'lucide-react';
 import { supabase } from '@/services/DatabaseClient';
 import { cn } from '@/lib/utils';
 import { WatchlistRow } from './WatchlistRow';
@@ -18,6 +20,7 @@ interface WatchlistTerminalProps {
 }
 
 export const WatchlistTerminal: React.FC<WatchlistTerminalProps> = ({ userId, holdings: propHoldings }) => {
+  const { data: session } = useSession();
   const [watchlists, setWatchlists] = useState<Watchlist[]>([]);
   const [activeListId, setActiveListId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -319,6 +322,36 @@ export const WatchlistTerminal: React.FC<WatchlistTerminalProps> = ({ userId, ho
       console.error('Remove asset failed:', err);
     }
   };
+
+  const tier = ((session?.user as any)?.subscription_tier || 'free').toLowerCase();
+
+  if (tier === 'free') {
+    return (
+      <div className="flex flex-col h-full bg-[#0a0d14]/80 backdrop-blur-3xl overflow-hidden rounded-[40px] border border-white/10 shadow-2xl items-center justify-center p-8 text-center relative min-h-[440px]">
+        <div className="absolute inset-0 opacity-[0.02] pointer-events-none"
+          style={{ backgroundImage: 'radial-gradient(circle, white 1px, transparent 1px)', backgroundSize: '30px 30px' }} />
+        <div className="absolute inset-0 bg-cyan-500/5 blur-[120px] size-64 rounded-full pointer-events-none" />
+        
+        <div className="size-16 rounded-3xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400 mb-6 shadow-[0_0_20px_rgba(245,158,11,0.15)] relative z-10">
+          <Crown className="w-8 h-8 animate-pulse" />
+        </div>
+        
+        <h3 className="text-sm font-black uppercase tracking-[0.25em] text-white mb-3 relative z-10">
+          Watchlists Premium
+        </h3>
+        <p className="text-[10px] font-bold uppercase tracking-widest text-zinc-500 max-w-[280px] leading-relaxed mb-8 relative z-10">
+          Watchlist tracking requires a LITE or PRO plan. Upgrade your account to link real-time watchlists!
+        </p>
+        
+        <Link 
+          href="/subscription"
+          className="px-8 py-3.5 rounded-full bg-gradient-to-r from-amber-400 to-amber-500 text-black text-[10px] font-black uppercase tracking-[0.25em] text-center shadow-[0_0_20px_rgba(245,158,11,0.25)] hover:shadow-[0_0_30px_rgba(245,158,11,0.45)] transition-all duration-300 relative z-10"
+        >
+          Upgrade Plan
+        </Link>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col h-full bg-[#0a0d14]/80 backdrop-blur-3xl overflow-hidden rounded-[40px] border border-white/10 shadow-2xl">

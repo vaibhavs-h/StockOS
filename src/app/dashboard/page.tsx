@@ -31,7 +31,8 @@ import {
 	FileText,
 	Loader2,
 	CheckCircle2,
-	AlertTriangle
+	AlertTriangle,
+	Crown
 } from "lucide-react"
 
 import { supabase } from "@/services/DatabaseClient"
@@ -43,6 +44,7 @@ import { useRouter } from "next/navigation"
 import { cn } from "@/lib/utils"
 import { useSession } from "next-auth/react"
 import { GrowwImportGuide } from "@/components/dashboard/GrowwImportGuide"
+import { SubscriptionLimitModal } from "@/components/shared/SubscriptionLimitModal"
 import { ZerodhaImportGuide } from "@/components/dashboard/ZerodhaImportGuide"
 import { MFImportGuide } from "@/components/dashboard/MFImportGuide"
 import { RollingNumber } from "@/components/shared/RollingNumber"
@@ -119,6 +121,8 @@ export default function DashboardPage() {
 	const [editingPortfolioId, setEditingPortfolioId] = useState<string | null>(null)
 	const [editName, setEditName] = useState("")
 	const [holdingsTab, setHoldingsTab] = useState<'EQUITY' | 'MUTUAL_FUNDS'>('EQUITY')
+	const [subLimitModalOpen, setSubLimitModalOpen] = useState(false)
+	const [subLimitMode, setSubLimitMode] = useState<'free_mf' | 'free_portfolio' | 'lite_portfolio'>('free_portfolio')
 
 	const savePortfolioName = async (portfolioId: string) => {
 		if (!editName.trim()) return;
@@ -1934,6 +1938,19 @@ export default function DashboardPage() {
 																<div className="px-1 pt-2">
 																	<button
 																		onClick={() => {
+																			const tier = ((session?.user as any)?.subscription_tier || 'free').toLowerCase();
+																			if (tier === 'free' && portfolios.length >= 1) {
+																				setSubLimitMode('free_portfolio');
+																				setSubLimitModalOpen(true);
+																				setIsPortfolioDropdownOpen(false);
+																				return;
+																			}
+																			if (tier === 'lite' && portfolios.length >= 5) {
+																				setSubLimitMode('lite_portfolio');
+																				setSubLimitModalOpen(true);
+																				setIsPortfolioDropdownOpen(false);
+																				return;
+																			}
 																			const eqCount = portfolios.filter(p => !p.type || p.type === 'EQUITY').length;
 																			setNewPortfolioName(`Portfolio ${eqCount + 1}`);
 																			setIsPortfolioDropdownOpen(false);
@@ -1953,7 +1970,7 @@ export default function DashboardPage() {
 															</div>
 
 															{/* MF COLUMN */}
-															<div className="space-y-3 relative">
+															<div className="space-y-3 relative flex flex-col h-full">
 																<div className="flex items-center justify-between px-2">
 																	<div className="flex items-center gap-2">
 																		<div className="size-1.5 rounded-full bg-emerald-500 shadow-[0_0_8px_#10b981] animate-pulse" />
@@ -1961,190 +1978,225 @@ export default function DashboardPage() {
 																	</div>
 																</div>
 
-																{/* MF Aggregate Item */}
-																<div
-																	onClick={() => {
-																		setActivePortfolio(MF_AGGREGATE);
-																		setIsPortfolioDropdownOpen(false);
-																	}}
-																	className={cn(
-																		"w-full flex items-center gap-4 px-4 py-3.5 rounded-xl transition-all duration-300 group/mfitem cursor-pointer relative overflow-hidden",
-																		activePortfolio?.id === 'mf_overall'
-																			? "bg-emerald-500/10 border border-emerald-500/30 shadow-[0_0_20px_rgba(16,185,129,0.15)] scale-[1.02]"
-																			: "bg-emerald-500/[0.03] border border-emerald-500/10 hover:border-emerald-500/20 hover:bg-emerald-500/[0.06]"
-																	)}
-																>
-																	<div className={cn(
-																		"size-10 rounded-xl flex items-center justify-center border transition-all duration-300 relative z-10",
-																		activePortfolio?.id === 'mf_overall' ? "bg-zinc-950 border-emerald-500/40 shadow-[0_0_15px_rgba(16,185,129,0.25)]" : "bg-emerald-500/10 border-emerald-500/20"
-																	)}>
-																		<PieChart className={cn("w-5 h-5 transition-colors", activePortfolio?.id === 'mf_overall' ? "text-emerald-400" : "text-emerald-500/60 group-hover/mfitem:text-emerald-400")} />
+																{((session?.user as any)?.subscription_tier || 'free').toLowerCase() === 'free' ? (
+																	<div className="flex flex-col items-center justify-center p-6 border border-dashed border-emerald-500/10 rounded-2xl bg-emerald-500/[0.01] flex-1 w-full text-center relative overflow-hidden">
+																		<div className="size-10 rounded-xl bg-amber-500/15 border border-amber-500/20 flex items-center justify-center text-amber-400 mb-4 shadow-[0_0_15px_rgba(245,158,11,0.15)]">
+																			<Crown className="size-5 text-amber-400 animate-pulse" />
+																		</div>
+																		<span className="text-[10px] font-black uppercase tracking-[0.15em] text-transparent bg-clip-text bg-gradient-to-r from-amber-200 to-amber-400 mb-2">MF Tracking Locked</span>
+																		<span className="text-[8px] text-zinc-500 max-w-[160px] text-center font-bold uppercase tracking-wider leading-relaxed mb-5">Mutual Fund & SIP tracking requires a LITE or PRO plan.</span>
+																		<button
+																			onClick={() => {
+																				setIsPortfolioDropdownOpen(false);
+																				setSubLimitMode('free_mf');
+																				setSubLimitModalOpen(true);
+																			}}
+																			className="px-4 py-2 rounded-xl bg-gradient-to-r from-amber-400 to-amber-500 text-black text-[9px] font-black uppercase tracking-widest text-center shadow-md hover:scale-105 transition-transform"
+																		>
+																			Upgrade Plan
+																		</button>
 																	</div>
-																	<div className="flex flex-col overflow-hidden relative z-10">
-																		<span className={cn(
-																			"text-[14px] font-headline font-black truncate leading-tight tracking-tight transition-colors",
-																			activePortfolio?.id === 'mf_overall' ? "text-white" : "text-zinc-200 group-hover/mfitem:text-white"
-																		)}>Mutual Funds</span>
-																		<span className={cn(
-																			"text-[9px] font-bold uppercase tracking-widest transition-colors",
-																			activePortfolio?.id === 'mf_overall' ? "text-emerald-400" : "text-emerald-500/30 group-hover/mfitem:text-emerald-500/60"
-																		)}>Full CAS Portfolio</span>
-																	</div>
+																) : (
+																	<>
+																		{/* MF Aggregate Item */}
+																		<div
+																			onClick={() => {
+																				setActivePortfolio(MF_AGGREGATE);
+																				setIsPortfolioDropdownOpen(false);
+																			}}
+																			className={cn(
+																				"w-full flex items-center gap-4 px-4 py-3.5 rounded-xl transition-all duration-300 group/mfitem cursor-pointer relative overflow-hidden",
+																				activePortfolio?.id === 'mf_overall'
+																					? "bg-emerald-500/10 border border-emerald-500/30 shadow-[0_0_20px_rgba(16,185,129,0.15)] scale-[1.02]"
+																					: "bg-emerald-500/[0.03] border border-emerald-500/10 hover:border-emerald-500/20 hover:bg-emerald-500/[0.06]"
+																			)}
+																		>
+																			<div className={cn(
+																				"size-10 rounded-xl flex items-center justify-center border transition-all duration-300 relative z-10",
+																				activePortfolio?.id === 'mf_overall' ? "bg-zinc-950 border-emerald-500/40 shadow-[0_0_15px_rgba(16,185,129,0.25)]" : "bg-emerald-500/10 border-emerald-500/20"
+																			)}>
+																				<PieChart className={cn("w-5 h-5 transition-colors", activePortfolio?.id === 'mf_overall' ? "text-emerald-400" : "text-emerald-500/60 group-hover/mfitem:text-emerald-400")} />
+																			</div>
+																			<div className="flex flex-col overflow-hidden relative z-10">
+																				<span className={cn(
+																					"text-[14px] font-headline font-black truncate leading-tight tracking-tight transition-colors",
+																					activePortfolio?.id === 'mf_overall' ? "text-white" : "text-zinc-200 group-hover/mfitem:text-white"
+																				)}>Mutual Funds</span>
+																				<span className={cn(
+																					"text-[9px] font-bold uppercase tracking-widest transition-colors",
+																					activePortfolio?.id === 'mf_overall' ? "text-emerald-400" : "text-emerald-500/30 group-hover/mfitem:text-emerald-500/60"
+																				)}>Full CAS Portfolio</span>
+																			</div>
 
-																	{/* Active Pulse indicator */}
-																	{activePortfolio?.id === 'mf_overall' && (
-																		<div className="absolute right-4 size-1.5 rounded-full bg-emerald-500 shadow-[0_0_8px_#10b981] animate-pulse" />
-																	)}
-																</div>
+																			{/* Active Pulse indicator */}
+																			{activePortfolio?.id === 'mf_overall' && (
+																				<div className="absolute right-4 size-1.5 rounded-full bg-emerald-500 shadow-[0_0_8px_#10b981] animate-pulse" />
+																			)}
+																		</div>
 
-																<div className="h-px bg-white/5 mx-2" />
+																		<div className="h-px bg-white/5 mx-2" />
 
-																<div className="space-y-1.5 h-[180px] overflow-y-auto pr-1 custom-scrollbar">
-																	{portfolios.filter(p => p.type === 'MF').length > 0 ? (
-																		portfolios.filter(p => p.type === 'MF').map((p) => (
-																			<div
-																				key={p.id}
-																				onClick={() => {
-																					setActivePortfolio(p);
-																					setIsPortfolioDropdownOpen(false);
-																				}}
-																				className={cn(
-																					"w-full flex items-center justify-between gap-2 px-3.5 py-3 rounded-xl transition-all duration-300 group/mfsubitem cursor-pointer relative overflow-hidden",
-																					activePortfolio?.id === p.id
-																						? "bg-emerald-500/[0.07] border border-emerald-500/20 shadow-[0_0_15px_rgba(16,185,129,0.08)]"
-																						: "bg-transparent border border-transparent hover:bg-white/[0.04] hover:border-white/[0.05]"
-																				)}
-																			>
-																				{/* Gloss Effect for Active */}
-																				{activePortfolio?.id === p.id && (
-																					<div className="absolute inset-0 bg-gradient-to-tr from-emerald-500/10 via-transparent to-transparent pointer-events-none" />
-																				)}
-
-																				<div className="flex items-center gap-3.5 relative z-10 flex-1 overflow-hidden">
-																					<div className={cn(
-																						"size-9 rounded-lg bg-zinc-950 border p-1.5 flex-shrink-0 transition-all duration-500",
-																						activePortfolio?.id === p.id ? "border-emerald-500/40 shadow-[0_0_15px_rgba(16,185,129,0.25)]" : "border-white/10"
-																					)}>
-																						<FileText className={cn(
-																							"w-full h-full transition-colors",
-																							activePortfolio?.id === p.id ? "text-emerald-400" : "text-zinc-500"
-																						)} />
-																					</div>
-
-																					<div className="flex flex-col min-w-0">
-																						<div className="flex items-center gap-1.5">
-																							{editingPortfolioId === p.id ? (
-																								<input
-																									type="text"
-																									value={editName}
-																									onChange={(e) => setEditName(e.target.value)}
-																									onKeyDown={async (e) => {
-																										if (e.key === 'Enter') {
-																											await savePortfolioName(p.id);
-																										} else if (e.key === 'Escape') {
-																											setEditingPortfolioId(null);
-																										}
-																									}}
-																									onClick={(e) => e.stopPropagation()}
-																									className="bg-black/80 border border-emerald-500/40 text-white rounded-md px-2 py-0.5 text-[11px] font-headline w-full focus:outline-none focus:ring-1 focus:ring-emerald-500/50"
-																									autoFocus
-																								/>
-																							) : (
-																								<span className={cn(
-																									"text-[13px] font-headline font-bold truncate transition-colors",
-																									activePortfolio?.id === p.id ? "text-white" : "text-zinc-400 group-hover/mfsubitem:text-zinc-200"
-																								)}>{p.name}</span>
-																							)}
-																						</div>
-																						<div className="flex items-center gap-2">
-																							<span className={cn(
-																								"text-[8px] font-black uppercase tracking-widest transition-colors",
-																								activePortfolio?.id === p.id ? "text-emerald-500" : "text-emerald-500/40 group-hover/mfsubitem:text-emerald-500/60"
-																							)}>
-																								CONNECTED MF
-																							</span>
-																							{activePortfolio?.id === p.id && (
-																								<div className="size-1 rounded-full bg-emerald-500 shadow-[0_0_8px_#10b981] animate-pulse" />
-																							)}
-																						</div>
-																					</div>
-																				</div>
-
-																				{/* ACTION BUTTONS */}
-																				<div className="flex items-center gap-1.5 transition-all relative z-20">
-																					<button
-																						onClick={(e) => {
-																							e.stopPropagation();
-																							if (editingPortfolioId === p.id) {
-																								savePortfolioName(p.id);
-																							} else {
-																								setEditingPortfolioId(p.id);
-																								setEditName(p.name);
-																							}
+																		<div className="space-y-1.5 h-[180px] overflow-y-auto pr-1 custom-scrollbar">
+																			{portfolios.filter(p => p.type === 'MF').length > 0 ? (
+																				portfolios.filter(p => p.type === 'MF').map((p) => (
+																					<div
+																						key={p.id}
+																						onClick={() => {
+																							setActivePortfolio(p);
+																							setIsPortfolioDropdownOpen(false);
 																						}}
-																						className="size-7 rounded-lg bg-emerald-500/[0.08] border border-emerald-500/20 flex items-center justify-center hover:bg-emerald-500/20 hover:border-emerald-500/40 transition-all duration-300 shadow-sm group/editbtn hover:scale-110 active:scale-95 hover:shadow-[0_0_15px_rgba(16,185,129,0.2)]"
-																					>
-																						{editingPortfolioId === p.id ? (
-																							<Check className="size-3.5 text-emerald-500" />
-																						) : (
-																							<Edit2 className="size-3.5 text-emerald-400 transition-colors" />
+																						className={cn(
+																							"w-full flex items-center justify-between gap-2 px-3.5 py-3 rounded-xl transition-all duration-300 group/mfsubitem cursor-pointer relative overflow-hidden",
+																							activePortfolio?.id === p.id
+																								? "bg-emerald-500/[0.07] border border-emerald-500/20 shadow-[0_0_15px_rgba(16,185,129,0.08)]"
+																								: "bg-transparent border border-transparent hover:bg-white/[0.04] hover:border-white/[0.05]"
 																						)}
-																					</button>
-																					<button
-																						onClick={async (e) => {
-																							e.stopPropagation();
-																							if (confirm(`Delete \"${p.name}\"? This will unlink the portfolio and remove all its mutual fund holdings.`)) {
-																								try {
-																									await supabase.from('user_portfolios').delete().eq('id', p.id);
-																									const remaining = portfolios.filter(x => x.id !== p.id);
-																									setPortfolios(remaining);
-																									if (activePortfolio?.id === p.id) {
-																										if (remaining.length > 0) {
-																											const firstMF = remaining.find(x => x.type === 'MF');
-																											setActivePortfolio(firstMF || MF_AGGREGATE);
-																										} else {
-																											setActivePortfolio(MF_AGGREGATE);
-																										}
-																									}
-																								} catch (err) { console.error(err); }
-																							}
-																						}}
-																						className="size-7 rounded-lg bg-red-500/[0.08] border border-red-500/20 flex items-center justify-center hover:bg-red-500/20 hover:border-red-500/40 transition-all duration-300 shadow-sm group/delbtn hover:scale-110 active:scale-95 hover:shadow-[0_0_15px_rgba(239,68,68,0.2)]"
 																					>
-																						<Trash2 className="size-3.5 text-red-400 transition-colors" />
-																					</button>
-																				</div>
-																			</div>
-																		))
-																	) : (
-																		<div className="flex flex-col items-center justify-center h-full opacity-60 border border-dashed border-emerald-500/10 rounded-2xl bg-emerald-500/[0.02] mx-1">
-																			<div className="size-10 rounded-full bg-zinc-950 border border-emerald-500/10 flex items-center justify-center mb-3">
-																				<Plus className="w-4.5 h-4.5 text-emerald-500" />
-																			</div>
-																			<span className="text-[9px] font-black uppercase tracking-[0.2em] text-emerald-500/60">No MF Portfolio</span>
-																			<span className="text-[8px] text-zinc-500 mt-1 max-w-[150px] text-center font-bold">Link your MF portfolio now to start tracking.</span>
-																		</div>
-																	)}
-																</div>
+																						{/* Gloss Effect for Active */}
+																						{activePortfolio?.id === p.id && (
+																							<div className="absolute inset-0 bg-gradient-to-tr from-emerald-500/10 via-transparent to-transparent pointer-events-none" />
+																						)}
 
-																{/* MF ADD ACTION */}
-																<div className="px-1 pt-2">
-																	<button
-																		onClick={() => {
-																			setIsPortfolioDropdownOpen(false);
-																			setShowCASImport(true);
-																		}}
-																		className="w-full flex items-center gap-3 px-4 py-3 rounded-xl bg-emerald-500/[0.03] border border-dashed border-emerald-500/20 hover:border-emerald-500/40 hover:bg-emerald-500/[0.08] transition-all group/add-mf shadow-sm"
-																	>
-																		<div className="size-8 rounded-lg bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center group-hover/add-mf:rotate-90 transition-all duration-500 shadow-[0_0_10px_rgba(16,185,129,0.15)]">
-																			<Plus className="w-4.5 h-4.5 text-emerald-500" />
+																						<div className="flex items-center gap-3.5 relative z-10 flex-1 overflow-hidden">
+																							<div className={cn(
+																								"size-9 rounded-lg bg-zinc-950 border p-1.5 flex-shrink-0 transition-all duration-500",
+																								activePortfolio?.id === p.id ? "border-emerald-500/40 shadow-[0_0_15px_rgba(16,185,129,0.25)]" : "border-white/10"
+																							)}>
+																								<FileText className={cn(
+																									"w-full h-full transition-colors",
+																									activePortfolio?.id === p.id ? "text-emerald-400" : "text-zinc-500"
+																								)} />
+																							</div>
+
+																							<div className="flex flex-col min-w-0">
+																								<div className="flex items-center gap-1.5">
+																									{editingPortfolioId === p.id ? (
+																										<input
+																											type="text"
+																											value={editName}
+																											onChange={(e) => setEditName(e.target.value)}
+																											onKeyDown={async (e) => {
+																												if (e.key === 'Enter') {
+																													await savePortfolioName(p.id);
+																												} else if (e.key === 'Escape') {
+																													setEditingPortfolioId(null);
+																												}
+																											}}
+																											onClick={(e) => e.stopPropagation()}
+																											className="bg-black/80 border border-emerald-500/40 text-white rounded-md px-2 py-0.5 text-[11px] font-headline w-full focus:outline-none focus:ring-1 focus:ring-emerald-500/50"
+																											autoFocus
+																										/>
+																									) : (
+																										<span className={cn(
+																											"text-[13px] font-headline font-bold truncate transition-colors",
+																											activePortfolio?.id === p.id ? "text-white" : "text-zinc-400 group-hover/mfsubitem:text-zinc-200"
+																										)}>{p.name}</span>
+																									)}
+																								</div>
+																								<div className="flex items-center gap-2">
+																									<span className={cn(
+																										"text-[8px] font-black uppercase tracking-widest transition-colors",
+																										activePortfolio?.id === p.id ? "text-emerald-500" : "text-emerald-500/40 group-hover/mfsubitem:text-emerald-500/60"
+																									)}>
+																										CONNECTED MF
+																									</span>
+																									{activePortfolio?.id === p.id && (
+																										<div className="size-1 rounded-full bg-emerald-500 shadow-[0_0_8px_#10b981] animate-pulse" />
+																									)}
+																								</div>
+																							</div>
+																						</div>
+
+																						{/* ACTION BUTTONS */}
+																						<div className="flex items-center gap-1.5 transition-all relative z-20">
+																							<button
+																								onClick={(e) => {
+																									e.stopPropagation();
+																									if (editingPortfolioId === p.id) {
+																										savePortfolioName(p.id);
+																									} else {
+																										setEditingPortfolioId(p.id);
+																										setEditName(p.name);
+																									}
+																								}}
+																								className="size-7 rounded-lg bg-emerald-500/[0.08] border border-emerald-500/20 flex items-center justify-center hover:bg-emerald-500/20 hover:border-emerald-500/40 transition-all duration-300 shadow-sm group/editbtn hover:scale-110 active:scale-95 hover:shadow-[0_0_15px_rgba(16,185,129,0.2)]"
+																							>
+																								{editingPortfolioId === p.id ? (
+																									<Check className="size-3.5 text-emerald-500" />
+																								) : (
+																									<Edit2 className="size-3.5 text-emerald-400 transition-colors" />
+																								)}
+																							</button>
+																							<button
+																								onClick={async (e) => {
+																									e.stopPropagation();
+																									if (confirm(`Delete \"${p.name}\"? This will unlink the portfolio and remove all its mutual fund holdings.`)) {
+																										try {
+																											await supabase.from('user_portfolios').delete().eq('id', p.id);
+																											const remaining = portfolios.filter(x => x.id !== p.id);
+																											setPortfolios(remaining);
+																											if (activePortfolio?.id === p.id) {
+																												if (remaining.length > 0) {
+																													const firstMF = remaining.find(x => x.type === 'MF');
+																													setActivePortfolio(firstMF || MF_AGGREGATE);
+																												} else {
+																													setActivePortfolio(MF_AGGREGATE);
+																												}
+																											}
+																										} catch (err) { console.error(err); }
+																									}
+																								}}
+																								className="size-7 rounded-lg bg-red-500/[0.08] border border-red-500/20 flex items-center justify-center hover:bg-red-500/20 hover:border-red-500/40 transition-all duration-300 shadow-sm group/delbtn hover:scale-110 active:scale-95 hover:shadow-[0_0_15px_rgba(239,68,68,0.2)]"
+																							>
+																								<Trash2 className="size-3.5 text-red-400 transition-colors" />
+																							</button>
+																						</div>
+																					</div>
+																				))
+																			) : (
+																				<div className="flex flex-col items-center justify-center h-full opacity-60 border border-dashed border-emerald-500/10 rounded-2xl bg-emerald-500/[0.02] mx-1">
+																					<div className="size-10 rounded-full bg-zinc-950 border border-emerald-500/10 flex items-center justify-center mb-3">
+																						<Plus className="w-4.5 h-4.5 text-emerald-500" />
+																					</div>
+																					<span className="text-[9px] font-black uppercase tracking-[0.2em] text-emerald-500/60">No MF Portfolio</span>
+																					<span className="text-[8px] text-zinc-500 mt-1 max-w-[150px] text-center font-bold">Link your MF portfolio now to start tracking.</span>
+																				</div>
+																			)}
 																		</div>
-																		<div className="flex flex-col items-start translate-y-[-1px]">
-																			<span className="text-[11px] font-headline font-black text-white/80 group-hover/add-mf:text-white transition-colors">LINK CAS PDF</span>
-																			<span className="text-[8px] text-emerald-500/50 font-bold uppercase tracking-widest group-hover/add-mf:text-emerald-500/80 transition-colors">Refresh Mutual Funds</span>
+
+																		{/* MF ADD ACTION */}
+																		<div className="px-1 pt-2">
+																			<button
+																				onClick={() => {
+																					const tier = ((session?.user as any)?.subscription_tier || 'free').toLowerCase();
+																					if (tier === 'free') {
+																						setSubLimitMode('free_mf');
+																						setSubLimitModalOpen(true);
+																						setIsPortfolioDropdownOpen(false);
+																						return;
+																					}
+																					if (tier === 'lite' && portfolios.length >= 5) {
+																						setSubLimitMode('lite_portfolio');
+																						setSubLimitModalOpen(true);
+																						setIsPortfolioDropdownOpen(false);
+																						return;
+																					}
+																					setIsPortfolioDropdownOpen(false);
+																					setShowCASImport(true);
+																				}}
+																				className="w-full flex items-center gap-3 px-4 py-3 rounded-xl bg-emerald-500/[0.03] border border-dashed border-emerald-500/20 hover:border-emerald-500/40 hover:bg-emerald-500/[0.08] transition-all group/add-mf shadow-sm"
+																			>
+																				<div className="size-8 rounded-lg bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center group-hover/add-mf:rotate-90 transition-all duration-500 shadow-[0_0_10px_rgba(16,185,129,0.15)]">
+																					<Plus className="w-4.5 h-4.5 text-emerald-500" />
+																				</div>
+																				<div className="flex flex-col items-start translate-y-[-1px]">
+																					<span className="text-[11px] font-headline font-black text-white/80 group-hover/add-mf:text-white transition-colors">LINK CAS PDF</span>
+																					<span className="text-[8px] text-emerald-500/50 font-bold uppercase tracking-widest group-hover/add-mf:text-emerald-500/80 transition-colors">Refresh Mutual Funds</span>
+																				</div>
+																			</button>
 																		</div>
-																	</button>
-																</div>
+																	</>
+																)}
 															</div>
 														</div>
 													</div>
@@ -3695,7 +3747,20 @@ export default function DashboardPage() {
 																</span>
 																{!searchQuery && (
 																	<button
-																		onClick={() => setAddPortfolioModalOpen(true)}
+																		onClick={() => {
+																			const tier = ((session?.user as any)?.subscription_tier || 'free').toLowerCase();
+																			if (tier === 'free' && portfolios.length >= 1) {
+																				setSubLimitMode('free_portfolio');
+																				setSubLimitModalOpen(true);
+																				return;
+																			}
+																			if (tier === 'lite' && portfolios.length >= 5) {
+																				setSubLimitMode('lite_portfolio');
+																				setSubLimitModalOpen(true);
+																				return;
+																			}
+																			setAddPortfolioModalOpen(true);
+																		}}
 																		className="mt-4 px-6 py-2 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 font-terminal-label text-[10px] uppercase tracking-widest hover:bg-emerald-500/20 transition-all"
 																	>
 																		Import Excel
@@ -4776,7 +4841,11 @@ export default function DashboardPage() {
 				)}
 			</AnimatePresence>
 
-
+			<SubscriptionLimitModal
+				isOpen={subLimitModalOpen}
+				onClose={() => setSubLimitModalOpen(false)}
+				limitType={subLimitMode}
+			/>
 		</div>
 	)
 }

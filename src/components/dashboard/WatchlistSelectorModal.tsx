@@ -93,6 +93,16 @@ export const WatchlistSelectorModal: React.FC<WatchlistSelectorModalProps> = ({
   }, [isOpen, fetchWatchlistStatus]);
 
   const toggleAsset = async (listId: string, currentlyIn: boolean) => {
+    const tier = ((session?.user as any)?.subscription_tier || 'free').toLowerCase();
+    if (tier === 'free') {
+      setErrorBanner({
+        type: 'subscription',
+        title: 'Premium Feature',
+        message: 'Watchlists require a LITE or PRO plan. Upgrade your account to unlock live watchlist tracking!'
+      });
+      return;
+    }
+
     setIsProcessing(listId);
     try {
       if (currentlyIn) {
@@ -137,11 +147,19 @@ export const WatchlistSelectorModal: React.FC<WatchlistSelectorModalProps> = ({
 
   const createAndAdd = async () => {
     const tier = ((session?.user as any)?.subscription_tier || 'free').toLowerCase();
-    if (tier !== 'lite' && tier !== 'pro') {
+    if (tier === 'free') {
       setErrorBanner({
         type: 'subscription',
         title: 'Premium Feature',
-        message: 'Creating custom watchlists requires a LITE or PRO plan. Upgrade your account to unlock unlimited custom watchlists!'
+        message: 'Watchlists require a LITE or PRO plan. Upgrade your account to unlock live watchlist tracking!'
+      });
+      return;
+    }
+    if (tier === 'lite') {
+      setErrorBanner({
+        type: 'subscription',
+        title: 'Premium Feature',
+        message: 'Creating custom watchlists requires a PRO plan. Upgrade your account to unlock custom watchlists!'
       });
       return;
     }
@@ -212,7 +230,26 @@ export const WatchlistSelectorModal: React.FC<WatchlistSelectorModalProps> = ({
 
               {/* List Content */}
               <div className="px-8 pb-8 max-h-[480px] overflow-y-auto no-scrollbar">
-                {isLoading && userId !== 'guest' ? (
+                {((session?.user as any)?.subscription_tier || 'free').toLowerCase() === 'free' ? (
+                  <div className="flex flex-col items-center justify-center py-6 px-4 text-center">
+                    <div className="size-14 rounded-3xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-500 mb-6 shadow-[0_0_15px_rgba(245,158,11,0.15)] relative">
+                      <Crown className="w-7 h-7" />
+                    </div>
+                    <h4 className="text-sm font-black uppercase tracking-[0.15em] text-transparent bg-clip-text bg-gradient-to-r from-amber-200 to-amber-400 mb-3">
+                      Premium Feature
+                    </h4>
+                    <p className="text-[10px] text-zinc-500 font-bold uppercase tracking-wider leading-relaxed mb-6 max-w-[280px]">
+                      Watchlist tracking requires a LITE or PRO plan. Upgrade your account to unlock watchlists!
+                    </p>
+                    <a
+                      href="/subscription"
+                      onClick={onClose}
+                      className="w-full py-4 rounded-2xl bg-gradient-to-r from-amber-400 via-amber-500 to-amber-600 text-black text-[10px] font-black uppercase tracking-[0.25em] text-center shadow-[0_0_20px_rgba(245,158,11,0.25)] hover:shadow-[0_0_30px_rgba(245,158,11,0.45)] transition-all duration-300 animate-pulse hover:animate-none"
+                    >
+                      Upgrade Plan
+                    </a>
+                  </div>
+                ) : isLoading && userId !== 'guest' ? (
                   <div className="flex flex-col items-center justify-center py-20 gap-6">
                     <div className="relative size-12">
                       <div className="absolute inset-0 border-2 border-blue-500/10 rounded-full" />

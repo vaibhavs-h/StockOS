@@ -16,7 +16,7 @@ const FREE_FEATURES = [
 
 const LITE_FEATURES = [
   "Everything in Free, Plus:",
-  "Up to 3 Portfolios",
+  "Up to 5 Portfolios",
   "Live Price Alert for Any Stock [Unlimited]",
   "Watchlist Assets [Limited To 6 Assets]",
   "AI Chat Assistant [Limited Usage]",
