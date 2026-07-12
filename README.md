@@ -468,6 +468,8 @@ Articles are tagged `india` if they contain:
 
 ## Database Schema
 
+Below is the complete entity relationship representation and detailed schema index for all 19 active tables in the Supabase PostgreSQL database.
+
 ```mermaid
 erDiagram
     profiles {
@@ -477,11 +479,14 @@ erDiagram
         text avatar_url
         text subscription_tier
         timestamp updated_at
+        timestamp created_at
     }
-    portfolios {
+    user_portfolios {
         uuid id PK
         uuid user_id FK
         text name
+        text broker_name
+        boolean is_primary
         text type
         timestamp created_at
     }
@@ -496,17 +501,21 @@ erDiagram
         numeric invested_value
         numeric market_value
         numeric p_l
+        numeric p_l_percentage
         numeric day_change
-        text broker_name
+        numeric day_change_percentage
+        timestamp updated_at
     }
     portfolio_history {
         uuid id PK
+        uuid user_id FK
         uuid portfolio_id FK
         timestamp timestamp
         numeric total_investment
         numeric total_market_value
         numeric total_p_l
         numeric p_l_percentage
+        text broker_name
     }
     market_assets {
         text symbol PK
@@ -517,13 +526,103 @@ erDiagram
         numeric day_change_percentage
         numeric prev_close
         numeric volume
+        text risk_level
+        text logo_url
+        text sector
+        text market_cap_category
         timestamp updated_at
+    }
+    us_market_assets {
+        text symbol PK
+        text name
+        numeric current_price
+        numeric day_change
+        numeric day_change_percentage
+        numeric prev_close
+        numeric volume
+        text risk_level
+        text logo_url
+        text sector
+        text market_cap_category
+        timestamp updated_at
+    }
+    active_market_symbols {
+        text symbol PK
+        text market
+        text state
+        timestamp last_viewed_at
+        timestamp updated_at
+        boolean is_live_enabled
+        timestamp last_holding_seen_at
+        timestamp last_synced_at
+        integer sync_error_count
+    }
+    user_watchlists {
+        uuid id PK
+        uuid user_id FK
+        text name
+        timestamp created_at
     }
     watchlist_assets {
         uuid id PK
-        uuid user_id FK
+        uuid watchlist_id FK
+        text symbol
+        timestamp created_at
+    }
+    mutual_funds_master {
+        text scheme_code PK
+        text isin
         text symbol
         text name
+        text amc_name
+        text category
+        text sub_category
+        numeric current_price
+        numeric prev_close
+        numeric day_change
+        numeric day_change_percentage
+        numeric returns_1y
+        text risk_level
+        text logo_url
+        timestamp created_at
+        timestamp updated_at
+    }
+    user_mutual_fund_holdings {
+        uuid id PK
+        uuid user_id FK
+        uuid portfolio_id FK
+        text scheme_code
+        text folio_number
+        numeric quantity
+        numeric average_price
+        numeric last_price
+        numeric invested_value
+        numeric market_value
+        numeric p_l
+        numeric p_l_percentage
+        numeric day_change
+        numeric day_change_percentage
+        text last_statement_date
+        timestamp updated_at
+    }
+    mutual_fund_portfolio_history {
+        uuid id PK
+        uuid user_id FK
+        uuid portfolio_id FK
+        timestamp timestamp
+        numeric total_investment
+        numeric total_market_value
+        numeric total_p_l
+        numeric p_l_percentage
+    }
+    active_mutual_funds {
+        text scheme_code PK
+        text state
+        integer priority
+        text reason
+        timestamp last_accessed
+        boolean sync_enabled
+        timestamp updated_at
     }
     news {
         text id PK
@@ -537,42 +636,94 @@ erDiagram
         text[] stocks
         timestamp published_at
     }
-    mf_holdings {
+    news_bookmarks {
         uuid id PK
         uuid user_id FK
-        text isin
-        text scheme_name
-        numeric quantity
-        numeric average_price
-        numeric current_nav
+        text article_id FK
+        timestamp created_at
+    }
+    portfolio_import_sessions {
+        uuid id PK
+        uuid user_id FK
+        text source
+        text statement_period
+        text uploaded_file_url
+        text parsing_status
+        integer imported_funds_count
+        text error_message
+        timestamp created_at
+    }
+    reviews {
+        uuid id PK
+        user_name text
+        rating integer
+        title text
+        body text
+        created_at timestamp
+    }
+    price_alerts {
+        uuid id PK
+        uuid user_id FK
+        text symbol
+        text asset_type
+        text name
+        text trigger_condition
+        numeric target_value
+        boolean is_triggered
+        timestamp triggered_at
+        numeric last_checked_price
+        timestamp last_checked_at
+        timestamp created_at
+    }
+    user_notifications {
+        uuid id PK
+        uuid user_id FK
+        text title
+        text message
+        text type
+        text link
+        jsonb metadata
+        boolean is_read
+        timestamp created_at
     }
 
-    profiles ||--o{ portfolios : owns
-    portfolios ||--o{ holdings : contains
-    portfolios ||--o{ portfolio_history : tracks
-    profiles ||--o{ watchlist_assets : watches
-    profiles ||--o{ mf_holdings : holds
+    profiles ||--o{ user_portfolios : owns
+    user_portfolios ||--o{ holdings : contains
+    user_portfolios ||--o{ portfolio_history : tracks
+    user_portfolios ||--o{ user_mutual_fund_holdings : contains
+    user_portfolios ||--o{ mutual_fund_portfolio_history : tracks
+    profiles ||--o{ user_watchlists : creates
+    user_watchlists ||--o{ watchlist_assets : has
+    profiles ||--o{ news_bookmarks : saves
+    news ||--o{ news_bookmarks : references
+    profiles ||--o{ portfolio_import_sessions : triggers
+    profiles ||--o{ price_alerts : creates
+    profiles ||--o{ user_notifications : receives
 ```
 
 ### Full Table Reference
 
-| Table | Purpose |
-|---|---|
-| `profiles` | User accounts, Google OAuth data, subscription tier |
-| `portfolios` | Named portfolio containers (equity or MF type) |
-| `holdings` | Individual stock positions with live P&L |
-| `portfolio_history` | Daily wealth snapshots powering the performance chart |
-| `market_assets` | Indian equity price data (NSE/BSE) |
-| `us_market_assets` | US equity price data |
-| `active_market_symbols` | Live sync registry (HOT/EPHEMERAL state) |
-| `watchlist_assets` | User-curated watchlist entries |
-| `mf_schemes` | 10,000+ mutual fund scheme metadata from AMFI |
-| `mf_holdings` | User MF positions imported from CAS statements |
-| `mf_nav_history` | Daily NAV history per scheme |
-| `news` | Intelligence feed (Alpha Vantage + Indian RSS) |
-| `news_bookmarks` | User-saved articles (protected from pruning) |
-| `portfolio_import_sessions` | Audit log for every import operation |
-| `reviews` | User review submissions |
+| Table | Purpose | Columns |
+|---|---|---|
+| `profiles` | User accounts & Google OAuth profiles | `id`, `email`, `full_name`, `avatar_url`, `subscription_tier`, `updated_at`, `created_at` |
+| `user_portfolios` | Named containers for stocks or mutual fund accounts | `id`, `user_id`, `name`, `broker_name`, `is_primary`, `type`, `created_at` |
+| `holdings` | Live equity holdings positions with real-time P&L valuation | `id`, `user_id`, `portfolio_id`, `trading_symbol`, `quantity`, `average_price`, `last_price`, `invested_value`, `market_value`, `p_l`, `p_l_percentage`, `day_change`, `day_change_percentage`, `updated_at` |
+| `portfolio_history` | Historical revaluations of equity portfolios for performance charting | `id`, `user_id`, `portfolio_id`, `timestamp`, `total_investment`, `total_market_value`, `total_p_l`, `p_l_percentage`, `broker_name` |
+| `market_assets` | Seeded metadata & live quotes for Indian stocks (NSE/BSE) | `symbol`, `name`, `isin`, `current_price`, `day_change`, `day_change_percentage`, `prev_close`, `volume`, `risk_level`, `logo_url`, `sector`, `market_cap_category`, `updated_at` |
+| `us_market_assets` | Live price feeds, volume, & risk metrics for US equities | `symbol`, `name`, `current_price`, `day_change`, `day_change_percentage`, `prev_close`, `volume`, `risk_level`, `logo_url`, `sector`, `market_cap_category`, `updated_at` |
+| `active_market_symbols` | Pulse Engine registry detailing hot/ephemeral sync tracking states | `symbol`, `market`, `state`, `last_viewed_at`, `updated_at`, `is_live_enabled`, `last_holding_seen_at`, `last_synced_at`, `sync_error_count` |
+| `user_watchlists` | Watchlist configurations belonging to users | `id`, `user_id`, `name`, `created_at` |
+| `watchlist_assets` | Stock symbol references tied to user watchlists | `id`, `watchlist_id`, `symbol`, `created_at` |
+| `mutual_funds_master` | 10,000+ mutual fund scheme directories parsed from AMFI feeds | `scheme_code`, `isin`, `symbol`, `name`, `amc_name`, `category`, `sub_category`, `current_price`, `prev_close`, `day_change`, `day_change_percentage`, `returns_1y`, `risk_level`, `logo_url`, `created_at`, `updated_at` |
+| `user_mutual_fund_holdings` | User mutual fund folio positions tracked via statement uploads | `id`, `user_id`, `portfolio_id`, `scheme_code`, `folio_number`, `quantity`, `average_price`, `last_price`, `invested_value`, `market_value`, `p_l`, `p_l_percentage`, `day_change`, `day_change_percentage`, `last_statement_date`, `updated_at` |
+| `mutual_fund_portfolio_history` | Historical revaluations of mutual fund allocations | `id`, `user_id`, `portfolio_id`, `timestamp`, `total_investment`, `total_market_value`, `total_p_l`, `p_l_percentage` |
+| `active_mutual_funds` | Registry detailing mutual fund codes needing active syncs | `scheme_code`, `state`, `priority`, `reason`, `last_accessed`, `sync_enabled`, `updated_at` |
+| `news` | Unified sentiment-scored news ingestion database | `id`, `title`, `summary`, `url`, `category`, `impact`, `sentiment_label`, `sentiment_score`, `stocks`, `published_at` |
+| `news_bookmarks` | Bookmarked news articles saved by users to bypass auto-pruning | `id`, `user_id`, `article_id`, `created_at` |
+| `portfolio_import_sessions` | Audit logs for every file parsing session and sync completion status | `id`, `user_id`, `source`, `statement_period`, `uploaded_file_url`, `parsing_status`, `imported_funds_count`, `error_message`, `created_at` |
+| `reviews` | User reviews and rating submissions | `id`, `user_name`, `rating`, `title`, `body`, `created_at` |
+| `price_alerts` | Configuration thresholds for custom stock notifications | `id`, `user_id`, `symbol`, `asset_type`, `name`, `trigger_condition`, `target_value`, `is_triggered`, `triggered_at`, `last_checked_price`, `last_checked_at`, `created_at` |
+| `user_notifications` | User alerts and transactional platform notices | `id`, `user_id`, `title`, `message`, `type`, `link`, `metadata`, `is_read`, `created_at` |
 
 ---
 
@@ -793,11 +944,17 @@ StockOS/
 │   │   ├── reviews/page.tsx              # User reviews
 │   │   ├── auth/login/page.tsx           # Google OAuth
 │   │   ├── api/
+│   │   │   ├── alerts/                   # Price Alerts APIs
+│   │   │   │   └── route.ts
+│   │   │   ├── notifications/            # User Notifications APIs
+│   │   │   │   └── route.ts
 │   │   │   ├── auth/[...nextauth]/       # NextAuth handler
 │   │   │   ├── portfolio/daily-pl/       # Daily P&L route
 │   │   │   ├── portfolio/import-cas/     # CAS import API
 │   │   │   ├── mutual-funds/analytics/   # MF analytics
 │   │   │   ├── mutual-funds/analyzer/    # MF AI analyzer
+│   │   │   ├── mutual-funds/portfolio/   # MF portfolio route
+│   │   │   ├── user/subscription/        # Subscription updates
 │   │   │   └── market/heartbeat/         # Client heartbeat
 │   │   ├── layout.tsx                    # Root layout (HeroWave + Header + Ticker)
 │   │   └── globals.css                   # Global styles + glass utilities
@@ -813,7 +970,10 @@ StockOS/
 │   │   │   ├── LockManager.ts            # Job deduplication locks
 │   │   │   ├── StartupRecoveryManager.ts # Phased boot with jitter
 │   │   │   ├── MFSyncCoordinator.ts      # MF sync orchestration
-│   │   │   └── MFActiveRegistryService.ts # MF universe resolver
+│   │   │   ├── MFActiveRegistryService.ts # MF universe resolver
+│   │   │   ├── AlertTriggerService.ts    # Evaluates and dispatches triggers
+│   │   │   ├── PriceAlertRegistryService.ts # In-memory active count tracker
+│   │   │   └── SymbolSyncStateService.ts # Sync failures & cooldowns tracker
 │   │   ├── jobs/
 │   │   │   ├── IndianLiveSyncJob.ts      # Real-time Indian equities
 │   │   │   ├── UsLiveSyncJob.ts          # Real-time US equities
@@ -826,8 +986,11 @@ StockOS/
 │   │   │   ├── MutualFundSyncJob.ts      # AMFI NAV nightly ingestion
 │   │   │   ├── AlphaVantageNewsSyncJob.ts # Global NLP news feed
 │   │   │   ├── IndianNewsSyncJob.ts      # Indian RSS news feed
+│   │   │   ├── UsMarketResetJob.ts       # Pre-market US session resets
+│   │   │   ├── DailyMorningPriceSyncJob.ts # Daily morning baseline quotes sync
 │   │   │   └── internal/
 │   │   │       ├── IndianMasterSeedJob.ts # Weekly Indian symbol discovery
+│   │   │       ├── MFYahooEnrichJob.ts    # Enriches seed MF categories
 │   │   │       └── MFMasterSeedJob.ts    # Weekly MF scheme discovery
 │   │   ├── providers/
 │   │   │   ├── YahooProvider.ts          # Yahoo Finance API wrapper
@@ -836,55 +999,96 @@ StockOS/
 │   │   └── index.ts                      # Scheduler initialization
 │   │
 │   ├── services/
+│   │   ├── AlertService.ts               # Price Alert crud & triggers execution
 │   │   ├── ExcelImportService.ts         # Groww + Zerodha import
 │   │   ├── CASImportService.ts           # PDF CAS statement import
 │   │   └── DatabaseClient.ts             # Frontend Supabase singleton
 │   │
 │   ├── components/
 │   │   ├── dashboard/
-│   │   │   ├── WealthPerformanceChart.tsx
-│   │   │   ├── PortfolioAnalyzer.tsx
-│   │   │   ├── MFPortfolioAnalyzer.tsx
-│   │   │   ├── WatchlistTerminal.tsx
-│   │   │   ├── InstitutionalNews.tsx
-│   │   │   ├── FloatingAssistant.tsx     # n8n RAG chat interface
-│   │   │   ├── GrowwImportGuide.tsx
-│   │   │   ├── ZerodhaImportGuide.tsx
-│   │   │   └── MFImportGuide.tsx
+│   │   │   ├── AlertConfigModal.tsx      # Configures trigger parameters
+│   │   │   ├── GlobalAlertsManagerModal.tsx # Manage active & history alerts
+│   │   │   ├── WealthPerformanceChart.tsx # Total portfolio wealth chart
+│   │   │   ├── PortfolioAnalyzer.tsx     # Equity holdings analyzer
+│   │   │   ├── MFPortfolioAnalyzer.tsx   # Mutual fund assets analyzer
+│   │   │   ├── WatchlistTerminal.tsx     # Live watchlist & sparklines terminal
+│   │   │   ├── WatchlistRow.tsx          # Real-time stock quote row item
+│   │   │   ├── WatchlistSelectorModal.tsx # Watchlist list selection & toggling
+│   │   │   ├── InstitutionalNews.tsx     # News feed widget with sentiment
+│   │   │   ├── FloatingAssistant.tsx     # RAG-powered AI chat assistant panel
+│   │   │   ├── GrowwImportGuide.tsx      # Excel import walkthrough modal
+│   │   │   ├── ZerodhaImportGuide.tsx    # CSV import walkthrough modal
+│   │   │   └── MFImportGuide.tsx         # CAS PDF statement walkthrough modal
 │   │   └── shared/
-│   │       ├── TacticalHeader.tsx        # Global nav + profile dropdown
-│   │       ├── HeroWave.tsx              # Canvas background shader
-│   │       ├── BackgroundShader.tsx      # Three.js intro shader
-│   │       ├── MarketTicker.tsx          # Live index ticker strip
-│   │       ├── MarketSearch.tsx          # Universal search modal
-│   │       ├── RollingNumber.tsx         # Animated number counter
-│   │       ├── AssetLogo.tsx             # Company/fund logo resolver
-│   │       └── MiniSparkline.tsx         # Inline price sparklines
+│   │       ├── TacticalHeader.tsx        # Global navigation & profile menu
+│   │       ├── HeroWave.tsx              # Canvas-based global background
+│   │       ├── BackgroundShader.tsx      # Three.js intro transition effect
+│   │       ├── MarketTicker.tsx          # Real-time market index banner
+│   │       ├── MarketSearch.tsx          # Universal global search modal
+│   │       ├── RollingNumber.tsx         # Animated spring number counter
+│   │       ├── AssetLogo.tsx             # Resolves company logo icons
+│   │       ├── MiniSparkline.tsx         # Inline 7-day sparkline charts
+│   │       ├── SubscriptionLimitModal.tsx # Upgrades upsell notifications
+│   │       ├── FeedbackModal.tsx         # Collects user review submissions
+│   │       ├── Button.tsx                # Custom glass button components
+│   │       ├── CTAButton.tsx             # Specialized custom action button
+│   │       ├── Sheet.tsx                 # Sliding side menu panel wrapper
+│   │       └── Portal.tsx                # Portals elements out of DOM tree
 │   │
 │   ├── lib/
-│   │   ├── auth.ts                       # NextAuth config + callbacks
-│   │   ├── supabase.ts                   # Engine-side Supabase client
-│   │   ├── user.ts                       # User ID resolver
-│   │   ├── date.ts                       # IST timestamp helpers
-│   │   └── utils.ts                      # cn() class merger
+│   │   ├── auth.ts                       # NextAuth credentials & session callback
+│   │   ├── supabase.ts                   # Supabase client instances helper
+│   │   ├── user.ts                       # Client session user helper
+│   │   ├── date.ts                       # Timezone offset & IST parsing helpers
+│   │   └── utils.ts                      # CSS ClassName tailwind-merge helper
 │   │
 │   ├── constants/
-│   │   └── market-constants.ts           # SymbolUniverseManager + all asset lists
+│   │   └── market-constants.ts           # Indices configurations & seed lists
 │   │
-│   └── server.ts                         # Pulse Engine entry + all Express routes
+│   └── server.ts                         # Pulse Engine API routes & server setup
 │
-├── package.json                          # Scripts + dependencies
-├── tailwind.config.ts                    # Tailwind + Outfit/Inter font config
-├── next.config.mjs
-└── tsconfig.json
+├── package.json                          # Scripts & dependencies
+├── tailwind.config.ts                    # Tailwind CSS tokens configuration
+├── next.config.mjs                       # NextJS configurations
+└── tsconfig.json                         # TypeScript compiler rules
 ```
 
 ---
 
-## Subscription Tiers
+## Subscription Tiers & Feature Matrix
 
-> [!NOTE]
-> The exact feature matrix, tiers, and pricing structures are currently under active design. While the backend Pulse Engine and UI are built to support multi-portfolio routing and premium limits, the commercial tiers are **Yet to be decided**.
+StockOS enforces subscription tier limitations client-side via NextAuth session variables and context-aware locked screens, ensuring a premium upselling experience.
+
+### Plan Breakdown
+
+| Feature | Free Plan | Lite Plan | Pro Plan |
+|---|---|---|---|
+| **Monthly Cost** | ₹0 (Free Forever) | TBD | TBD |
+| **Equities Portfolios** | Capped at **1 linked portfolio** | Capped at **5 total portfolios** (combined) | **Unlimited** linked portfolios |
+| **Mutual Funds (CAS PDF)** | **Blocked** (Premium locked widget) | Capped at **5 total portfolios** (combined) | **Unlimited** linked portfolios |
+| **Watchlist Access** | **Blocked** (Premium locked widget) | Default "Main Watchlist" only (max 6 assets) | Custom watchlist creation + Main Watchlist |
+| **Assets per Watchlist** | N/A | Capped at **6 assets** | Capped at **6 assets** |
+| **Real-time Price Alerts** | **Blocked** (Crown upsell banner) | **Unlimited** configured alerts | **Unlimited** configured alerts |
+| **AI Research Assistant** | Offline (Disabled) | Limited Usage (Disabled) | Unlimited Usage (Disabled) |
+
+---
+
+## Price Alerts System
+
+StockOS includes a high-fidelity **Price Alerts System** that monitors real-time market assets and triggers alerts based on custom thresholds:
+
+- **Alert Configuration Modal:** Users can configure thresholds to fire when prices rise above ($\ge$) or fall below ($\le$) target levels.
+- **Global Alerts Manager:** Accessible via the user profile menu, providing a unified hub to search active and historical alert logs, delete triggers, and view detail pages.
+- **Pulse Engine Coordination:** The sync heartbeats monitor current market prices against target values. Upon a trigger, it executes the `trigger_price_alert_tx` Supabase RPC to mark the alert as triggered and insert a `user_notification` atomically.
+- **Desktop Toast & Audio Chime:** Clients receive instant slide-in toast notifications and play a clear synthesizer chime when alerts are triggered.
+
+---
+
+## AI Assistant Offline Mode
+
+Since the AI Assistant pipeline is under active maintenance, the floating assistant panel (`FloatingAssistant.tsx`) is set to an **Offline State**:
+- Status indicators are set to a static Zinc color with an `OFFLINE` badge.
+- Text input forms and submit actions are disabled, displaying the placeholder `"Assistant is currently offline..."`.
 
 ---
 
