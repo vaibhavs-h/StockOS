@@ -414,12 +414,19 @@ function NotificationBell({ userId }: { userId: string }) {
     };
     document.addEventListener('mousedown', handleClickOutside);
 
+    // Custom event listener for instant client notification updates
+    const handleNotifRefresh = () => {
+      fetchNotifications();
+    };
+    window.addEventListener('stockos-notification-refresh', handleNotifRefresh);
+
     return () => {
       channel.unsubscribe();
       document.removeEventListener('mousedown', handleClickOutside);
       window.removeEventListener('click', initAudio);
       window.removeEventListener('keydown', initAudio);
       window.removeEventListener('touchstart', initAudio);
+      window.removeEventListener('stockos-notification-refresh', handleNotifRefresh);
     };
   }, [userId]);
 

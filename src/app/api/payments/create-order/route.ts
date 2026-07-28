@@ -4,15 +4,15 @@ import { supabase } from "@/services/DatabaseClient";
 import { NextResponse } from "next/server";
 import Razorpay from "razorpay";
 
-// Tier Pricing Matrix (in INR ₹)
+// Tier Pricing Matrix (in INR ₹ - 17% Off Annual Offer)
 const PRICING: Record<string, Record<string, number>> = {
   lite: {
-    monthly: 499,
-    yearly: 4999,
+    monthly: 149,
+    yearly: 1499,
   },
   pro: {
-    monthly: 999,
-    yearly: 9999,
+    monthly: 499,
+    yearly: 4999,
   },
 };
 

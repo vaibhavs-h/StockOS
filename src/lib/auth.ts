@@ -40,21 +40,43 @@ export const authOptions: NextAuthOptions = {
       if (session.user) {
         (session.user as any).id = token.sub;
         
-        // Fetch latest tier from DB
+        // Fetch latest tier & expiration from DB
         try {
           const { data, error } = await supabase
             .from('profiles')
-            .select('subscription_tier')
+            .select('subscription_tier, subscription_expires_at')
             .eq('id', token.sub)
             .single();
             
           if (data && !error) {
-            (session.user as any).subscription_tier = data.subscription_tier;
+            let activeTier = data.subscription_tier || 'free';
+            let expiresAt = data.subscription_expires_at || null;
+
+            // Check if subscription has expired
+            if (expiresAt && new Date(expiresAt) <= new Date()) {
+              activeTier = 'free';
+              expiresAt = null;
+
+              // Automatically revert DB profile to free
+              await supabase
+                .from('profiles')
+                .update({
+                  subscription_tier: 'free',
+                  subscription_expires_at: null,
+                  updated_at: new Date().toISOString()
+                })
+                .eq('id', token.sub);
+            }
+
+            (session.user as any).subscription_tier = activeTier;
+            (session.user as any).subscription_expires_at = expiresAt;
           } else {
             (session.user as any).subscription_tier = 'free';
+            (session.user as any).subscription_expires_at = null;
           }
         } catch (e) {
           (session.user as any).subscription_tier = 'free';
+          (session.user as any).subscription_expires_at = null;
         }
       }
       return session;
