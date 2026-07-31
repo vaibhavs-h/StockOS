@@ -11,7 +11,7 @@ const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 /**
- * GET: Retrieve recent notifications (limit 25) for the authenticated user.
+ * GET: Retrieve active notifications (limit 100) for the authenticated user.
  */
 export async function GET(req: NextRequest) {
   const session = await getServerSession(authOptions);
@@ -27,7 +27,7 @@ export async function GET(req: NextRequest) {
       .select("*")
       .eq("user_id", userId)
       .order("created_at", { ascending: false })
-      .limit(25);
+      .limit(100);
 
     if (error) throw error;
 

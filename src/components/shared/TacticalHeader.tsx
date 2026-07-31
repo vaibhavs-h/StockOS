@@ -438,7 +438,8 @@ function NotificationBell({ userId }: { userId: string }) {
     }
   }, [toast]);
 
-  const unreadCount = notifications.filter(n => !n.is_read).length;
+  const activeNotifications = notifications.filter(n => !n.is_read);
+  const unreadCount = activeNotifications.length;
 
   const handleMarkAllRead = async () => {
     try {
@@ -496,8 +497,8 @@ function NotificationBell({ userId }: { userId: string }) {
       >
         <Bell className="size-5" />
         {unreadCount > 0 && (
-          <span className="absolute -top-1.5 -right-1.5 bg-emerald-500 text-black text-[9px] font-black w-5 h-5 rounded-full flex items-center justify-center border-2 border-black animate-bounce shadow-md">
-            {unreadCount}
+          <span className="absolute -top-1.5 -right-1.5 bg-emerald-500 text-black text-[9px] font-black min-w-[20px] h-5 px-1 rounded-full flex items-center justify-center border-2 border-black animate-bounce shadow-md">
+            {unreadCount > 99 ? '99+' : unreadCount}
           </span>
         )}
       </Button>
@@ -527,18 +528,17 @@ function NotificationBell({ userId }: { userId: string }) {
 
             {/* List */}
             <div className="max-h-[300px] overflow-y-auto divide-y divide-white/5">
-              {notifications.length === 0 ? (
+              {activeNotifications.length === 0 ? (
                 <div className="py-8 text-center text-zinc-600 text-xs font-semibold">
                   All quiet here! No new notifications.
                 </div>
               ) : (
-                notifications.map((n) => (
+                activeNotifications.map((n) => (
                   <div
                     key={n.id}
                     onClick={() => handleNotificationClick(n)}
                     className={cn(
-                      "p-3.5 flex gap-3 cursor-pointer transition-colors text-left",
-                      n.is_read ? "hover:bg-white/[0.02]" : "bg-white/[0.03] hover:bg-white/[0.05]"
+                      "p-3.5 flex gap-3 cursor-pointer transition-colors text-left bg-white/[0.03] hover:bg-white/[0.06]"
                     )}
                   >
                     <div className="size-7 rounded-lg bg-zinc-900 border border-white/10 flex items-center justify-center shrink-0 mt-0.5">
