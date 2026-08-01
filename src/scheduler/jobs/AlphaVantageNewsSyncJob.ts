@@ -56,7 +56,7 @@ const isIndiaRelated = (
   return indiaRegex.test(`${title} ${summary}`);
 };
 
-export class AlphaVantageNewsSyncJob extends BaseJob {
+export class AlphaVantageNewsSyncJob extends BaseJob<{ force?: boolean }> {
   public readonly id = 'AlphaVantageNewsSyncJob';
 
   public readonly metadata: JobMetadata = {
@@ -71,12 +71,52 @@ export class AlphaVantageNewsSyncJob extends BaseJob {
     backoffDelayMs: 5000,
   };
 
-  protected async process(): Promise<number> {
+  protected async process(data?: { force?: boolean }): Promise<number> {
     if (!AV_KEY) {
       throw new Error('[AlphaVantageNewsSyncJob] ALPHA_VANTAGE_API_KEY is not set in environment.');
     }
 
     const supabase = SupabaseProvider.getClient();
+
+    // DB Cooldown Shield: Skip API call if news in DB was published within the last 3 hours
+    const COOLDOWN_HOURS = 3;
+    if (!data?.force) {
+      try {
+        const { data: latestNews, error: shieldErr } = await supabase
+          .from('news')
+          .select('published_at')
+          .order('published_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        if (!shieldErr && latestNews?.published_at) {
+          const lastNewsTime = new Date(latestNews.published_at).getTime();
+          if (!isNaN(lastNewsTime)) {
+            const hoursSinceLastNews = (Date.now() - lastNewsTime) / (1000 * 60 * 60);
+
+            if (hoursSinceLastNews >= 0 && hoursSinceLastNews < COOLDOWN_HOURS) {
+              console.log(
+                `[AlphaVantageNewsSyncJob] DB Cooldown Shield Active: DB news is fresh (${hoursSinceLastNews.toFixed(
+                  1
+                )}h old < ${COOLDOWN_HOURS}h cooldown). Skipping AV API call.`
+              );
+              this.log(
+                `DB Cooldown Shield Active: News was updated ${hoursSinceLastNews.toFixed(
+                  1
+                )}h ago. API call skipped to preserve 25 req/day limit.`,
+                'info'
+              );
+              return 0;
+            }
+          }
+        }
+      } catch (shieldCheckErr: any) {
+        console.warn('[AlphaVantageNewsSyncJob] Shield check failed, proceeding with fetch:', shieldCheckErr.message);
+      }
+    } else {
+      console.log('[AlphaVantageNewsSyncJob] Force flag detected. Bypassing DB Cooldown Shield.');
+    }
+
     console.log('[AlphaVantageNewsSyncJob] Starting Alpha Vantage news fetch...');
 
     // AV returns up to 1000 articles per call — we cap at 200 for reasonable batch size
