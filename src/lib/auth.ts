@@ -18,11 +18,10 @@ export const authOptions: NextAuthOptions = {
       if (url.startsWith("/")) return `${baseUrl}${url}`;
       try {
         const targetUrl = new URL(url);
-        // Allow redirect if domain matches custom domain, vercel.app, or localhost
+        // Allow redirect if domain matches stockos.vaibhav.rs or localhost
         if (
           targetUrl.origin === baseUrl ||
-          targetUrl.hostname.endsWith(".vercel.app") ||
-          targetUrl.hostname.endsWith("vaibhavs-h.xyz") ||
+          targetUrl.hostname.endsWith("vaibhav.rs") ||
           targetUrl.hostname === "localhost"
         ) {
           return url;
@@ -58,7 +57,7 @@ export const authOptions: NextAuthOptions = {
     async session({ session, token }) {
       if (session.user) {
         (session.user as any).id = token.sub;
-        
+
         // Fetch latest tier & expiration from DB
         try {
           const { data, error } = await supabase
@@ -66,7 +65,7 @@ export const authOptions: NextAuthOptions = {
             .select('subscription_tier, subscription_expires_at')
             .eq('id', token.sub)
             .single();
-            
+
           if (data && !error) {
             let activeTier = data.subscription_tier || 'free';
             let expiresAt = data.subscription_expires_at || null;

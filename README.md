@@ -2,6 +2,8 @@
 
 > **A Premium Financial Operating System for Serious Investors.**
 
+🌐 **Live Application**: [https://stockos.vaibhav.rs](https://stockos.vaibhav.rs)
+
 StockOS unifies Indian Equities (NSE/BSE), US Stocks, Mutual Funds, and AI-driven market intelligence into a single high-performance dashboard. Powered by a split-engine architecture, RAM-first real-time price synchronization, automated portfolio statement parsing, Razorpay subscription management, and an AI research assistant.
 
 ---
