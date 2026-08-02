@@ -3,6 +3,7 @@ import GoogleProvider from "next-auth/providers/google";
 import { supabase } from "@/services/DatabaseClient";
 
 export const authOptions: NextAuthOptions = {
+  secret: process.env.NEXTAUTH_SECRET,
   providers: [
     GoogleProvider({
       clientId: process.env.GOOGLE_CLIENT_ID || "",
@@ -13,6 +14,24 @@ export const authOptions: NextAuthOptions = {
     signIn: "/auth/login",
   },
   callbacks: {
+    async redirect({ url, baseUrl }) {
+      if (url.startsWith("/")) return `${baseUrl}${url}`;
+      try {
+        const targetUrl = new URL(url);
+        // Allow redirect if domain matches custom domain, vercel.app, or localhost
+        if (
+          targetUrl.origin === baseUrl ||
+          targetUrl.hostname.endsWith(".vercel.app") ||
+          targetUrl.hostname.endsWith("vaibhavs-h.xyz") ||
+          targetUrl.hostname === "localhost"
+        ) {
+          return url;
+        }
+      } catch {
+        // Fallback to baseUrl
+      }
+      return baseUrl;
+    },
     async signIn({ user, account, profile }) {
       if (!user.email) return false;
 
