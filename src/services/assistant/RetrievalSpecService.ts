@@ -40,6 +40,7 @@ const STATIC_OPTIONAL: Record<Capability, PrioritizedField[]> = {
   ],
   portfolio_analysis: [
     { field: 'total_market_value', priority: 5 }, { field: 'total_market_value_inr', priority: 5 }, { field: 'total_market_value_usd', priority: 5 },
+    { field: 'held_symbols', priority: 5 },
     { field: 'sector_exposure', priority: 5 }, { field: 'allocation', priority: 5 }, { field: 'concentration', priority: 5 },
     { field: 'portfolio_beta', priority: 5 }, { field: 'diversification_score', priority: 5 }, { field: 'volatility_score', priority: 5 },
   ],

@@ -70,6 +70,13 @@ function computeForGroup(holdings: HoldingWithMeta[]): ProvenancedField[] {
     push('diversification_score', 'diversificationScore', diversificationScore),
     push('volatility_score', 'volatilityScore', Number(volatilityScore.toFixed(0))),
     push('largest_holding_weight_pct', 'concentration', Number(largestHoldingWeight.toFixed(1))),
+    // Without this, the model has no grounded way to say *which* holding is the largest — and
+    // live QA caught it inferring the answer from the user's own question wording instead
+    // (e.g. "should I sell my TCS shares" → confidently narrating "largest holding (likely
+    // TCS)" without ever checking that against the portfolio). The symbol is already computed
+    // one line above; this just surfaces it as a citable fact instead of leaving the model to
+    // guess from the prompt.
+    push('largest_holding_symbol', 'concentration', holdingWeights[0]?.symbol || 'Unknown'),
     push('top3_holdings_weight_pct', 'concentration', Number(top3Pct.toFixed(1))),
     push('largest_sector', 'sectorExposure', sectorAllocation[0]?.name || 'Unclassified'),
     push('largest_sector_weight_pct', 'sectorExposure', Number(largestSectorWeight.toFixed(1))),

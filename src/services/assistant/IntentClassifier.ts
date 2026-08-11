@@ -196,10 +196,21 @@ function resolveProposedSymbols(proposed: string[]): string[] {
     let match = lookup.find(e => e.matchText === lower);
 
     // Prefix match: people say "Alkyl Amines", the registered name is "Alkyl Amines
-    // Chemicals Ltd." — only for reasonably long phrases, to keep a short/ambiguous
-    // fragment ("Tata") from grabbing an arbitrary company off the front of the list.
-    if (!match && lower.length >= 6) {
-      match = lookup.find(e => e.kind === 'name' && e.matchText.startsWith(`${lower} `));
+    // Chemicals Ltd." — accepted only when the prefix is unambiguous (matches exactly one
+    // *company name* across the whole universe). A length floor alone would either block
+    // short-but-unique names ("Apple", "Tesla" — both 5 chars) or, if raised to cover them,
+    // risk a short *ambiguous* fragment ("Tata" prefixes several distinct Tata Group
+    // companies) grabbing an arbitrary one; checking uniqueness instead handles both
+    // correctly regardless of length. The boundary after the prefix is any non-alphanumeric
+    // character, not just a space — "Tesla, Inc." needs the comma to count as a boundary too.
+    // Uniqueness is judged by matchText (the company name), not storageSymbol: the same
+    // company cross-listed as both `.NS` and `.BO` is one match, not two ambiguous ones.
+    if (!match && lower.length >= 3) {
+      const escapedLower = lower.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const prefixRe = new RegExp(`^${escapedLower}[^a-z0-9]`, 'i');
+      const prefixMatches = lookup.filter(e => e.kind === 'name' && prefixRe.test(e.matchText));
+      const distinctNames = new Set(prefixMatches.map(e => e.matchText));
+      if (distinctNames.size === 1) match = prefixMatches[0];
     }
 
     if (match) resolved.push(match.storageSymbol);

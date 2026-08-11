@@ -72,6 +72,15 @@ export async function fetchHoldings(
     { field: 'holdings_count', value: bundle.holdings.length, source: 'holdings', kind: 'retrieved', asOf },
   ];
 
+  // Without a full symbol list, the model's only per-holding fact is whichever one
+  // PortfolioAnalytics computes as the *largest* holding — live QA caught it concluding a
+  // symbol the user asked about ("my TCS shares") wasn't held at all, just because that
+  // symbol didn't happen to be the largest one and so never appeared anywhere in context.
+  // This lets the model correctly confirm or deny membership for any symbol, not just #1.
+  if (bundle.holdings.length > 0) {
+    fields.push({ field: 'held_symbols', value: bundle.holdings.map(h => h.symbol).join(', '), source: 'holdings', kind: 'retrieved', asOf });
+  }
+
   // Never blend ₹ and $ into one "total" — a mixed portfolio's sum would be a meaningless
   // number (the currencies differ in magnitude by ~83x, so it isn't a rounding issue, it's
   // wrong). Single-currency (or empty) portfolios — the common case — keep the simple field.

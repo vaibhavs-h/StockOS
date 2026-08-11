@@ -23,7 +23,7 @@ export interface CapabilityPolicyConfig {
 // matching seed comment for why that reproduces pre-Phase-5 behavior exactly.
 const STATIC_DEFAULTS: Record<Capability, CapabilityPolicyConfig> = {
   stock_research: { capability: 'stock_research', verificationTier2Policy: 'auto', burstSyncAllowed: true, conversationCacheEnabled: true, cacheTtlOverrideMs: null, timeoutMs: 30000, maxCostUsdPerRequest: null, retrievalBudget: 11 },
-  portfolio_analysis: { capability: 'portfolio_analysis', verificationTier2Policy: 'always', burstSyncAllowed: false, conversationCacheEnabled: true, cacheTtlOverrideMs: null, timeoutMs: 45000, maxCostUsdPerRequest: null, retrievalBudget: 9 },
+  portfolio_analysis: { capability: 'portfolio_analysis', verificationTier2Policy: 'always', burstSyncAllowed: false, conversationCacheEnabled: true, cacheTtlOverrideMs: null, timeoutMs: 45000, maxCostUsdPerRequest: null, retrievalBudget: 10 },
   compare_stocks: { capability: 'compare_stocks', verificationTier2Policy: 'auto', burstSyncAllowed: true, conversationCacheEnabled: true, cacheTtlOverrideMs: null, timeoutMs: 35000, maxCostUsdPerRequest: null, retrievalBudget: 11 },
   market_overview: { capability: 'market_overview', verificationTier2Policy: 'never', burstSyncAllowed: false, conversationCacheEnabled: true, cacheTtlOverrideMs: null, timeoutMs: 20000, maxCostUsdPerRequest: null, retrievalBudget: 8 },
   general_finance: { capability: 'general_finance', verificationTier2Policy: 'never', burstSyncAllowed: false, conversationCacheEnabled: false, cacheTtlOverrideMs: null, timeoutMs: 20000, maxCostUsdPerRequest: null, retrievalBudget: 8 },

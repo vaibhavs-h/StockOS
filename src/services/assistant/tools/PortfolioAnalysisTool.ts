@@ -9,7 +9,7 @@ import { AssistantTool, ResolvedEntities, ToolResult } from '../types';
 const REQUIRED_FIELDS = ['holdings_count'];
 const OPTIONAL_FIELDS = [
   'total_market_value', 'total_market_value_inr', 'total_market_value_usd',
-  'sector_exposure', 'allocation', 'concentration', 'portfolio_beta',
+  'held_symbols', 'sector_exposure', 'allocation', 'concentration', 'portfolio_beta',
   'diversification_score', 'volatility_score',
 ];
 

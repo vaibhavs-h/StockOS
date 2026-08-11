@@ -17,7 +17,7 @@ import { RequestTracer } from './Tracer';
 import { registerAssistantTools } from './tools/registerTools';
 import { ToolRegistry } from './tools/ToolRegistry';
 import { AssistantQueryRequest, AssistantQueryResponse, SubscriptionTier, ToolResult } from './types';
-import { Verifier } from './Verifier';
+import { checkResponseWellFormed, Verifier } from './Verifier';
 import { DerivedFactsBuilder } from './verification/DerivedFactsBuilder';
 import { checkFinancialConsistency } from './verification/FinancialConsistencyChecks';
 import { Tier2Verifier } from './verification/Tier2Verifier';
@@ -284,11 +284,14 @@ export class ResearchOrchestrator {
     tracer.mark('llm_synthesis');
     tracer.set('modelUsed', synthesized.modelUsed);
 
-    // Bounded arithmetic-consistency retry (Phase 1, V2 plan): unlike the fuzzier
-    // ticker/citation heuristics, a financial-consistency mismatch names one correctable
-    // number — worth a single retry with the specific correction, never more than one.
+    // Bounded corrective retry (Phase 1, V2 plan; well-formedness check added after live QA
+    // surfaced two real failure shapes — a response truncated mid-sentence, and a raw
+    // safety-classifier artifact leaking through as the "answer" — that no arithmetic check
+    // would ever catch). Unlike the fuzzier ticker/citation heuristics, both an arithmetic
+    // mismatch and a malformed response name something concretely correctable — worth a
+    // single retry, never more than one.
     let arithmeticRetried = false;
-    const preliminaryIssues = checkFinancialConsistency(synthesized.content, context);
+    const preliminaryIssues = [...checkFinancialConsistency(synthesized.content, context), ...checkResponseWellFormed(synthesized.content)];
     if (preliminaryIssues.length > 0) {
       try {
         synthesized = await withTimeout(
@@ -296,12 +299,12 @@ export class ResearchOrchestrator {
             [
               ...promptMessages,
               { role: 'assistant', content: synthesized.content },
-              { role: 'user', content: `Your previous answer had an arithmetic issue: ${preliminaryIssues.join(' ')} Please provide a corrected answer using the exact figures from the Context.` },
+              { role: 'user', content: `Your previous answer had an issue: ${preliminaryIssues.join(' ')} Please provide a complete, corrected answer using the exact figures from the Context.` },
             ],
             modelConfig
           ),
           policy.timeoutMs,
-          'LLM arithmetic-retry'
+          'LLM corrective-retry'
         );
         addUsage(synthesized.usage);
         arithmeticRetried = true;
@@ -315,6 +318,14 @@ export class ResearchOrchestrator {
     let verification = { ...Verifier.tier1(substituted, synthesized.content, context), arithmetic_retry: arithmeticRetried };
     const requestedFieldCounts = { required: tool.requiredFields.length, optional: prioritizedOptional.length };
     let confidence = ConfidenceScorer.score(context, verification, classified.confidence, requestedFieldCounts);
+
+    // Still malformed after the one bounded retry (or the retry itself failed/timed out) —
+    // never show the user a truncated fragment or a leaked safety-classifier tag. tier1Issues
+    // already records the real diagnostic for the trace/full-snapshot persistence below; only
+    // the user-facing text is replaced.
+    if (checkResponseWellFormed(synthesized.content).length > 0) {
+      synthesized = { ...synthesized, content: "I wasn't able to generate a complete answer for that — please try asking again, possibly rephrased." };
+    }
 
     // Tier 2 (Phase 3, V2 plan): gated by capability policy, not run for every request.
     // 'auto' runs it when Tier 1 already flagged something, or the provisional (tier2:

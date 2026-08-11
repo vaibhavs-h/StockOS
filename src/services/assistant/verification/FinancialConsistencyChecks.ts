@@ -22,7 +22,14 @@ const PERCENT_CLAIM_RE = /([\-+]?\d+(?:\.\d+)?)\s*%/g;
 
 const CLAIMS: ClaimSpec[] = [
   { keywords: /\b(today|day|daily|up|down|gained|lost|rose|fell|climbed|dropped)\b/i, factSuffix: 'daily_change_percent', label: 'day change %', toleranceAbs: 0.15 },
-  { keywords: /\b(return|overall|portfolio|gain|loss)\b/i, factSuffix: 'portfolio_return_percent', label: 'portfolio return %', toleranceAbs: 0.15 },
+  // Deliberately excludes the bare words "portfolio" and "overall" — in a portfolio_analysis
+  // response (this claim's only context, since resolveFact only finds `portfolio_return_percent`
+  // there) "portfolio" appears in nearly every sentence, so it doesn't distinguish a genuine
+  // return-% claim from an unrelated one (sector exposure, concentration) that just happens to
+  // sit within the keyword window of the same word. "return"/"gained"/"lost" alone still catch
+  // the actual phrasing ("a portfolio return of -0.14%", "your portfolio gained 2%") without that
+  // false-positive surface.
+  { keywords: /\b(return|gained|lost)\b/i, factSuffix: 'portfolio_return_percent', label: 'portfolio return %', toleranceAbs: 0.15 },
 ];
 
 /** Natural phrasing puts the context word on either side of the number — "up 4.2% today"
@@ -33,14 +40,18 @@ function windowAround(text: string, index: number, matchLength: number, size = 4
   return `${before} ${after}`;
 }
 
-/** Resolves a fact field for the entity a percentage claim is most likely about — the single
- * entity in context for stock_research/portfolio_analysis, or (best-effort) the first
- * per-symbol-prefixed match for compare_stocks, since prose rarely disambiguates which side
- * of a comparison a bare "%" refers to as precisely as the citation-based checks already do. */
-function resolveFact(context: StructuredContext, suffix: string): ProvenancedField | undefined {
-  const exact = context.fields.find(f => f.field === suffix);
-  if (exact) return exact;
-  return context.fields.find(f => f.field.endsWith(`.${suffix}`));
+/** Resolves every candidate fact a percentage claim could be about — the single entity in
+ * context for stock_research/portfolio_analysis (one match), or *every* per-symbol-prefixed
+ * match for compare_stocks (multiple matches, one per entity). Multi-entity matters: a
+ * compare response legitimately states a different day-change % per symbol, and checking a
+ * stated number against only one entity's value would flag every *other* entity's genuinely
+ * correct figure as wrong — prose rarely disambiguates which side of a comparison a bare "%"
+ * refers to as precisely as the citation-based checks already do, so this checks "does the
+ * stated number match *any* grounded candidate" rather than picking one to compare against. */
+function resolveFacts(context: StructuredContext, suffix: string): ProvenancedField[] {
+  const exact = context.fields.filter(f => f.field === suffix);
+  if (exact.length > 0) return exact;
+  return context.fields.filter(f => f.field.endsWith(`.${suffix}`));
 }
 
 export function checkFinancialConsistency(response: string, context: StructuredContext): string[] {
@@ -55,16 +66,18 @@ export function checkFinancialConsistency(response: string, context: StructuredC
 
     for (const claim of CLAIMS) {
       if (!claim.keywords.test(window)) continue;
-      const fact = resolveFact(context, claim.factSuffix);
-      if (!fact) continue;
-      const expected = parseMoneyOrNumber(fact.value);
-      if (expected === null) continue;
+      const facts = resolveFacts(context, claim.factSuffix);
+      if (facts.length === 0) continue;
+      const expectedValues = facts.map(f => parseMoneyOrNumber(f.value)).filter((v): v is number => v !== null);
+      if (expectedValues.length === 0) continue;
 
       // Compare magnitude, not signed value — prose routinely conveys direction through a
       // word ("fell 0.6%") rather than a literal minus sign, same convention checkNumbers
-      // already uses for exactly this reason.
-      if (Math.abs(Math.abs(stated) - Math.abs(expected)) > claim.toleranceAbs) {
-        issues.push(`Financial consistency: response states ${claim.label} ≈ ${stated}%, but the retrieved/computed data gives ${expected}%.`);
+      // already uses for exactly this reason. Flag only if the stated number matches none of
+      // the candidates within tolerance.
+      const matchesAny = expectedValues.some(expected => Math.abs(Math.abs(stated) - Math.abs(expected)) <= claim.toleranceAbs);
+      if (!matchesAny) {
+        issues.push(`Financial consistency: response states ${claim.label} ≈ ${stated}%, but the retrieved/computed data gives ${expectedValues.join(', ')}%.`);
       }
       break; // one claim label per matched number
     }
