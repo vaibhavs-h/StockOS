@@ -13,7 +13,7 @@ StockOS unifies Indian Equities (NSE/BSE), US Stocks, Mutual Funds, and AI-drive
 * **Multi-Asset Portfolio Intelligence**: Track Indian stocks (NSE/BSE), US equities, and Mutual Fund CAS statements with real-time P&L revaluation.
 * **Automated Broker Imports**: Zero-effort import engine supporting **Zerodha CSV**, **Groww Excel**, and **CAMS/KFintech CAS PDF** statements.
 * **Adaptive Pulse Sync Engine**: Express background engine running RAM-first dirty-write caching to update prices with up to 80% reduced database load.
-* **AI Research Assistant**: Embedded dashboard assistant backed by an **n8n RAG pipeline** for contextual financial analysis.
+* **AI Research Assistant**: Embedded dashboard assistant grounded entirely in verified StockOS data — the LLM never invents a number. Requests flow through a fixed pipeline (Intent → Capability → Tool → Retriever → Analytics → Context Builder → LLM → Verification), with deterministic arithmetic checks, tiered LLM-based verification, automatic burst-sync for stale/missing data, and a feedback-driven retrieval-priority learning loop.
 * **Razorpay Subscription & Extensions**: Complete billing tiering (Free, Lite ₹149/mo, Pro ₹499/mo) featuring real-time countdown tickers, 7-day expiration warnings, plan locking, and duration extension stacking.
 * **Real-time Notifications**: Automated alerts for price targets, subscription updates, plan renewals, and market summaries.
 
@@ -73,7 +73,7 @@ StockOS provides a complete monetization flow integrated with Razorpay:
 * **Statement Parsing & File Processing**: `xlsx` (Groww Statements), `csv-parse` (Zerodha Reports), `pdf-parse` (CAMS/KFintech CAS Statements), `multer` (File Upload Middleware).
 * **Market Data Feeds**: `yahoo-finance2` (NSE/BSE & US Stocks), AMFI India NAV Feed, Alpha Vantage Sentiment & News API, RSS Ingestion.
 * **Payments & Billing**: [Razorpay API & Webhooks](https://razorpay.com/) (`razorpay`), HMAC-SHA256 Verification.
-* **AI & RAG Pipeline**: [n8n Workflow Automation](https://n8n.io/) (Pinecone / Supabase `pgvector`, OpenAI GPT-4 & Gemini Embeddings).
+* **AI Research Assistant**: Multi-provider LLM routing (Groq primary, OpenRouter fallback) over a grounded retrieval pipeline — no vector DB or embeddings; every fact the model sees is retrieved and provenance-tagged by the backend first.
 * **Infrastructure & Monitoring**: Vercel Analytics (`@vercel/analytics`), Vercel Speed Insights (`@vercel/speed-insights`), `dotenv`, `otplib`.
 
 ---
@@ -83,16 +83,19 @@ StockOS provides a complete monetization flow integrated with Razorpay:
 ```text
 ├── src/
 │   ├── app/                    # Next.js App Router pages & API routes
-│   │   ├── api/                # Payments, Subscriptions, Notifications, Auth APIs
+│   │   ├── api/                # Payments, Subscriptions, Notifications, Auth, Assistant APIs
 │   │   ├── subscription/       # Pricing & Plan Management UI
 │   │   ├── dashboard/          # Financial Command Center
 │   │   ├── stocks/             # Stock Analysis Pages
 │   │   └── journal/            # News Intelligence & Journal
 │   ├── components/             # Reusable UI components & Tactical Header
 │   ├── lib/                    # Auth configuration & utilities
-│   ├── services/               # Database client, Alert service, Statement parsers
-│   └── server.ts               # Pulse Sync Engine & Background Scheduler
-├── scratch/                    # SQL migrations & verification scripts
+│   ├── services/                # Database client, Alert service, Statement parsers, Burst Sync
+│   │   └── assistant/          # Research Assistant pipeline (retrieval, verification, LLM client)
+│   ├── scheduler/               # Pulse Sync Engine jobs & cron orchestration
+│   └── server.ts                # Pulse Sync Engine & Background Scheduler entrypoint
+├── prompts/                     # Versioned system prompts per assistant capability
+├── scratch/                     # One-off diagnostic/migration/backfill scripts (gitignored)
 └── README.md
 ```
 

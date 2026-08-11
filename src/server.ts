@@ -19,8 +19,10 @@ import multer from 'multer';
 import { ExcelImportService } from './services/ExcelImportService';
 import { CASImportService } from './services/CASImportService';
 import { YahooProvider } from './scheduler/providers/YahooProvider';
-import { SymbolSyncStateService } from './scheduler/core/SymbolSyncStateService';
+import { BurstSyncService } from './services/BurstSyncService';
 import { getDbUserId } from './lib/user';
+import { ResearchOrchestrator } from './services/assistant/ResearchOrchestrator';
+import { AssistantQueryRequest, SubscriptionTier } from './services/assistant/types';
 
 // ---------------------------------------------------------
 // GLOBAL RESILIENCE HANDLERS (Institutional Shielding)
@@ -57,6 +59,41 @@ app.get('/api/health', (req, res) => {
     region: process.env.RENDER_REGION || 'local',
     version: '1.0.0'
   });
+});
+
+// ---------------------------------------------------------
+// RESEARCH ASSISTANT (internal — trusted only via ASSISTANT_INTERNAL_SECRET)
+// ---------------------------------------------------------
+app.post('/internal/assistant/query', async (req, res) => {
+  const secret = req.headers['x-assistant-secret'];
+  const expected = process.env.ASSISTANT_INTERNAL_SECRET;
+
+  if (!expected) {
+    console.error('[ASSISTANT] ASSISTANT_INTERNAL_SECRET is not set on the engine — refusing all requests.');
+    return res.status(500).json({ error: 'Assistant is not configured on the engine.' });
+  }
+  if (secret !== expected) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+
+  const { userId, tier, message, conversationId } = req.body || {};
+  if (!userId || !message) {
+    return res.status(400).json({ error: 'userId and message are required' });
+  }
+
+  try {
+    const request: AssistantQueryRequest = {
+      userId: getDbUserId(userId),
+      tier: ((tier as SubscriptionTier) || 'free'),
+      message: String(message).slice(0, 2000),
+      conversationId,
+    };
+    const result = await ResearchOrchestrator.handleQuery(request);
+    res.json(result);
+  } catch (err: any) {
+    console.error('[ASSISTANT] Query failed:', err.message, err.stack);
+    res.status(500).json({ error: 'Research Assistant is temporarily unavailable.' });
+  }
 });
 
 // Self-Ping Task: Pings itself every 10 minutes to stay awake on Render
@@ -295,60 +332,13 @@ app.get('/api/sync/burst', async (req, res) => {
 
   if (!symbol) return res.status(400).json({ error: 'Symbol is required' });
 
-  try {
-    console.log(`[BURST-SYNC] Targeted Burst for ${symbol} (${region})`);
-    const quote = await YahooProvider.fetchQuote(symbol, region === MarketRegion.US ? 'US' : 'IN');
+  console.log(`[BURST-SYNC] Targeted Burst for ${symbol} (${region})`);
+  const result = await BurstSyncService.syncQuote(symbol, region);
 
-    if (!quote || quote.price === undefined) {
-      console.warn(`[BURST-SYNC] No quote found for ${symbol}`);
-      return res.status(404).json({ error: 'Quote not found' });
-    }
-
-    // Upsert to DB
-    const tableName = region === MarketRegion.US ? 'us_market_assets' : 'market_assets';
-    const payload = {
-      symbol: normalizeStorageSymbol(symbol),
-      current_price: quote.price,
-      day_change: quote.change,
-      day_change_percentage: quote.changePercent,
-      prev_close: quote.prevClose,
-      premarket_price: (quote as any).preMarketPrice,
-      premarket_change_pct: (quote as any).preMarketChangePercent,
-      after_hours_price: (quote as any).postMarketPrice,
-      after_hours_change_pct: (quote as any).postMarketChangePercent,
-      updated_at: new Date().toISOString()
-    };
-
-
-    const { error } = await supabase.from(tableName).upsert(payload, { onConflict: 'symbol' });
-    if (error) {
-      console.error(`[BURST-SYNC] DB Upsert failed for ${symbol}:`, error.message);
-      throw error;
-    }
-
-    // Update active market symbols last_synced_at & sync_error_count
-    await SymbolSyncStateService.recordSyncResult(
-      normalizeStorageSymbol(symbol),
-      region === MarketRegion.US ? 'US' : 'IN',
-      true
-    ).catch(e => console.error(`[BURST-SYNC] Failed to record success:`, e.message));
-
-    console.log(`[BURST-SYNC] Successfully synced ${symbol} | Price: ${quote.price} | AfterHours: ${(quote as any).postMarketPrice}`);
-    res.json({ success: true, price: quote.price, afterHoursPrice: (quote as any).postMarketPrice });
-
-  } catch (err: any) {
-    console.error(`[BURST-SYNC] FATAL ERROR for ${symbol}:`, err.message);
-
-    // Record sync failure in active_market_symbols table
-    await SymbolSyncStateService.recordSyncResult(
-      normalizeStorageSymbol(symbol),
-      region === MarketRegion.US ? 'US' : 'IN',
-      false,
-      err.message
-    ).catch(e => console.error(`[BURST-SYNC] Failed to record failure:`, e.message));
-
-    res.status(500).json({ error: err.message });
+  if (!result.success) {
+    return res.status(404).json({ error: 'Quote not found' });
   }
+  res.json({ success: true, price: result.price });
 });
 
 

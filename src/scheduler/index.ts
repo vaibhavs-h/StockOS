@@ -12,6 +12,7 @@ import { AlphaVantageNewsSyncJob } from './jobs/AlphaVantageNewsSyncJob';
 import { IndianNewsSyncJob } from './jobs/IndianNewsSyncJob';
 import { MFMasterSeedJob } from './jobs/internal/MFMasterSeedJob';
 import { DailyMorningPriceSyncJob } from './jobs/DailyMorningPriceSyncJob';
+import { AssistantLearningJob } from './jobs/AssistantLearningJob';
 
 
 /**
@@ -128,6 +129,13 @@ export function initializeScheduler() {
     syncOrchestrator.dispatch(new AlphaVantageNewsSyncJob());
     syncOrchestrator.dispatch(new IndianNewsSyncJob());
   });
+
+  // 7. RESEARCH ASSISTANT LEARNING: Nightly at 2:30 AM IST (§ V2 plan, Phase 5).
+  // Aggregates the trailing 30 days of assistant_feedback and nudges optional-field
+  // retrieval priorities up or down — never touches required fields or prompt wording.
+  cron.schedule('30 2 * * *', () => {
+    syncOrchestrator.dispatch(new AssistantLearningJob());
+  }, { timezone: 'Asia/Kolkata' });
 
   console.log('[SCHEDULER] Institutional Orchestration Active.');
 }

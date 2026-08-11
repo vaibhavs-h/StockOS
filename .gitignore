@@ -68,3 +68,8 @@ check_*.js
 count_assets.js
 .vercel
 .turbo/
+
+# 7. Local-only project notes (solo project — not tracked in git)
+CLAUDE.md
+docs/
+supabase/
