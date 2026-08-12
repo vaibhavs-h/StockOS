@@ -27,6 +27,25 @@ const STATIC_DEFAULTS: Record<Capability, CapabilityPolicyConfig> = {
   compare_stocks: { capability: 'compare_stocks', verificationTier2Policy: 'auto', burstSyncAllowed: true, conversationCacheEnabled: true, cacheTtlOverrideMs: null, timeoutMs: 35000, maxCostUsdPerRequest: null, retrievalBudget: 11 },
   market_overview: { capability: 'market_overview', verificationTier2Policy: 'never', burstSyncAllowed: false, conversationCacheEnabled: true, cacheTtlOverrideMs: null, timeoutMs: 20000, maxCostUsdPerRequest: null, retrievalBudget: 8 },
   general_finance: { capability: 'general_finance', verificationTier2Policy: 'never', burstSyncAllowed: false, conversationCacheEnabled: false, cacheTtlOverrideMs: null, timeoutMs: 20000, maxCostUsdPerRequest: null, retrievalBudget: 8 },
+  // Symbol-scoped facts (like stock_research): burst-sync eligible, Tier 2 only when Tier 1
+  // already flagged something or confidence isn't already high.
+  dividend_analysis: { capability: 'dividend_analysis', verificationTier2Policy: 'auto', burstSyncAllowed: true, conversationCacheEnabled: true, cacheTtlOverrideMs: null, timeoutMs: 25000, maxCostUsdPerRequest: null, retrievalBudget: 3 },
+  technical_analysis: { capability: 'technical_analysis', verificationTier2Policy: 'auto', burstSyncAllowed: true, conversationCacheEnabled: true, cacheTtlOverrideMs: null, timeoutMs: 25000, maxCostUsdPerRequest: null, retrievalBudget: 4 },
+  etf_analysis: { capability: 'etf_analysis', verificationTier2Policy: 'auto', burstSyncAllowed: true, conversationCacheEnabled: true, cacheTtlOverrideMs: null, timeoutMs: 30000, maxCostUsdPerRequest: null, retrievalBudget: 7 },
+  news_analysis: { capability: 'news_analysis', verificationTier2Policy: 'auto', burstSyncAllowed: false, conversationCacheEnabled: true, cacheTtlOverrideMs: null, timeoutMs: 25000, maxCostUsdPerRequest: null, retrievalBudget: 10 },
+  // Aggregation over many rows, not one symbol — no burst-sync (nothing to burst-fetch),
+  // slightly longer timeout for the group-by.
+  sector_analysis: { capability: 'sector_analysis', verificationTier2Policy: 'auto', burstSyncAllowed: false, conversationCacheEnabled: true, cacheTtlOverrideMs: null, timeoutMs: 30000, maxCostUsdPerRequest: null, retrievalBudget: 10 },
+  // Advice-adjacent (like portfolio_analysis): always Tier 2, no burst-sync for the
+  // portfolio-scoped ones (mirrors portfolio_analysis exactly).
+  investment_thesis: { capability: 'investment_thesis', verificationTier2Policy: 'always', burstSyncAllowed: true, conversationCacheEnabled: true, cacheTtlOverrideMs: null, timeoutMs: 40000, maxCostUsdPerRequest: null, retrievalBudget: 17 },
+  watchlist_review: { capability: 'watchlist_review', verificationTier2Policy: 'auto', burstSyncAllowed: false, conversationCacheEnabled: true, cacheTtlOverrideMs: null, timeoutMs: 30000, maxCostUsdPerRequest: null, retrievalBudget: 4 },
+  mutual_fund_analysis: { capability: 'mutual_fund_analysis', verificationTier2Policy: 'auto', burstSyncAllowed: false, conversationCacheEnabled: true, cacheTtlOverrideMs: null, timeoutMs: 30000, maxCostUsdPerRequest: null, retrievalBudget: 4 },
+  risk_analysis: { capability: 'risk_analysis', verificationTier2Policy: 'always', burstSyncAllowed: false, conversationCacheEnabled: true, cacheTtlOverrideMs: null, timeoutMs: 40000, maxCostUsdPerRequest: null, retrievalBudget: 9 },
+  portfolio_optimization: { capability: 'portfolio_optimization', verificationTier2Policy: 'always', burstSyncAllowed: false, conversationCacheEnabled: true, cacheTtlOverrideMs: null, timeoutMs: 40000, maxCostUsdPerRequest: null, retrievalBudget: 4 },
+  // Query results are specific to the exact filter set asked for — not worth caching across
+  // conversation turns the way a stable entity (a symbol, a portfolio) is.
+  screener: { capability: 'screener', verificationTier2Policy: 'auto', burstSyncAllowed: false, conversationCacheEnabled: false, cacheTtlOverrideMs: null, timeoutMs: 30000, maxCostUsdPerRequest: null, retrievalBudget: 0 },
 };
 
 let cache: Map<Capability, CapabilityPolicyConfig> | null = null;

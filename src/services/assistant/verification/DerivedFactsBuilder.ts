@@ -97,6 +97,49 @@ export class DerivedFactsBuilder {
       }
     }
 
+    // Mutual fund return % / gain-loss — mutual_fund_analysis. Always INR (StockOS's mutual
+    // fund data is India-only), same shape as the portfolio pair above.
+    const mfValueField = context.fields.find(f => f.field === 'total_mf_market_value');
+    const mfInvestedField = context.fields.find(f => f.field === 'total_mf_invested_value');
+    if (mfValueField && mfInvestedField) {
+      const mfValue = parseMoneyOrNumber(mfValueField.value);
+      const mfInvested = parseMoneyOrNumber(mfInvestedField.value);
+      if (mfValue !== null && mfInvested !== null && mfInvested !== 0) {
+        const currency = currencyOfFormatted(mfValueField.value);
+        pushPercent('mf_return_percent', 'mfReturnPercent', percentChange(mfValue, mfInvested));
+        pushMoneyFact('mf_gain_loss', 'mfGainLoss', absoluteChange(mfValue, mfInvested), currency);
+      }
+    }
+
+    // Technical read — technical_analysis. Current price vs. the two moving averages and
+    // distance from the 52-week range, computed once rather than left for the model to eyeball
+    // from the raw numbers (same "hand it the answer" principle as the pairs above).
+    const priceField = context.fields.find(f => f.field === 'quote_price');
+    const price = priceField ? parseMoneyOrNumber(priceField.value) : null;
+    if (price !== null) {
+      const ma50 = context.fields.find(f => f.field === 'fifty_day_average');
+      const ma200 = context.fields.find(f => f.field === 'two_hundred_day_average');
+      const high52 = context.fields.find(f => f.field === 'fifty_two_week_high');
+      const low52 = context.fields.find(f => f.field === 'fifty_two_week_low');
+
+      const ma50Value = ma50 ? parseMoneyOrNumber(ma50.value) : null;
+      const ma200Value = ma200 ? parseMoneyOrNumber(ma200.value) : null;
+      if (ma50Value !== null) pushPercent('price_vs_fifty_day_average_pct', 'priceVsMa50', percentChange(price, ma50Value));
+      if (ma200Value !== null) pushPercent('price_vs_two_hundred_day_average_pct', 'priceVsMa200', percentChange(price, ma200Value));
+
+      const highValue = high52 ? parseMoneyOrNumber(high52.value) : null;
+      const lowValue = low52 ? parseMoneyOrNumber(low52.value) : null;
+      if (highValue !== null) pushPercent('pct_from_fifty_two_week_high', 'pctFrom52wHigh', percentChange(price, highValue));
+      if (lowValue !== null) pushPercent('pct_from_fifty_two_week_low', 'pctFrom52wLow', percentChange(price, lowValue));
+
+      if (ma50Value !== null && ma200Value !== null) {
+        const aboveBoth = price > ma50Value && price > ma200Value;
+        const belowBoth = price < ma50Value && price < ma200Value;
+        const trend = aboveBoth ? 'above both moving averages' : belowBoth ? 'below both moving averages' : 'mixed — above one moving average, below the other';
+        facts.push({ field: 'trend_signal', value: trend, source: 'computed:trendSignal', kind: 'computed', asOf });
+      }
+    }
+
     return facts;
   }
 }

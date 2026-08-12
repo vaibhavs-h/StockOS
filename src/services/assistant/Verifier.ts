@@ -106,16 +106,20 @@ function checkNumbers(response: string, context: StructuredContext): string[] {
   return issues;
 }
 
-/** Words drawn from any retrieved `company_name` or `recent_news_*` field (e.g. "TATA" out of
+/** Words drawn from any retrieved `company_name` or news-headline field (e.g. "TATA" out of
  * "TATA CONSULTANCY SERVICES LTD.", or "SBI" quoted from a news headline) — Indian equities are
  * frequently stored in this all-caps legal-name format, and news headlines routinely use an
- * informal abbreviation that isn't the canonical ticker (SBI vs SBIN). Either way, a short word
- * the model is citing verbatim from grounded, retrieved text is not the model claiming an
- * unrecognized ticker of its own. */
+ * informal abbreviation that isn't the canonical ticker (SBI vs SBIN), or mention several other
+ * companies entirely (a "stocks to watch" roundup headline). Either way, a short word the model
+ * is citing verbatim from grounded, retrieved text is not the model claiming an unrecognized
+ * ticker of its own. Covers every news field shape this pipeline produces: `recent_news_N`
+ * (stock_research/compare_stocks/etf_analysis), `news_item_N` (news_analysis/investment_thesis
+ * symbol path), and `sector_news_N` (news_analysis sector path). */
 function nameWordsFromContext(context: StructuredContext): Set<string> {
   const words = new Set<string>();
+  const NEWS_FIELD_RE = /^(.*\.)?(recent_news|news_item|sector_news)_\d+$/;
   for (const f of context.fields) {
-    const isNameOrNews = f.field === 'company_name' || f.field.endsWith('.company_name') || /^(.*\.)?recent_news_\d+$/.test(f.field);
+    const isNameOrNews = f.field === 'company_name' || f.field.endsWith('.company_name') || NEWS_FIELD_RE.test(f.field);
     if (!isNameOrNews) continue;
     String(f.value).toUpperCase().match(/[A-Z]+/g)?.forEach(w => words.add(w));
   }
@@ -144,7 +148,11 @@ function checkTickers(response: string, context: StructuredContext): string[] {
 // Only tokens *shaped* like one of these are worth checking — this deliberately ignores
 // ordinary prose parentheticals ("(e.g., ...)") and citations by field name (which the
 // system prompt explicitly permits), so it only fires on a plausible-but-wrong source name.
-const SOURCE_SHAPED_RE = /^([a-z_]+_assets|news|yahoo_finance_live|computed:[a-zA-Z]+)$/;
+// computed:<methodName> allows digits — several new methods (priceVsMa50, pctFrom52wHigh)
+// have them, and a letters-only pattern would just silently skip validating those citations
+// (SOURCE_SHAPED_RE gates whether a token is checked at all) rather than misflag them, but
+// there's no reason to leave that class of citation unchecked.
+const SOURCE_SHAPED_RE = /^([a-z_]+_assets|news|yahoo_finance_live|computed:[a-zA-Z0-9]+)$/;
 
 function checkCitations(response: string, context: StructuredContext): string[] {
   const knownSources = new Set(context.fields.map(f => f.source));

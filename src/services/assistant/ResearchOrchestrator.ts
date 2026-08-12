@@ -167,10 +167,13 @@ export class ResearchOrchestrator {
     tracer.set('capability', capability);
     tracer.set('intent', classified.intent);
 
-    // Portfolio-flavored intents with no explicit symbol keep the focus stack's entities.
-    const entities = classified.entities.symbols.length > 0
-      ? classified.entities
-      : { ...classified.entities, symbols: focus.last_symbols };
+    // Portfolio-flavored intents with no explicit symbol keep the focus stack's entities;
+    // same idea for a sector-scoped follow-up that doesn't re-name the sector.
+    const entities = {
+      ...classified.entities,
+      symbols: classified.entities.symbols.length > 0 ? classified.entities.symbols : focus.last_symbols,
+      sector: classified.entities.sector ?? focus.last_sector ?? undefined,
+    };
 
     const policy = await CapabilityPolicy.get(capability);
     tracer.set('policy', {
@@ -220,7 +223,7 @@ export class ResearchOrchestrator {
         provenance_summary: [],
         trace,
       });
-      await ConversationMemory.updateFocus(conversationId, { symbols: entities.symbols, portfolioId: entities.portfolioId ?? null, capability });
+      await ConversationMemory.updateFocus(conversationId, { symbols: entities.symbols, portfolioId: entities.portfolioId ?? null, sector: entities.sector ?? null, capability });
       return buildResponse(conversationId, messageId, content, classified.intent, capability, confidence, [], startedAt);
     }
 
@@ -299,7 +302,7 @@ export class ResearchOrchestrator {
             [
               ...promptMessages,
               { role: 'assistant', content: synthesized.content },
-              { role: 'user', content: `Your previous answer had an issue: ${preliminaryIssues.join(' ')} Please provide a complete, corrected answer using the exact figures from the Context.` },
+              { role: 'user', content: `Your previous answer had an issue: ${preliminaryIssues.join(' ')} Please provide a complete, corrected answer using the exact figures from the Context. Write it as a normal, standalone answer to the original question — don't mention that this is a correction, a retry, or reference your previous answer in any way.` },
             ],
             modelConfig
           ),
@@ -376,6 +379,7 @@ export class ResearchOrchestrator {
     await ConversationMemory.updateFocus(conversationId, {
       symbols: entities.symbols,
       portfolioId: entities.portfolioId ?? null,
+      sector: entities.sector ?? null,
       capability,
     });
 

@@ -25,6 +25,17 @@ const STATIC_TEMPLATE_PATH: Record<Capability, { path: string; taskType: string 
   compare_stocks: { path: 'prompts/compareStocks.v1.md', taskType: 'synthesis_stock_research' },
   market_overview: { path: 'prompts/marketOverview.v1.md', taskType: 'synthesis_general' },
   general_finance: { path: 'prompts/generalFinance.v1.md', taskType: 'synthesis_general' },
+  dividend_analysis: { path: 'prompts/dividendAnalysis.v1.md', taskType: 'synthesis_stock_research' },
+  technical_analysis: { path: 'prompts/technicalAnalysis.v1.md', taskType: 'synthesis_stock_research' },
+  sector_analysis: { path: 'prompts/sectorAnalysis.v1.md', taskType: 'synthesis_general' },
+  etf_analysis: { path: 'prompts/etfAnalysis.v1.md', taskType: 'synthesis_stock_research' },
+  news_analysis: { path: 'prompts/newsAnalysis.v1.md', taskType: 'synthesis_stock_research' },
+  investment_thesis: { path: 'prompts/investmentThesis.v1.md', taskType: 'synthesis_stock_research' },
+  watchlist_review: { path: 'prompts/watchlistReview.v1.md', taskType: 'synthesis_portfolio' },
+  mutual_fund_analysis: { path: 'prompts/mutualFundAnalysis.v1.md', taskType: 'synthesis_portfolio' },
+  risk_analysis: { path: 'prompts/riskAnalysis.v1.md', taskType: 'synthesis_portfolio' },
+  portfolio_optimization: { path: 'prompts/portfolioOptimization.v1.md', taskType: 'synthesis_portfolio' },
+  screener: { path: 'prompts/screener.v1.md', taskType: 'synthesis_general' },
 };
 
 async function resolveActiveRow(capability: Capability): Promise<{ path: string; taskType: string }> {

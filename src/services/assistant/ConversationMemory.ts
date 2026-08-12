@@ -4,11 +4,13 @@ import { Capability, ConversationFocus } from './types';
 const EMPTY_FOCUS: ConversationFocus = {
   last_symbols: [],
   last_portfolio_id: null,
+  last_sector: null,
   last_capability: null,
   updated_at: new Date(0).toISOString(),
 };
 
 const PRONOUN_RE = /\b(it|its|that stock|this stock|that one|this one)\b/gi;
+const SECTOR_PRONOUN_RE = /\b(that sector|this sector|the sector)\b/gi;
 
 export class ConversationMemory {
   /** Loads (or creates) a conversation and returns its id + focus stack. */
@@ -45,20 +47,33 @@ export class ConversationMemory {
    * See §08 — this is a lookup, not a model guess.
    */
   static substitutePronouns(message: string, focus: ConversationFocus): string {
-    if (focus.last_symbols.length === 0) return message;
-    const primary = focus.last_symbols[0];
-    if (!PRONOUN_RE.test(message)) return message;
-    PRONOUN_RE.lastIndex = 0;
-    return message.replace(PRONOUN_RE, primary);
+    let result = message;
+
+    if (focus.last_symbols.length > 0 && PRONOUN_RE.test(result)) {
+      PRONOUN_RE.lastIndex = 0;
+      result = result.replace(PRONOUN_RE, focus.last_symbols[0]);
+    }
+
+    // Same lookup-not-guess substitution as symbols above, for a sector-scoped follow-up
+    // ("what's the average PE there?" doesn't repeat "IT sector" — sector_analysis/
+    // news_analysis would otherwise have no way to know what "there" refers to, since
+    // entities.sector is re-derived fresh per message with no carryover of its own).
+    if (focus.last_sector && SECTOR_PRONOUN_RE.test(result)) {
+      SECTOR_PRONOUN_RE.lastIndex = 0;
+      result = result.replace(SECTOR_PRONOUN_RE, `the ${focus.last_sector} sector`);
+    }
+
+    return result;
   }
 
   static async updateFocus(
     conversationId: string,
-    updates: { symbols?: string[]; portfolioId?: string | null; capability?: Capability }
+    updates: { symbols?: string[]; portfolioId?: string | null; sector?: string | null; capability?: Capability }
   ): Promise<void> {
     const next: ConversationFocus = {
       last_symbols: updates.symbols ?? [],
       last_portfolio_id: updates.portfolioId ?? null,
+      last_sector: updates.sector ?? null,
       last_capability: updates.capability ?? null,
       updated_at: new Date().toISOString(),
     };

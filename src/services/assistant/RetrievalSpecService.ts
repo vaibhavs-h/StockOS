@@ -20,6 +20,17 @@ const STATIC_REQUIRED: Record<Capability, string[]> = {
   compare_stocks: [],
   market_overview: ['index_levels'],
   general_finance: [],
+  dividend_analysis: ['quote_price'],
+  technical_analysis: ['quote_price'],
+  sector_analysis: ['sector_name'],
+  etf_analysis: ['quote_price'],
+  news_analysis: [],
+  investment_thesis: ['quote_price'],
+  watchlist_review: ['watchlist_count'],
+  mutual_fund_analysis: ['mf_holdings_count'],
+  risk_analysis: ['holdings_count'],
+  portfolio_optimization: ['holdings_count'],
+  screener: ['result_count'],
 };
 
 // The 11 pre-Phase-5 fields keep the neutral baseline (5); the 8 fields Phase 5 added
@@ -47,6 +58,47 @@ const STATIC_OPTIONAL: Record<Capability, PrioritizedField[]> = {
   compare_stocks: [], // delegates to stock_research's list — see getPrioritizedOptionalFields
   market_overview: [],
   general_finance: [],
+  dividend_analysis: [
+    { field: 'dividend_amount', priority: 5 }, { field: 'dividend_yield_pct', priority: 5 }, { field: 'dividend_date', priority: 3 },
+  ],
+  technical_analysis: [
+    { field: 'fifty_day_average', priority: 5 }, { field: 'two_hundred_day_average', priority: 5 },
+    { field: 'fifty_two_week_high', priority: 5 }, { field: 'fifty_two_week_low', priority: 5 },
+  ],
+  sector_analysis: [
+    { field: 'IN_constituent_count', priority: 5 }, { field: 'IN_avg_pe_ratio', priority: 5 }, { field: 'IN_avg_day_change_pct', priority: 5 }, { field: 'IN_top_gainer', priority: 4 }, { field: 'IN_top_loser', priority: 4 },
+    { field: 'US_constituent_count', priority: 5 }, { field: 'US_avg_pe_ratio', priority: 5 }, { field: 'US_avg_day_change_pct', priority: 5 }, { field: 'US_top_gainer', priority: 4 }, { field: 'US_top_loser', priority: 4 },
+  ],
+  etf_analysis: [
+    { field: 'pe_ratio', priority: 5 }, { field: 'market_cap', priority: 5 }, { field: 'fifty_two_week_high', priority: 4 }, { field: 'fifty_two_week_low', priority: 4 },
+    { field: 'recent_news_1', priority: 3 }, { field: 'recent_news_2', priority: 3 }, { field: 'recent_news_3', priority: 3 },
+  ],
+  news_analysis: [
+    { field: 'news_item_1', priority: 5 }, { field: 'news_item_2', priority: 5 }, { field: 'news_item_3', priority: 5 }, { field: 'news_item_4', priority: 4 }, { field: 'news_item_5', priority: 4 },
+    { field: 'sector_news_1', priority: 5 }, { field: 'sector_news_2', priority: 5 }, { field: 'sector_news_3', priority: 5 }, { field: 'sector_news_4', priority: 4 }, { field: 'sector_news_5', priority: 4 },
+  ],
+  investment_thesis: [
+    { field: 'pe_ratio', priority: 5 }, { field: 'forward_pe', priority: 5 }, { field: 'market_cap', priority: 5 }, { field: 'sector', priority: 5 },
+    { field: 'fifty_two_week_high', priority: 5 }, { field: 'fifty_two_week_low', priority: 5 }, { field: 'fifty_day_average', priority: 5 }, { field: 'two_hundred_day_average', priority: 5 },
+    { field: 'news_item_1', priority: 5 }, { field: 'news_item_2', priority: 5 }, { field: 'news_item_3', priority: 5 }, { field: 'news_item_4', priority: 4 }, { field: 'news_item_5', priority: 4 },
+    { field: 'debt_to_equity', priority: 2 }, { field: 'recommendation_key', priority: 2 }, { field: 'peg_ratio', priority: 2 }, { field: 'return_on_equity', priority: 2 },
+  ],
+  watchlist_review: [
+    { field: 'watchlist_symbol_count', priority: 5 }, { field: 'held_watchlist_symbols', priority: 5 },
+    { field: 'watchlist_top_gainer', priority: 4 }, { field: 'watchlist_top_loser', priority: 4 },
+  ],
+  mutual_fund_analysis: [
+    { field: 'held_mf_schemes', priority: 5 }, { field: 'total_mf_market_value', priority: 5 }, { field: 'total_mf_invested_value', priority: 5 }, { field: 'largest_mf_holding', priority: 4 },
+  ],
+  risk_analysis: [
+    { field: 'portfolio_beta', priority: 5 }, { field: 'diversification_score', priority: 5 }, { field: 'volatility_score', priority: 5 }, { field: 'risk_level', priority: 5 },
+    { field: 'largest_holding_weight_pct', priority: 5 }, { field: 'largest_holding_symbol', priority: 5 }, { field: 'top3_holdings_weight_pct', priority: 4 },
+    { field: 'largest_sector', priority: 4 }, { field: 'largest_sector_weight_pct', priority: 4 },
+  ],
+  portfolio_optimization: [
+    { field: 'rebalancing_flags', priority: 5 }, { field: 'rebalancing_flag_1', priority: 5 }, { field: 'rebalancing_flag_2', priority: 5 }, { field: 'rebalancing_flag_3', priority: 4 },
+  ],
+  screener: [],
 };
 
 let requiredCache: Map<Capability, string[]> | null = null;

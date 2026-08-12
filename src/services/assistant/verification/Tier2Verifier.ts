@@ -2,6 +2,16 @@ import { ModelRegistry } from '../ModelRegistry';
 import { ChatMessage, LLMClient } from '../LLMClient';
 import { StructuredContext, VerificationResult } from '../types';
 import { ContextBuilder } from '../ContextBuilder';
+import { withTimeout } from '../withTimeout';
+
+// LLMClient.chat() can itself take up to ~60s worst case (a 30s primary attempt plus a full
+// 30s fallback attempt) with no timeout of its own — every other LLM call in this pipeline
+// (synthesis, its corrective retry) is bounded by the capability's own policy.timeoutMs via
+// withTimeout, but this one wasn't, which matters more than it looks: three of this
+// pipeline's capabilities (risk_analysis, portfolio_optimization, investment_thesis) run
+// Tier 2 on *every* request via 'always', so an unbounded Tier 2 call directly adds to
+// worst-case total request latency for them, not just an occasional 'auto' trigger.
+const TIER2_TIMEOUT_MS = 15000;
 
 // Tier 2 — conditional, LLM-based reasoning verification (§ V2 plan, Phase 3). The type
 // this returns (`unsupported_claims`, `missing_aspects`, `consistent`) was already
@@ -38,7 +48,7 @@ export class Tier2Verifier {
         },
       ];
 
-      const { content } = await LLMClient.chat(messages, config);
+      const { content } = await withTimeout(LLMClient.chat(messages, config), TIER2_TIMEOUT_MS, 'Tier 2 verification');
       const parsed = JSON.parse(content.trim().replace(/^```json\s*|\s*```$/g, '')) as Partial<Tier2Judgment>;
 
       const detail: Tier2Judgment = {

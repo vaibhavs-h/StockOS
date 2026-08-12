@@ -11,6 +11,17 @@ const STATIC_MAP: Record<Intent, Capability[]> = {
   compare: ['compare_stocks'],
   market_overview: ['market_overview'],
   general_finance: ['general_finance'],
+  dividend_analysis: ['dividend_analysis'],
+  technical_analysis: ['technical_analysis'],
+  sector_analysis: ['sector_analysis'],
+  etf_analysis: ['etf_analysis'],
+  news_analysis: ['news_analysis'],
+  investment_thesis: ['investment_thesis'],
+  watchlist_review: ['watchlist_review'],
+  mutual_fund_analysis: ['mutual_fund_analysis'],
+  risk_analysis: ['risk_analysis'],
+  portfolio_optimization: ['portfolio_optimization'],
+  screener: ['screener'],
 };
 
 let cachedMap: Record<string, Capability[]> | null = null;

@@ -23,10 +23,26 @@ const CAPABILITY_TTL_MS: Record<Capability, number> = {
   portfolio_analysis: CACHE_TTL.HOLDINGS_MS,
   market_overview: CACHE_TTL.INDICES_MS,
   general_finance: CACHE_TTL.ANALYTICS_MS,
+  dividend_analysis: CACHE_TTL.FUNDAMENTALS_MS,
+  technical_analysis: CACHE_TTL.FUNDAMENTALS_MS,
+  sector_analysis: CACHE_TTL.ANALYTICS_MS,
+  etf_analysis: CACHE_TTL.QUOTE_MARKET_HOURS_MS,
+  news_analysis: CACHE_TTL.NEWS_MS,
+  investment_thesis: CACHE_TTL.NEWS_MS,
+  watchlist_review: CACHE_TTL.HOLDINGS_MS,
+  mutual_fund_analysis: CACHE_TTL.HOLDINGS_MS,
+  risk_analysis: CACHE_TTL.HOLDINGS_MS,
+  portfolio_optimization: CACHE_TTL.HOLDINGS_MS,
+  screener: CACHE_TTL.ANALYTICS_MS, // unused in practice — screener has conversationCacheEnabled: false
 };
 
+const PORTFOLIO_KEYED_CAPABILITIES = new Set<Capability>([
+  'portfolio_analysis', 'mutual_fund_analysis', 'risk_analysis', 'portfolio_optimization',
+]);
+
 function entityKeyFor(capability: Capability, entities: ResolvedEntities): string {
-  if (capability === 'portfolio_analysis') return entities.portfolioId ? `portfolio:${entities.portfolioId}` : 'portfolio';
+  if (PORTFOLIO_KEYED_CAPABILITIES.has(capability)) return entities.portfolioId ? `portfolio:${entities.portfolioId}` : 'portfolio';
+  if (capability === 'sector_analysis') return entities.sector ? `sector:${entities.sector}` : 'global';
   if (entities.symbols.length > 0) return [...entities.symbols].sort().join(',');
   return 'global';
 }

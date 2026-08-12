@@ -11,7 +11,7 @@ import { Capability, ConfidenceBreakdown, ConfidenceResult, StructuredContext, V
 function estimateStalenessSlaMs(fieldName: string): number {
   if (fieldName.startsWith('quote_') || fieldName.startsWith('index_')) return 10 * 60 * 1000; // 10 min
   if (fieldName.startsWith('holdings') || fieldName.startsWith('total_')) return 15 * 60 * 1000; // 15 min
-  if (fieldName.startsWith('recent_news')) return 72 * 60 * 60 * 1000; // 72h — news stays relevant for days
+  if (fieldName.startsWith('recent_news') || fieldName.startsWith('news_item') || fieldName.startsWith('sector_news')) return 72 * 60 * 60 * 1000; // 72h — news stays relevant for days
   return 24 * 60 * 60 * 1000; // fundamentals / computed analytics
 }
 

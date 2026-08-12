@@ -40,10 +40,22 @@ export async function POST(req: NextRequest) {
   }
 
   try {
+    // Bounded to comfortably exceed the engine's own worst case, not picked arbitrarily:
+    // a synthesis attempt and its corrective retry are each capped at a capability's own
+    // policy.timeoutMs (up to 45000ms for portfolio_analysis), and Tier 2 verification
+    // (run on every request for portfolio_analysis/risk_analysis/portfolio_optimization/
+    // investment_thesis, whose 'always' policy doesn't wait for Tier 1 to flag something
+    // first) is capped separately at 15000ms — so 45000(synthesis) + 45000(retry) +
+    // 15000(Tier 2) + a few seconds of classification/retrieval is the real ceiling. The
+    // previous 45000ms here was already tighter than a single capability's own declared
+    // budget before any retry or Tier 2 time is added on top, which meant a slow-but-
+    // otherwise-successful engine response could get killed here and surfaced to the user
+    // as "temporarily unavailable" even though the engine would have answered correctly
+    // given a few more seconds.
     const { data } = await axios.post(
       `${engineUrl}/internal/assistant/query`,
       { userId, tier, message, conversationId: body.conversationId },
-      { headers: { 'x-assistant-secret': secret }, timeout: 45000 }
+      { headers: { 'x-assistant-secret': secret }, timeout: 120000 }
     );
     return NextResponse.json(data);
   } catch (err: any) {
