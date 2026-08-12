@@ -25,9 +25,15 @@ import { withTimeout } from './withTimeout';
 
 registerAssistantTools();
 
-// §16 — soft daily caps tied to subscription tier. Arbitrary starting numbers, tune once
-// real usage/cost data exists.
-const DAILY_MESSAGE_CAP: Record<SubscriptionTier, number> = { free: 20, lite: 100, pro: 500 };
+// §16 — soft daily caps tied to subscription tier. Deliberately sized (not the old
+// placeholder), scaled roughly with what each tier pays: Free 5, Lite 25 (5x), Pro 75 (3x
+// Lite). These are per-user ceilings only — the synthesis model itself runs on Groq's free
+// tier (llama-3.3-70b-versatile, 1,000 requests/day, shared across the whole platform, not
+// per-user) with a free OpenRouter fallback, and both were fully exhausted more than once
+// during a single session of manual testing. No per-user cap here changes that shared
+// ceiling; it only slows how fast a handful of active users can hit it. Sustaining Pro-tier
+// usage at real scale will eventually need a paid Groq/OpenRouter plan.
+const DAILY_MESSAGE_CAP: Record<SubscriptionTier, number> = { free: 5, lite: 25, pro: 75 };
 
 async function checkAndIncrementUsage(userId: string, tier: SubscriptionTier): Promise<{ allowed: boolean }> {
   const today = new Date().toISOString().split('T')[0];
@@ -155,7 +161,7 @@ export class ResearchOrchestrator {
         confidence: 'low',
         trace,
       });
-      return buildResponse(conversationId, messageId, content, 'general_finance', 'general_finance', ConfidenceScorer.forcedLow('rate_limited', 'general_finance'), [], startedAt);
+      return buildResponse(conversationId, messageId, content, 'general_finance', 'general_finance', ConfidenceScorer.forcedLow('rate_limited', 'general_finance'), [], startedAt, true);
     }
 
     const substituted = ConversationMemory.substitutePronouns(message, focus);
@@ -397,7 +403,8 @@ function buildResponse(
   capability: AssistantQueryResponse['capability'],
   confidence: AssistantQueryResponse['confidence'],
   citations: AssistantQueryResponse['citations'],
-  startedAt: number
+  startedAt: number,
+  rateLimited?: boolean
 ): AssistantQueryResponse {
   return {
     conversationId,
@@ -408,5 +415,6 @@ function buildResponse(
     confidence,
     citations,
     latencyMs: Date.now() - startedAt,
+    ...(rateLimited ? { rateLimited: true } : {}),
   };
 }

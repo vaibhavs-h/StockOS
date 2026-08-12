@@ -161,4 +161,7 @@ export interface AssistantQueryResponse {
   confidence: ConfidenceResult;
   citations: Citation[];
   latencyMs: number;
+  // Set only on the daily-cap-hit path — tells the frontend to show the upgrade CTA rather
+  // than treating this like an ordinary low-confidence answer.
+  rateLimited?: boolean;
 }

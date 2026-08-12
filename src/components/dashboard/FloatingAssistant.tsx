@@ -15,6 +15,7 @@ import {
   Loader2,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { SubscriptionLimitModal } from "@/components/shared/SubscriptionLimitModal"
 
 type ConfidenceLevel = "high" | "medium" | "low"
 
@@ -186,6 +187,7 @@ export function FloatingAssistant() {
   ])
   const [isLoading, setIsLoading] = useState(false)
   const [inputValue, setInputValue] = useState("")
+  const [showLimitModal, setShowLimitModal] = useState(false)
   const chatContainerRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -229,8 +231,13 @@ export function FloatingAssistant() {
         confidence: data.confidence ? { score: data.confidence.score, level: data.confidence.level } : undefined,
         citations: data.citations || [],
         feedback: { selectedReasons: [], comment: "" },
+        hideFeedback: !!data.rateLimited,
       }
       setMessages(prev => [...prev, assistantMsg])
+
+      if (data.rateLimited) {
+        setShowLimitModal(true)
+      }
     } catch (err: any) {
       setMessages(prev => [...prev, {
         id: `e-${Date.now()}`,
@@ -509,6 +516,12 @@ export function FloatingAssistant() {
         </AnimatePresence>,
         document.body
       )}
+
+      <SubscriptionLimitModal
+        isOpen={showLimitModal}
+        onClose={() => setShowLimitModal(false)}
+        limitType="chat_assistant"
+      />
 
       {/* Trigger */}
       <motion.button

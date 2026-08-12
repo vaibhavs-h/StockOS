@@ -9,7 +9,7 @@ import StockOSPortal from "@/components/shared/Portal"
 interface SubscriptionLimitModalProps {
   isOpen: boolean
   onClose: () => void
-  limitType: 'free_mf' | 'free_portfolio' | 'lite_portfolio'
+  limitType: 'free_mf' | 'free_portfolio' | 'lite_portfolio' | 'chat_assistant'
 }
 
 export function SubscriptionLimitModal({
@@ -40,6 +40,13 @@ export function SubscriptionLimitModal({
           title: 'Limit Exceeded',
           message: 'Your plan is limited to 5 linked portfolios. Upgrade to PRO to unlock unlimited portfolio connections!',
           btnText: 'Upgrade to Pro'
+        }
+      case 'chat_assistant':
+        return {
+          type: 'limit',
+          title: 'Limit Exceeded',
+          message: "You've reached your plan's daily chat assistant limit. Upgrade to send more messages today!",
+          btnText: 'Upgrade Plan'
         }
       default:
         return {
