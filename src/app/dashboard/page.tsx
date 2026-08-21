@@ -66,15 +66,6 @@ export default function DashboardPage() {
 	const engineUrl = process.env.NEXT_PUBLIC_ENGINE_URL || 'http://localhost:3003';
 	const [mounted, setMounted] = useState(false)
 	const [holdings, setHoldings] = useState<any[]>([])
-	const [indices, setIndices] = useState<any[]>(() => {
-		if (typeof window !== 'undefined') {
-			const cached = localStorage.getItem('stockos_indices_cache');
-			if (cached) {
-				try { return JSON.parse(cached); } catch (e) { return []; }
-			}
-		}
-		return [];
-	})
 	const [history, setHistory] = useState<any[]>([])
 	const [portfolios, setPortfolios] = useState<any[]>([])
 	const [activePortfolio, setActivePortfolio] = useState<any | null>(null)
@@ -593,25 +584,6 @@ export default function DashboardPage() {
 		return map;
 	}, [portfolios]);
 
-	const fetchIndices = async () => {
-
-		try {
-			const res = await axios.get(`${engineUrl}/api/indices`);
-			setIndices(res.data);
-			if (typeof window !== 'undefined') {
-				localStorage.setItem('stockos_indices_cache', JSON.stringify(res.data));
-			}
-		} catch (err) {
-			console.warn("[DASHBOARD] Fetch indices failed, using local cache:", err);
-			if (typeof window !== 'undefined') {
-				const cached = localStorage.getItem('stockos_indices_cache');
-				if (cached) {
-					try { setIndices(JSON.parse(cached)); } catch (e) { }
-				}
-			}
-		}
-	}
-
 	const refreshAll = async () => {
 		setIsRefreshing(true);
 		setSyncLogs([{ timestamp: new Date().toISOString(), message: ">>> INITIALIZING TACTICAL SYNC SEQUENCE", type: 'info' }]);
@@ -626,8 +598,7 @@ export default function DashboardPage() {
 		try {
 			await Promise.all([
 				fetchHoldings(),
-				fetchMFPortfolio(),
-				fetchIndices()
+				fetchMFPortfolio()
 			]);
 		} catch (err) {
 			console.error("Refresh failed", err);
@@ -737,12 +708,11 @@ export default function DashboardPage() {
 		}
 	}, [showSyncConsole, isRefreshing]);
 
-	// 1. Initial mount: fetch portfolios and indices
+	// 1. Initial mount: fetch portfolios (live indices come from the global MarketTicker)
 	useEffect(() => {
 		if (!mounted) return;
 
 		fetchPortfolios();
-		fetchIndices();
 	}, [mounted, portfolioId]);
 
 	// 2. Realtime Subscriptions for Holdings & History
@@ -887,7 +857,6 @@ export default function DashboardPage() {
 			} catch (e) { }
 		};
 
-		const interval = setInterval(fetchIndices, 10000); // 10s Indices refresh
 		// Poll daily P/L via server-side aggregate every 8s — atomic SUM, no partial-read risk
 		const dailyPLInterval = setInterval(() => fetchDailyPL(activePortfolio.id), 8000);
 		// Holdings poll every 30s as backup; realtime subscription handles live updates
@@ -897,7 +866,6 @@ export default function DashboardPage() {
 		setTimeout(sendDashboardHeartbeat, 5000);
 
 		return () => {
-			clearInterval(interval);
 			clearInterval(dailyPLInterval);
 			clearInterval(syncInterval);
 			clearInterval(pulseInterval);

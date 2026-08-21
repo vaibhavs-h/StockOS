@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
+import compression from 'compression';
 import axios from 'axios';
 import { supabase } from './lib/supabase';
 import { SymbolUniverseManager, normalizeStorageSymbol, normalizeDisplaySymbol } from './constants/market-constants';
@@ -47,6 +48,11 @@ export { getISTTimestamp, getNormalizedNoonTimestamp };
 
 const app = express();
 app.use(cors());
+// Every response leaving this server was uncompressed before this — the single biggest
+// contributor to the Render free-tier bandwidth overage that got this service suspended.
+// No client-side change needed: axios/fetch/browsers all send Accept-Encoding: gzip and
+// decode transparently.
+app.use(compression());
 app.use(express.json());
 
 // ---------------------------------------------------------
@@ -713,25 +719,19 @@ app.get('/api/news/monthly-metrics', async (req, res) => {
       bookmarkedIds = new Set(allUserBookmarks.map((b: any) => b.news_id));
     }
 
-    // Format DB snake_case to camelCase expected by frontend
+    // This route only ever feeds journal/page.tsx's monthly aggregates (sentiment gauge,
+    // ticker/topic/impact breakdowns, save-toggle) — confirmed by reading every `monthlyNews`
+    // usage there, which never touches title/summary/url/source/thumbnail/authors/etc. Those
+    // full article fields are what made this endpoint's monthly payload so large; the
+    // separate, already-paginated `/api/news` route (used for the actual browsable article
+    // list) still returns them in full and is untouched by this trim.
     const formattedNews = newsItems.map((item: any) => ({
       _id: item.id,
-      title: item.title,
-      summary: item.summary || null,
-      url: item.url,
-      source: item.source || 'Unknown Source',
-      sourceDomain: item.source_domain || null,
-      publishedAt: item.published_at,
-      category: item.category || 'global',
       stocks: Array.isArray(item.stocks) ? item.stocks : [],
       impact: item.impact || 'LOW',
-      why: item.why || null,
-      thumbnail: item.thumbnail || null,
-      authors: Array.isArray(item.authors) ? item.authors : [],
       topics: Array.isArray(item.topics) ? item.topics : [],
       tickerSentiment: Array.isArray(item.ticker_sentiment) ? item.ticker_sentiment : [],
       sentimentScore: item.sentiment_score ?? null,
-      sentimentLabel: item.sentiment_label || null,
       saved: bookmarkedIds.has(item.id) || category === 'saved'
     }));
 
