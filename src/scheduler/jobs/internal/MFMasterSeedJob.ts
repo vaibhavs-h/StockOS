@@ -164,7 +164,7 @@ export class MFMasterSeedJob extends BaseJob<void> {
   }
 
   /**
-   * Fetches full scheme detail from mfapi.in/mf/{schemeCode}
+   * Fetches scheme metadata + latest NAV from mfapi.in/mf/{schemeCode}/latest
    * Returns a record ready for mutual_funds_master upsert.
    */
   private async fetchSchemeDetail(scheme: {
@@ -174,7 +174,12 @@ export class MFMasterSeedJob extends BaseJob<void> {
     isinDivReinvestment: string | null;
   }): Promise<any | null> {
     try {
-      const resp = await axios.get(`${MFAPI_BASE}/${scheme.schemeCode}`, {
+      // /latest returns only the most recent NAV record (this fn only ever reads data.data[0] anyway) —
+      // the bare /mf/{code} endpoint returns the FULL historical NAV series (often 10+ years of daily
+      // records, ~130KB/scheme vs ~400 bytes here) which was the dominant cause of the Render bandwidth
+      // overage: ~76% of schemes never get a non-null isin and so are never skipped by the Phase 1.5
+      // filter, meaning they were re-downloaded in full on every weekly run.
+      const resp = await axios.get(`${MFAPI_BASE}/${scheme.schemeCode}/latest`, {
         timeout: 15000
       });
 
