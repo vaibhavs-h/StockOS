@@ -13,7 +13,7 @@ export const SYNC_CONFIG = {
     [RefreshTier.TIER_1_HOT]: {
       baseIntervalMs: 60000, // 1 minute base tick
       sessionMultipliers: {
-        [MarketSession.REGULAR]: 1,     // Every 1 min
+        [MarketSession.REGULAR]: 2,     // Every 2 mins (widened from 1 min — Render free-tier bandwidth budget; see MFMasterSeedJob fix + Aug 2026 bandwidth investigation)
         [MarketSession.PREMARKET]: 3,   // Every 3 mins
         [MarketSession.AFTER_HOURS]: 5, // Every 5 mins
         [MarketSession.CLOSED]: 0       // 0 = Disabled
