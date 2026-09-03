@@ -135,11 +135,15 @@ export class MutualFundSyncJob extends BaseJob<string[]> {
         if (parts.length >= 6) {
           const schemeCodeStr = parts[0].trim();
           if (activeSchemes.has(schemeCodeStr)) {
+            // NAV and date are always the last two fields; ISIN pair is always fields 1-2.
+            // Scheme name is everything in between — AMFI has, at times, split the name into
+            // extra ';'-delimited sub-fields (e.g. "Fund;Plan;Option" instead of one combined
+            // "Fund - Plan - Option" string), which shifts the total field count above 6.
             const isin = parts[1].trim();
             const isinReinvest = parts[2].trim();
-            const name = parts[3].trim();
-            const navStr = parts[4].trim();
-            const dateStr = parts[5].trim();
+            const navStr = parts[parts.length - 2].trim();
+            const dateStr = parts[parts.length - 1].trim();
+            const name = parts.slice(3, parts.length - 2).map(p => p.trim()).join(' - ');
 
             const currentPrice = parseFloat(navStr);
             if (isNaN(currentPrice) || currentPrice <= 0) continue;
