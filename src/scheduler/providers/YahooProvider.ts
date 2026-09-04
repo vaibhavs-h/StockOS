@@ -42,6 +42,17 @@ function toTwelveDataSymbol(symbol: string): string {
  * Interfaces with yahoo-finance2 via the prioritized YahooRequestQueue.
  * Falling back seamlessly to Twelve Data API if Yahoo rate limits or errors.
  */
+// Every current caller of fetchQuotes/fetchQuote (BatchAggregationService's Tier-1 hot poll,
+// BurstSyncService, /api/indices, IndexQuoteRetriever) only reads these fields off the result.
+// Yahoo's `fields` param is applied server-side, so restricting it shrinks the actual response
+// body — not just what we keep after receiving it — which matters most here because this is the
+// highest-frequency outbound call in the engine (every ~2 min per active symbol during market hours).
+const QUOTE_FIELDS = [
+  'symbol', 'regularMarketPrice', 'regularMarketChange', 'regularMarketChangePercent',
+  'regularMarketPreviousClose', 'regularMarketVolume', 'regularMarketDayHigh', 'regularMarketDayLow',
+  'marketState', 'marketCap', 'trailingPE', 'fiftyTwoWeekHigh', 'fiftyTwoWeekLow'
+];
+
 export class YahooProvider {
   /**
    * Fetches lightweight quote data (Live Sync / Ephemeral Pulse)
@@ -57,7 +68,7 @@ export class YahooProvider {
         while (attempts < maxAttempts) {
           const activeProxyIndex = proxyRotationManager.getCurrentIndex();
           try {
-            const results = await yahooFinance.quote(symbols, {}, { validateResult: false } as any);
+            const results = await yahooFinance.quote(symbols, { fields: QUOTE_FIELDS }, { validateResult: false } as any);
             return results;
           } catch (error: any) {
             attempts++;
@@ -75,7 +86,7 @@ export class YahooProvider {
               clientOpts.fetchOptions.dispatcher = undefined;
             }
             try {
-              const results = await yahooFinance.quote(symbols, {}, { validateResult: false } as any);
+              const results = await yahooFinance.quote(symbols, { fields: QUOTE_FIELDS }, { validateResult: false } as any);
               console.log(`[YahooProvider] Direct connection fallback succeeded.`);
               return results;
             } catch (directError: any) {
