@@ -56,8 +56,14 @@ export class ProxyRotationManager {
 
   /**
    * Applies the current active proxy to a client instance.
+   *
+   * clearCrumb defaults to false: yahoo-finance2 rebuilds a cleared crumb by fetching
+   * https://finance.yahoo.com/quote/AAPL in full — ~1.2MB — every time. Rate limits, timeouts,
+   * and connection drops mean the *network path* is bad, not the session, so they should just
+   * swap proxies and retry with the existing crumb/cookies. Only an actual crumb rejection from
+   * Yahoo justifies paying that 1.2MB to re-authenticate.
    */
-  private async applyProxyToClient(client: any) {
+  private async applyProxyToClient(client: any, clearCrumb: boolean = false) {
     if (this.currentIndex < 0 || this.currentIndex >= this.agents.length) return;
     const activeAgent = this.agents[this.currentIndex];
     if (client && client._opts) {
@@ -66,8 +72,7 @@ export class ProxyRotationManager {
       }
       client._opts.fetchOptions.dispatcher = activeAgent;
 
-      // Clear the cookie and crumb cache so a new proxy doesn't use stale session credentials
-      if (client._opts.cookieJar) {
+      if (clearCrumb && client._opts.cookieJar) {
         try {
           await getCrumbClear(client._opts.cookieJar);
         } catch (err: any) {
@@ -80,9 +85,9 @@ export class ProxyRotationManager {
   /**
    * Applies the active proxy agent to all registered clients.
    */
-  private async applyActiveProxy() {
+  private async applyActiveProxy(clearCrumb: boolean = false) {
     if (this.currentIndex < 0 || this.currentIndex >= this.agents.length) return;
-    
+
     const activeUrl = this.proxies[this.currentIndex];
 
     // Mask username/password for safe logging
@@ -90,21 +95,23 @@ export class ProxyRotationManager {
     console.log(`[PROXY-MANAGER] Active Proxy Swapped to Index [${this.currentIndex}]: ${maskedUrl}`);
 
     for (const client of this.registeredClients) {
-      await this.applyProxyToClient(client);
+      await this.applyProxyToClient(client, clearCrumb);
     }
   }
 
   /**
    * Rotates to the next proxy in the round-robin pool.
+   * @param clearCrumb Only pass true when the failure indicated the crumb/session itself was
+   * rejected (see applyProxyToClient) — it costs a ~1.2MB re-authentication fetch.
    */
-  public async rotate(): Promise<boolean> {
+  public async rotate(clearCrumb: boolean = false): Promise<boolean> {
     if (this.agents.length <= 1) {
       console.log('[PROXY-MANAGER] Single or zero proxy configured. Cannot rotate.');
       return false;
     }
 
     this.currentIndex = (this.currentIndex + 1) % this.agents.length;
-    await this.applyActiveProxy();
+    await this.applyActiveProxy(clearCrumb);
     return true;
   }
 
@@ -185,13 +192,19 @@ export class ProxyRotationManager {
 
     if (isProxyAuthErr || isRateLimit || isTimeout || isConnectionDrop || isBadRequest) {
       console.warn(`[PROXY-MANAGER] Proxy request failed. Error: ${error.message}. Cause Chain: "${fullMsg}". Triggering rotation failover.`);
-      
+
       if (failedIndex !== undefined && this.currentIndex !== failedIndex) {
         console.log(`[PROXY-MANAGER] Proxy already rotated from index [${failedIndex}] to [${this.currentIndex}] by another request. Skipping duplicate rotation.`);
         return true;
       }
-      
-      return await this.rotate();
+
+      // Only isBadRequest means Yahoo actually rejected the crumb — rate limits, timeouts,
+      // connection drops, and proxy-auth failures are network-path problems that a plain proxy
+      // swap fixes; clearing the crumb there would just force a needless ~1.2MB re-auth fetch.
+      if (isBadRequest) {
+        console.warn('[PROXY-MANAGER] Failure looks crumb-related — rotating AND clearing session (costs ~1.2MB to rebuild).');
+      }
+      return await this.rotate(isBadRequest);
     }
 
     return false;

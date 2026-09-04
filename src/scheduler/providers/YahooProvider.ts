@@ -47,10 +47,14 @@ function toTwelveDataSymbol(symbol: string): string {
 // Yahoo's `fields` param is applied server-side, so restricting it shrinks the actual response
 // body — not just what we keep after receiving it — which matters most here because this is the
 // highest-frequency outbound call in the engine (every ~2 min per active symbol during market hours).
+// preMarket*/postMarket* are read by BurstSyncService (fetchQuote path only) — included here too
+// so that caller doesn't silently lose them; Yahoo simply omits them when not applicable
+// (outside those sessions), so keeping them costs nothing for the other callers.
 const QUOTE_FIELDS = [
   'symbol', 'regularMarketPrice', 'regularMarketChange', 'regularMarketChangePercent',
   'regularMarketPreviousClose', 'regularMarketVolume', 'regularMarketDayHigh', 'regularMarketDayLow',
-  'marketState', 'marketCap', 'trailingPE', 'fiftyTwoWeekHigh', 'fiftyTwoWeekLow'
+  'marketState', 'marketCap', 'trailingPE', 'fiftyTwoWeekHigh', 'fiftyTwoWeekLow',
+  'preMarketPrice', 'preMarketChangePercent', 'postMarketPrice', 'postMarketChangePercent'
 ];
 
 export class YahooProvider {
